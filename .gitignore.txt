@@ -1,0 +1,36 @@
+# ========================
+# GENERAL
+# ========================
+.DS_Store
+*.log
+*.tmp
+
+# ========================
+# FRONT (Expo / React Native)
+# ========================
+front/node_modules/
+front/.expo/
+front/dist/
+front/web-build/
+front/npm-debug.log*
+front/yarn-error.log*
+
+
+
+# ========================
+# BACKEND (.NET / Visual Studio)
+# ========================
+backend/**/bin/
+backend/**/obj/
+backend/.vs/
+backend/**/*.user
+backend/**/*.suo
+backend/**/*.rsuser
+backend/**/*.nupkg
+backend/**/artifacts/
+
+# ========================
+# IDE
+# ========================
+.idea/
+.vscode/

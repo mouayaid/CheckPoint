@@ -6,5 +6,6 @@ public interface ISeatReservationService
 {
     Task<SeatReservationDto?> CreateReservationAsync(int userId, SeatReservationCreateDto dto);
     Task<bool> CancelReservationAsync(int reservationId, int userId, string userRole);
+    Task<SeatReservationDto?> GetMyTodayReservationAsync(int userId);
 }
 

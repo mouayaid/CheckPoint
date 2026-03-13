@@ -44,14 +44,15 @@ public class NotificationService : INotificationService
 
     public async Task<bool> MarkAllAsReadAsync(int userId)
     {
-        var notifications = await _context.Notifications
+        var notifs = await _context.Notifications
             .Where(n => n.UserId == userId && !n.IsRead)
             .ToListAsync();
 
-        foreach (var notification in notifications)
-        {
-            notification.IsRead = true;
-        }
+        if (notifs.Count == 0)
+            return true;
+
+        foreach (var n in notifs)
+            n.IsRead = true;
 
         await _context.SaveChangesAsync();
         return true;

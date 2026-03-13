@@ -9,6 +9,10 @@ export const seatService = {
     return await axiosInstance.post('/SeatReservations', { seatId, date });
   },
 
+  getMyTodayReservation: async () => {
+    return await axiosInstance.get('/SeatReservations/my-today');
+  },
+
   cancelReservation: async (id) => {
     return await axiosInstance.delete(`/SeatReservations/${id}`);
   },

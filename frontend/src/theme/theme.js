@@ -4,13 +4,15 @@
  */
 
 export const colors = {
-  // Primary brand
-  primary: '#5B4FFF',
-  primaryDark: '#4638E0',
-  primaryLight: '#8B7EFF',
+  // Brand
+  primary: '#E53935',
+  primaryDark: '#C62828',
+  primaryLight: '#FF6B6B',
 
-  // Surfaces
-  background: '#F8F9FC',
+  // Neutral surfaces
+  white: '#FFFFFF',
+  black: '#000000',
+  background: '#F4F6F8',
   surface: '#FFFFFF',
   surfaceElevated: '#FFFFFF',
 
@@ -33,14 +35,15 @@ export const colors = {
   // Seat map
   seatAvailable: '#10B981',
   seatReserved: '#EF4444',
-  seatSelected: '#5B4FFF',
+  seatSelected: '#E53935',
+  seatMine: '#3B82F6',
 
-  // Borders & dividers
+  // Borders
   border: '#E5E7EB',
   borderLight: '#F3F4F6',
 
   // Tab bar
-  tabActive: '#5B4FFF',
+  tabActive: '#E53935',
   tabInactive: '#9CA3AF',
 };
 
@@ -63,7 +66,6 @@ export const borderRadius = {
 };
 
 export const typography = {
-  // Font sizes
   xs: 12,
   sm: 14,
   base: 16,
@@ -73,7 +75,6 @@ export const typography = {
   xxxl: 28,
   display: 32,
 
-  // Weights (numeric for React Native)
   regular: '400',
   medium: '500',
   semibold: '600',

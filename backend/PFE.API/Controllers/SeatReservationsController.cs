@@ -66,4 +66,14 @@ public class SeatReservationsController : ControllerBase
 
         return Ok(ApiResponse<bool>.SuccessResponse(true, "Seat reservation cancelled successfully"));
     }
+    [HttpGet("my-today")]
+    public async Task<ActionResult<ApiResponse<SeatReservationDto?>>> GetMyTodayReservation()
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        var result = await _seatReservationService.GetMyTodayReservationAsync(userId);
+
+        return Ok(ApiResponse<SeatReservationDto?>.SuccessResponse(result,
+            result == null ? "No seat reservation for today." : "Today's seat reservation fetched successfully."));
+    }
 }

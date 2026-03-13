@@ -1,36 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, Text, ActivityIndicator, StyleSheet } from 'react-native';
-import { colors, spacing, borderRadius, typography, shadows } from '../theme/theme';
-
-const variants = {
-  primary: {
-    bg: colors.primary,
-    text: colors.textOnPrimary,
-  },
-  secondary: {
-    bg: colors.borderLight,
-    text: colors.textPrimary,
-  },
-  outline: {
-    bg: 'transparent',
-    border: colors.primary,
-    text: colors.primary,
-  },
-  ghost: {
-    bg: 'transparent',
-    text: colors.primary,
-  },
-  danger: {
-    bg: colors.error,
-    text: colors.textOnPrimary,
-  },
-};
-
-const sizes = {
-  sm: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
-  md: { paddingVertical: spacing.md, paddingHorizontal: spacing.lg },
-  lg: { paddingVertical: spacing.lg, paddingHorizontal: spacing.xl },
-};
+import { colors, spacing, borderRadius, typography } from '../theme/theme';
 
 export function Button({
   title,
@@ -38,56 +8,61 @@ export function Button({
   loading = false,
   disabled = false,
   variant = 'primary',
-  size = 'lg',
-  leftIcon,
   style,
   textStyle,
 }) {
-  const v = variants[variant] || variants.primary;
-  const s = sizes[size] || sizes.lg;
-  const isOutline = variant === 'outline';
+
+  const backgroundColor =
+    variant === 'primary'
+      ? colors.primary
+      : variant === 'secondary'
+      ? colors.borderLight
+      : 'transparent';
+
+  const textColor =
+    variant === 'primary'
+      ? '#ffffff'
+      : colors.primary;
 
   return (
     <TouchableOpacity
       onPress={onPress}
       disabled={disabled || loading}
-      activeOpacity={0.8}
+      activeOpacity={0.85}
       style={[
-        styles.base,
-        {
-          backgroundColor: v.bg,
-          ...(isOutline && { borderWidth: 2, borderColor: v.border }),
-          ...s,
-          opacity: disabled && !loading ? 0.6 : 1,
-        },
-        variant === 'primary' && shadows.sm,
+        styles.button,
+        { backgroundColor },
+        disabled && styles.disabled,
         style,
       ]}
     >
       {loading ? (
-        <ActivityIndicator color={v.text} />
+        <ActivityIndicator color="#fff" />
       ) : (
-        <>
-          {leftIcon}
-          <Text style={[styles.text, { color: v.text }, textStyle]}>{title}</Text>
-        </>
+        <Text style={[styles.text, { color: textColor }, textStyle]}>
+          {title}
+        </Text>
       )}
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  base: {
-    flexDirection: 'row',
+  button: {
+    height: 54,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: borderRadius.md,
-    minHeight: 48,
-    gap: spacing.sm,
+    marginTop: spacing.sm,
   },
+
   text: {
     fontSize: typography.base,
     fontWeight: typography.semibold,
+  },
+
+  disabled: {
+    opacity: 0.6,
   },
 });
 

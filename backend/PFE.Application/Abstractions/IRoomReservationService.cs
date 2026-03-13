@@ -8,7 +8,5 @@ public interface IRoomReservationService
     Task<RoomReservationDto?> CreateReservationAsync(int userId, CreateRoomReservationDto dto);
 
     Task<List<RoomReservationDto>> GetPendingReservationsAsync(int managerUserId);
-    Task ApproveReservationAsync(int reservationId, int managerUserId);
-    Task RejectReservationAsync(int reservationId, int managerUserId, string? reason);
 
 }

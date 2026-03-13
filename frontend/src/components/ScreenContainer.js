@@ -1,19 +1,18 @@
 import React from 'react';
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, spacing } from '../theme/theme';
+import { spacing } from '../theme/theme';
 
-/**
- * Wrapper for screen content: safe area, background, optional scroll.
- */
 export function ScreenContainer({
   children,
   scroll = false,
   keyboardAvoid = false,
   style,
   contentContainerStyle,
+  backgroundColor = 'transparent',
 }) {
   const insets = useSafeAreaInsets();
+
   const paddingStyle = {
     paddingTop: insets.top,
     paddingBottom: insets.bottom,
@@ -22,7 +21,7 @@ export function ScreenContainer({
   };
 
   const content = (
-    <View style={[styles.container, paddingStyle, style]}>
+    <View style={[styles.container, { backgroundColor }, paddingStyle, style]}>
       {children}
     </View>
   );
@@ -30,9 +29,8 @@ export function ScreenContainer({
   if (keyboardAvoid) {
     return (
       <KeyboardAvoidingView
-        style={[styles.flex, styles.container]}
+        style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         {scroll ? (
           <ScrollView
@@ -53,7 +51,7 @@ export function ScreenContainer({
   if (scroll) {
     return (
       <ScrollView
-        style={[styles.flex, styles.container]}
+        style={styles.flex}
         contentContainerStyle={[styles.scrollContent, paddingStyle, contentContainerStyle]}
         showsVerticalScrollIndicator={false}
       >
@@ -69,7 +67,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: {
     flex: 1,
-    backgroundColor: colors.background,
   },
   scrollContent: {
     flexGrow: 1,

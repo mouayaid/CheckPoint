@@ -1,21 +1,35 @@
-import axiosInstance from './axiosInstance';
+import axiosInstance from "./axiosInstance";
 
-export const roomService = {
+const roomService = {
   // GET /api/room -> RoomController.GetAllRooms
   getAllRooms: async () => {
-    return await axiosInstance.get('/room');
+    const res = await axiosInstance.get("/room");
+    return res;
   },
 
-  // GET /api/RoomReservations/for-day -> RoomReservationsController.GetReservationsForDay
+  getMyReservations: async () => {
+    const res = await axiosInstance.get("/room/reservations/my");
+    return res;
+  },
+
+  cancelReservation: async (id) => {
+    const res = await axiosInstance.delete(`/room/reservations/${id}`);
+    return res;
+  },
+
+  // GET /api/RoomReservations/for-day
   getReservationsForDay: async (roomId, date) => {
-    return await axiosInstance.get('/RoomReservations/for-day', {
+    const res = await axiosInstance.get("/RoomReservations/for-day", {
       params: { roomId, date },
     });
+    return res;
   },
 
-  // POST /api/RoomReservations -> RoomReservationsController.CreateReservation
+  // POST /api/RoomReservations
   createReservation: async (data) => {
-    return await axiosInstance.post('/RoomReservations', data);
+    const res = await axiosInstance.post("/RoomReservations", data);
+    return res;
   },
 };
 
+export default roomService;

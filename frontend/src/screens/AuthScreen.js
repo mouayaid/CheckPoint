@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext , useRef } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ export default function AuthScreen() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const { signIn } = useContext(AuthContext);
+
 
   const handleAuth = async () => {
     if (!email || !password) {

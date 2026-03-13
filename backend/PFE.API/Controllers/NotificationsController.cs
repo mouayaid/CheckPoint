@@ -41,13 +41,20 @@ public class NotificationsController : ControllerBase
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         var result = await _notificationService.MarkAsReadAsync(id, userId);
-        
+
         if (!result)
         {
             return NotFound(ApiResponse<bool>.ErrorResponse("Notification not found"));
         }
 
         return Ok(ApiResponse<bool>.SuccessResponse(true, "Notification marked as read"));
+    }
+    [HttpPut("read-all")]
+    public async Task<ActionResult<ApiResponse<bool>>> MarkAllAsRead()
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        await _notificationService.MarkAllAsReadAsync(userId);
+        return Ok(ApiResponse<bool>.SuccessResponse(true, "All notifications marked as read"));
     }
 }
 

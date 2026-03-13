@@ -62,4 +62,52 @@ export const capitalize = (str) => {
   if (!str) return '';
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
 };
+export const roleToString = (role) => {
+  // supports "Employee" or 1
+  if (typeof role === "string") return role;
+  switch (role) {
+    case 1: return "Employee";
+    case 2: return "Manager";
+    case 3: return "Admin";
+    default: return "Employee";
+  }
+};
 
+export const requestStatusToString = (status) => {
+  if (typeof status === "string") return status;
+  switch (status) {
+    case 1: return "Pending";
+    case 2: return "Approved";
+    case 3: return "Rejected";
+    case 4: return "InProgress";
+    case 5: return "Resolved";
+    default: return "Pending";
+  }
+};
+
+export const leaveTypeToString = (type) => {
+  if (typeof type === "string") return type;
+  switch (type) {
+    case 1: return "Vacation";
+    case 2: return "Sick";
+    case 3: return "Personal";
+    case 4: return "Maternity";
+    case 5: return "Paternity";
+    case 6: return "Unpaid";
+    default: return "Vacation";
+  }
+};
+
+// If backend expects numbers, convert the UI selection to enum int
+export const leaveTypeToInt = (type) => {
+  if (typeof type === "number") return type;
+  switch (type) {
+    case "Vacation": return 1;
+    case "Sick": return 2;
+    case "Personal": return 3;
+    case "Maternity": return 4;
+    case "Paternity": return 5;
+    case "Unpaid": return 6;
+    default: return 1;
+  }
+};

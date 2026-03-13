@@ -14,6 +14,8 @@ public class RoomReservationService : IRoomReservationService
     private readonly IMapper _mapper;
     private readonly INotificationService _notificationService;
 
+    
+
     public RoomReservationService(
         IApplicationDbContext context,
         IMapper mapper,
@@ -84,83 +86,9 @@ public class RoomReservationService : IRoomReservationService
         return _mapper.Map<List<RoomReservationDto>>(pending);
     }
 
-    public async Task ApproveReservationAsync(int reservationId, int managerUserId)
-    {
-        var manager = await _context.Users.FirstOrDefaultAsync(u => u.Id == managerUserId);
-        if (manager == null)
-            throw new NotFoundException($"User with id {managerUserId} not found.");
 
-        if (manager.Role != Role.Manager && manager.Role != Role.Admin)
-            throw new ForbiddenException("You are not allowed to approve reservations.");
 
-        var reservation = await _context.RoomReservations
-            .Include(r => r.Room)
-            .Include(r => r.User)
-                .ThenInclude(u => u.Department)
-            .FirstOrDefaultAsync(r => r.Id == reservationId);
-
-        if (reservation == null)
-            throw new NotFoundException($"Reservation with id {reservationId} not found.");
-
-        if (reservation.Status != ReservationStatus.Pending)
-            throw new ConflictException("Only pending reservations can be approved.");
-
-        var overlapping = await _context.RoomReservations.AnyAsync(r =>
-            r.RoomId == reservation.RoomId &&
-            r.Status == ReservationStatus.Active &&
-            r.StartDateTime < reservation.EndDateTime &&
-            r.EndDateTime > reservation.StartDateTime);
-
-        if (overlapping)
-            throw new ConflictException("Cannot approve: time slot overlaps with an active reservation.");
-
-        reservation.Status = ReservationStatus.Active;
-        await _context.SaveChangesAsync();
-
-        await _notificationService.CreateNotificationAsync(
-            reservation.UserId,
-            "Room Reservation Approved",
-            $"Your reservation for {reservation.Room.Name} on {reservation.StartDateTime:yyyy-MM-dd HH:mm} has been approved.",
-            "Success",
-            "RoomReservation",
-            reservation.Id
-        );
-    }
-
-    public async Task RejectReservationAsync(int reservationId, int managerUserId, string? reason)
-    {
-        var manager = await _context.Users.FirstOrDefaultAsync(u => u.Id == managerUserId);
-        if (manager == null)
-            throw new NotFoundException($"User with id {managerUserId} not found.");
-
-        if (manager.Role != Role.Manager && manager.Role != Role.Admin)
-            throw new ForbiddenException("You are not allowed to reject reservations.");
-
-        var reservation = await _context.RoomReservations
-            .Include(r => r.Room)
-            .Include(r => r.User)
-            .FirstOrDefaultAsync(r => r.Id == reservationId);
-
-        if (reservation == null)
-            throw new NotFoundException($"Reservation with id {reservationId} not found.");
-
-        if (reservation.Status != ReservationStatus.Pending)
-            throw new ConflictException("Only pending reservations can be rejected.");
-
-        reservation.Status = ReservationStatus.Rejected;
-        await _context.SaveChangesAsync();
-
-        var reasonText = string.IsNullOrWhiteSpace(reason) ? "" : $" Reason: {reason}";
-
-        await _notificationService.CreateNotificationAsync(
-            reservation.UserId,
-            "Room Reservation Rejected",
-            $"Your reservation for {reservation.Room.Name} was rejected.{reasonText}",
-            "Warning",
-            "RoomReservation",
-            reservation.Id
-        );
-    }
+    
 
     public async Task<RoomReservationDto?> CreateReservationAsync(int userId, CreateRoomReservationDto dto)
     {

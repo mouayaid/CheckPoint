@@ -12,6 +12,11 @@ public class AbsenceRequest
     public RequestStatus Status { get; set; } = RequestStatus.Pending;
     public int? ManagerId { get; set; }
     public User? Manager { get; set; }
+
+    public string? ManagerComment { get; set; }
+
+    public DateTime? ReviewedAt { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 

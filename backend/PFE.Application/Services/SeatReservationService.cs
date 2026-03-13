@@ -33,9 +33,7 @@ public class SeatReservationService : ISeatReservationService
         // Allow ONLY today's date (Tunisia)
         if (dateOnly != tunisToday)
         {
-            return null; // Not allowed (past or future)
-            // If you prefer a clear error message instead of null,
-            // replace this with a custom exception (BadRequestException)
+            throw new Exception("Desk reservation is allowed for today only.");
         }
 
         // Validation 1: Check if seat exists and is active
@@ -90,16 +88,27 @@ public class SeatReservationService : ISeatReservationService
             .Include(r => r.User)
             .FirstOrDefaultAsync(r => r.Id == reservation.Id);
 
-        // Create notification for the user
-        await _notificationService.CreateNotificationAsync(
-            userId,
-            "Seat Reservation Confirmed",
-            $"Your seat reservation for {seat.Label} on {dateOnly:yyyy-MM-dd} has been confirmed.",
-            "Success",
-            "SeatReservation",
-            reservation.Id);
+
 
         return _mapper.Map<SeatReservationDto>(savedReservation);
+    }
+
+    public async Task<SeatReservationDto?> GetMyTodayReservationAsync(int userId)
+    {
+        var tunisToday = GetTunisiaNow().Date;
+
+        var reservation = await _context.SeatReservations
+            .AsNoTracking()
+            .Include(r => r.Seat)
+                .ThenInclude(s => s.OfficeTable)
+            .Include(r => r.User)
+            .Where(r => r.UserId == userId
+                        && r.Date.Date == tunisToday
+                        && r.Status == ReservationStatus.Active)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        return reservation == null ? null : _mapper.Map<SeatReservationDto>(reservation);
     }
 
     public async Task<bool> CancelReservationAsync(int reservationId, int userId, string userRole)

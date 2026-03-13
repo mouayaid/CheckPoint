@@ -37,8 +37,8 @@ public class ApprovalService : IApprovalService
 
         request.Status = RequestStatus.Approved;
         request.ManagerId = managerId;
-        // Note: LeaveRequest doesn't have ManagerComment field, but we can add it if needed
-
+        request.ManagerComment = comment;
+        request.ReviewedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
         // Create notification for employee
@@ -75,6 +75,8 @@ public class ApprovalService : IApprovalService
 
         request.Status = RequestStatus.Rejected;
         request.ManagerId = managerId;
+        request.ManagerComment = comment;
+        request.ReviewedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
@@ -112,6 +114,8 @@ public class ApprovalService : IApprovalService
 
         request.Status = RequestStatus.Approved;
         request.ManagerId = managerId;
+        request.ManagerComment = comment;
+        request.ReviewedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
@@ -149,6 +153,8 @@ public class ApprovalService : IApprovalService
 
         request.Status = RequestStatus.Rejected;
         request.ManagerId = managerId;
+        request.ManagerComment = comment;
+        request.ReviewedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
@@ -194,10 +200,22 @@ public class ApprovalService : IApprovalService
 
         if (overlapping)
         {
-            return false; // Time slot is now occupied
+            await _notificationService.CreateNotificationAsync(
+                reservation.UserId,
+                "Room Reservation Failed",
+                $"Your room reservation request for {reservation.Room.Name} could not be approved because the time slot is no longer available.",
+                "Error",
+                "RoomReservation",
+                reservation.Id
+            );
+
+            return false;
         }
 
         reservation.Status = ReservationStatus.Active;
+        reservation.ManagerId = managerId;
+        reservation.ManagerComment = comment;
+        reservation.ReviewedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 
@@ -233,7 +251,10 @@ public class ApprovalService : IApprovalService
             return false; // Manager not authorized
         }
 
-        reservation.Status = ReservationStatus.Cancelled;
+        reservation.Status = ReservationStatus.Rejected;
+        reservation.ManagerId = managerId;
+        reservation.ManagerComment = comment;
+        reservation.ReviewedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
 

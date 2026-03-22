@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, typography } from '../theme/theme';
+import { useTheme } from '../context/ThemeContext';
 
 export const Input = React.forwardRef(({
   label,
@@ -25,7 +25,64 @@ export const Input = React.forwardRef(({
   const [showPassword, setShowPassword] = useState(false);
   const [focused, setFocused] = useState(false);
 
+  const { colors, spacing, typography, borderRadius } = useTheme();
+
   const isPassword = secureTextEntry === true;
+
+  const styles = StyleSheet.create({
+    wrap: {
+      marginBottom: spacing.md,
+    },
+
+    label: {
+      fontSize: typography.sm,
+      fontWeight: typography.medium,
+      color: colors.textSecondary,
+      marginBottom: spacing.xs,
+    },
+
+    inputContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceMuted,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: borderRadius.lg,
+      paddingHorizontal: 16,
+    },
+
+    inputContainerFocused: {
+      borderColor: colors.primary,
+      borderWidth: 1.5,
+      backgroundColor: colors.inputBackground,
+    },
+
+    inputContainerError: {
+      borderColor: colors.error,
+    },
+
+    inputContainerDisabled: {
+      backgroundColor: colors.borderLight,
+      opacity: 0.8,
+    },
+
+    input: {
+      flex: 1,
+      paddingVertical: 14,
+      fontSize: typography.base,
+      color: colors.text,
+    },
+
+    eyeButton: {
+      marginLeft: 10,
+    },
+
+    errorText: {
+      fontSize: typography.xs,
+      color: colors.error,
+      marginTop: 4,
+    },
+  });
 
   return (
     <View style={styles.wrap}>
@@ -45,7 +102,7 @@ export const Input = React.forwardRef(({
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={colors.textTertiary}
+          placeholderTextColor={colors.placeholder}
           secureTextEntry={isPassword && !showPassword}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
@@ -74,61 +131,6 @@ export const Input = React.forwardRef(({
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   );
-});
-
-const styles = StyleSheet.create({
-  wrap: {
-    marginBottom: spacing.md,
-  },
-
-  label: {
-    fontSize: typography.sm,
-    fontWeight: '500',
-    color: colors.textSecondary,
-    marginBottom: spacing.xs,
-  },
-
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-  },
-
-  inputContainerFocused: {
-    borderColor: colors.primary,
-    borderWidth: 1.5,
-    backgroundColor: '#FFFFFF',
-  },
-
-  inputContainerError: {
-    borderColor: colors.error,
-  },
-
-  inputContainerDisabled: {
-    backgroundColor: colors.borderLight,
-    opacity: 0.8,
-  },
-
-  input: {
-    flex: 1,
-    paddingVertical: 14,
-    fontSize: typography.base,
-    color: colors.textPrimary,
-  },
-
-  eyeButton: {
-    marginLeft: 10,
-  },
-
-  errorText: {
-    fontSize: typography.xs,
-    color: colors.error,
-    marginTop: 4,
-  },
 });
 
 export default Input;

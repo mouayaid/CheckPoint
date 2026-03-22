@@ -1,7 +1,7 @@
-import api from "./axiosInstance"; // adjust path if your axios file name differs
+import axiosInstance from "./axiosInstance";
 
 export const leaveService = {
-  create: (payload) => api.post("/LeaveRequests", payload),
-  my: () => api.get("/LeaveRequests/my"),
-  pending: () => api.get("/LeaveRequests/pending"),
+  create: (payload) => axiosInstance.post("/LeaveRequests", payload),
+  my: () => axiosInstance.get("/LeaveRequests/my"),
+  pending: () => axiosInstance.get("/LeaveRequests/pending"),
 };

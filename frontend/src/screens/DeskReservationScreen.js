@@ -9,20 +9,19 @@ import {
   Alert,
   ActivityIndicator,
   Dimensions,
+  RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { seatService } from "../services/api";
 import { formatDate } from "../utils/helpers";
-import { RefreshControl } from "react-native";
-import { spacing, borderRadius, typography, shadows } from "../theme/theme";
 import { Button, Card } from "../components";
 import { useTheme } from "../context/ThemeContext";
 
-const { width, height } = Dimensions.get("window");
+const { width } = Dimensions.get("window");
 
 const DeskReservationScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
-  const { colors } = useTheme();
+  const { colors, spacing, borderRadius, typography, shadows } = useTheme();
   const selectedDate = useMemo(() => formatDate(new Date()), []);
 
   const [seats, setSeats] = useState([]);
@@ -36,11 +35,10 @@ const DeskReservationScreen = () => {
   const [reserving, setReserving] = useState(false);
   const [myReservation, setMyReservation] = useState(null);
 
-  const seatsByTable = seats.reduce((acc, seat) => {
-    if (!acc[seat.officeTableId]) acc[seat.officeTableId] = [];
-    acc[seat.officeTableId].push(seat);
-    return acc;
-  }, {});
+  useEffect(() => {
+    fetchSeatMap();
+    fetchMyReservation();
+  }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -63,32 +61,6 @@ const DeskReservationScreen = () => {
     }
   };
 
-  const mySeatLabel =
-    myReservation?.seatLabel || myReservation?.SeatLabel || null;
-
-  const hasMyReservation = !!mySeatLabel;
-
-  const getTableBounds = (tableSeats) => {
-    if (tableSeats.length === 0) return null;
-
-    const minX = Math.min(...tableSeats.map((s) => s.positionX));
-    const maxX = Math.max(...tableSeats.map((s) => s.positionX));
-    const minY = Math.min(...tableSeats.map((s) => s.positionY));
-    const maxY = Math.max(...tableSeats.map((s) => s.positionY));
-
-    return {
-      x: minX - 20,
-      y: minY - 20,
-      width: maxX - minX + 40,
-      height: maxY - minY + 40,
-    };
-  };
-
-  useEffect(() => {
-    fetchSeatMap();
-    fetchMyReservation();
-  }, []);
-
   const fetchSeatMap = async () => {
     setLoading(true);
     try {
@@ -98,8 +70,6 @@ const DeskReservationScreen = () => {
         const normalizedSeats = (response.data || []).map((seat) => ({
           id: seat.id || seat.Id,
           label: seat.label || seat.Label,
-          positionX: seat.positionX ?? seat.PositionX,
-          positionY: seat.positionY ?? seat.PositionY,
           officeTableId: seat.officeTableId ?? seat.OfficeTableId,
           isReserved: seat.isReserved ?? seat.IsReserved ?? false,
           reservedBy: seat.reservedBy || seat.ReservedBy,
@@ -119,6 +89,37 @@ const DeskReservationScreen = () => {
   const handleRefresh = async () => {
     await Promise.all([fetchSeatMap(), fetchMyReservation()]);
   };
+
+  const mySeatLabel =
+    myReservation?.seatLabel || myReservation?.SeatLabel || null;
+
+  const hasMyReservation = !!mySeatLabel;
+
+  const seatsByTable = useMemo(() => {
+    const grouped = seats.reduce((acc, seat) => {
+      if (!acc[seat.officeTableId]) acc[seat.officeTableId] = [];
+      acc[seat.officeTableId].push(seat);
+      return acc;
+    }, {});
+
+    return Object.entries(grouped)
+      .map(([tableId, tableSeats], index) => {
+        const sortedSeats = [...tableSeats].sort((a, b) => {
+          const getSeatNumber = (label) => {
+            const match = String(label).match(/\d+/);
+            return match ? parseInt(match[0], 10) : 999;
+          };
+          return getSeatNumber(a.label) - getSeatNumber(b.label);
+        });
+
+        return {
+          tableId,
+          tableName: `Table ${String.fromCharCode(65 + index)}`,
+          seats: sortedSeats,
+        };
+      })
+      .sort((a, b) => Number(a.tableId) - Number(b.tableId));
+  }, [seats]);
 
   const handleSeatPress = (seat) => {
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
@@ -144,7 +145,6 @@ const DeskReservationScreen = () => {
     }
 
     setSelectedSeat(seat);
-    setShowConfirmModal(true);
   };
 
   const handleConfirmReservation = async () => {
@@ -184,9 +184,9 @@ const DeskReservationScreen = () => {
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
 
     if (isMySeat) return colors.seatMine;
+    if (selectedSeat && selectedSeat.id === seat.id) return colors.seatSelected;
     if (seat.isReserved) return colors.seatReserved;
     if (hasMyReservation) return colors.border;
-    if (selectedSeat && selectedSeat.id === seat.id) return colors.seatSelected;
 
     return colors.seatAvailable;
   };
@@ -199,6 +199,112 @@ const DeskReservationScreen = () => {
       year: "numeric",
     });
   }, []);
+
+  const getTableLayout = (tableSeats) => {
+    const count = tableSeats.length;
+
+    if (count === 11) {
+      return {
+        type: "eleven",
+        leftSeats: tableSeats.slice(0, 5),
+        rightSeats: tableSeats.slice(5, 10),
+        endSeat: tableSeats[10],
+      };
+    }
+
+    if (count === 8) {
+      return {
+        type: "eight",
+        leftSeats: tableSeats.slice(0, 4),
+        rightSeats: tableSeats.slice(4, 8),
+      };
+    }
+
+    const middle = Math.ceil(count / 2);
+    return {
+      type: "generic",
+      leftSeats: tableSeats.slice(0, middle),
+      rightSeats: tableSeats.slice(middle),
+    };
+  };
+
+  const renderSeat = (seat) => {
+    const isMySeat = mySeatLabel && seat.label === mySeatLabel;
+    const isSelected = selectedSeat?.id === seat.id;
+    const isDisabled = hasMyReservation && !seat.isReserved && !isMySeat;
+
+    return (
+      <TouchableOpacity
+        key={seat.id}
+        style={[
+          styles.seatBox,
+          {
+            backgroundColor: getSeatColor(seat),
+            opacity: isDisabled ? 0.45 : 1,
+            transform: isSelected ? [{ scale: 1.07 }] : [{ scale: 1 }],
+            borderColor: isSelected ? colors.textOnPrimary : colors.surface,
+            borderWidth: isSelected ? 2 : 1.5,
+          },
+        ]}
+        onPress={() => handleSeatPress(seat)}
+        activeOpacity={isDisabled ? 1 : 0.85}
+      >
+        <Ionicons
+          name={seat.isReserved ? "lock-closed" : "desktop-outline"}
+          size={13}
+          color={colors.textOnPrimary}
+        />
+        <Text style={styles.seatLabel}>{seat.label}</Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderSeatColumn = (seatList) => (
+    <View style={styles.seatColumn}>
+      {seatList.map((seat) => renderSeat(seat))}
+    </View>
+  );
+
+  const renderTable = (table) => {
+    const layout = getTableLayout(table.seats);
+    const isEleven = layout.type === "eleven";
+
+    return (
+      <Card key={table.tableId} style={styles.tableCard}>
+        <View style={styles.tableHeaderRow}>
+          <Text style={styles.tableTitle}>{table.tableName}</Text>
+          <Text style={styles.tableSubtitle}>{table.seats.length} seats</Text>
+        </View>
+
+        <View style={styles.tableWrap}>
+          <View style={styles.tableRow}>
+            {renderSeatColumn(layout.leftSeats)}
+
+            <View style={styles.tableCenter}>
+              <View
+                style={[
+                  styles.tableVisual,
+                  isEleven ? styles.tableVisualLarge : styles.tableVisualMedium,
+                ]}
+              >
+                <View style={styles.tableInnerSurface} />
+                <View style={styles.tableInnerLine} />
+                <Text style={styles.tableVisualText}>{table.tableName}</Text>
+              </View>
+            </View>
+
+            {renderSeatColumn(layout.rightSeats)}
+          </View>
+
+          {layout.type === "eleven" && layout.endSeat && (
+            <View style={styles.endSeatContainer}>
+              {renderSeat(layout.endSeat)}
+            </View>
+          )}
+        </View>
+      </Card>
+    );
+  };
 
   const styles = StyleSheet.create({
     container: {
@@ -221,61 +327,27 @@ const DeskReservationScreen = () => {
       gap: spacing.sm,
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
-      backgroundColor: colors.background,
+      backgroundColor: colors.surfaceMuted,
       borderRadius: borderRadius.md,
       overflow: "hidden",
     },
     dateButtonText: {
       fontSize: typography.sm,
       fontWeight: typography.medium,
-      color: colors.textPrimary,
+      color: colors.text,
     },
     todayOnlyText: {
       marginTop: 2,
       fontSize: typography.xs,
       color: colors.textSecondary,
     },
-    refreshButton: {
-      width: 44,
-      height: 44,
-      borderRadius: borderRadius.md,
-      backgroundColor: colors.primary,
-      alignItems: "center",
-      justifyContent: "center",
-    },
     scrollView: {
       flex: 1,
     },
     mapContainer: {
-      minHeight: height * 0.5,
-      padding: spacing.xl,
-    },
-    tableGroup: {
-      position: "relative",
-      marginBottom: 40,
-    },
-    tableRectangle: {
-      position: "absolute",
-      backgroundColor: colors.borderLight,
-      borderRadius: borderRadius.md,
-      borderWidth: 2,
-      borderColor: colors.border,
-    },
-    seatCircle: {
-      position: "absolute",
-      width: 28,
-      height: 28,
-      borderRadius: 14,
-      justifyContent: "center",
-      alignItems: "center",
-      borderWidth: 2,
-      borderColor: colors.surface,
-      ...shadows.sm,
-    },
-    seatLabel: {
-      color: colors.textOnPrimary,
-      fontSize: 11,
-      fontWeight: typography.bold,
+      padding: spacing.lg,
+      paddingBottom: spacing.xl,
+      gap: spacing.lg,
     },
     loadingContainer: {
       flex: 1,
@@ -298,10 +370,177 @@ const DeskReservationScreen = () => {
       fontSize: typography.base,
       color: colors.textSecondary,
     },
+    tableCard: {
+      padding: spacing.lg,
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    tableHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: spacing.lg,
+    },
+    tableTitle: {
+      fontSize: typography.base,
+      fontWeight: typography.semibold,
+      color: colors.text,
+    },
+    tableSubtitle: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      backgroundColor: colors.surfaceMuted,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 999,
+    },
+    tableWrap: {
+      alignItems: "center",
+    },
+    tableRow: {
+      flexDirection: "row",
+      justifyContent: "center",
+      alignItems: "stretch",
+      gap: spacing.md,
+      width: "100%",
+    },
+    tableCenter: {
+      justifyContent: "center",
+      alignItems: "center",
+      minWidth: Math.min(width * 0.32, 128),
+    },
+
+    tableVisual: {
+      width: Math.min(width * 0.32, 128),
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 28,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingHorizontal: spacing.sm,
+      position: "relative",
+      overflow: "hidden",
+      ...shadows.sm,
+    },
+
+    tableVisualLarge: {
+      minHeight: 280,
+    },
+
+    tableVisualMedium: {
+      minHeight: 220,
+    },
+
+    tableInnerSurface: {
+      position: "absolute",
+      top: 10,
+      bottom: 10,
+      left: 10,
+      right: 10,
+      borderRadius: 22,
+      backgroundColor: colors.surface,
+      opacity: 0.18,
+    },
+
+    tableInnerLine: {
+      position: "absolute",
+      top: 18,
+      bottom: 18,
+      width: 4,
+      borderRadius: 999,
+      backgroundColor: colors.border,
+      opacity: 0.75,
+    },
+
+    tableVisualText: {
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+      color: colors.textSecondary,
+      textAlign: "center",
+      letterSpacing: 0.3,
+    },
+    seatBox: {
+      width: 60,
+      height: 54,
+      borderRadius: borderRadius.lg,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1.5,
+      borderColor: colors.surface,
+      ...shadows.sm,
+    },
+
+    seatLabel: {
+      color: colors.textOnPrimary,
+      fontSize: 12,
+      fontWeight: typography.bold,
+      marginTop: 2,
+    },
+
+    seatColumn: {
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: 2,
+    },
+    endSeatContainer: {
+      marginTop: spacing.md,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    selectionCard: {
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+      marginBottom: spacing.sm,
+      padding: spacing.md,
+      borderRadius: borderRadius.xl,
+    },
+    selectionTopRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.md,
+    },
+    selectionLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      flex: 1,
+    },
+    selectedSeatBadge: {
+      width: 48,
+      height: 48,
+      borderRadius: borderRadius.lg,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: colors.seatSelected,
+    },
+    selectionInfo: {
+      flex: 1,
+    },
+    selectionTitle: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      marginBottom: 2,
+    },
+    selectionValue: {
+      fontSize: typography.base,
+      fontWeight: typography.semibold,
+      color: colors.text,
+    },
+    selectionSubtext: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
     legend: {
       flexDirection: "row",
-      justifyContent: "space-around",
+      flexWrap: "wrap",
+      justifyContent: "center",
       alignItems: "center",
+      gap: spacing.md,
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
       backgroundColor: colors.surface,
@@ -324,7 +563,7 @@ const DeskReservationScreen = () => {
     },
     modalOverlay: {
       flex: 1,
-      backgroundColor: "rgba(0,0,0,0.5)",
+      backgroundColor: colors.overlay,
       justifyContent: "center",
       alignItems: "center",
       padding: spacing.xl,
@@ -337,7 +576,7 @@ const DeskReservationScreen = () => {
     infoModalTitle: {
       fontSize: typography.lg,
       fontWeight: typography.semibold,
-      color: colors.textPrimary,
+      color: colors.text,
       marginBottom: spacing.lg,
     },
     infoRow: {
@@ -351,7 +590,7 @@ const DeskReservationScreen = () => {
     infoValue: {
       fontSize: typography.base,
       fontWeight: typography.medium,
-      color: colors.textPrimary,
+      color: colors.text,
     },
     modalButton: {
       marginTop: spacing.lg,
@@ -376,16 +615,37 @@ const DeskReservationScreen = () => {
             <Text style={styles.todayOnlyText}>Today only</Text>
           </View>
         </View>
-
-        <TouchableOpacity
-          style={styles.refreshButton}
-          onPress={handleRefresh}
-          disabled={loading}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="refresh" size={20} color={colors.textOnPrimary} />
-        </TouchableOpacity>
       </View>
+
+      {selectedSeat && (
+        <Card style={styles.selectionCard}>
+          <View style={styles.selectionTopRow}>
+            <View style={styles.selectionLeft}>
+              <View style={styles.selectedSeatBadge}>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={22}
+                  color={colors.textOnPrimary}
+                />
+              </View>
+
+              <View style={styles.selectionInfo}>
+                <Text style={styles.selectionTitle}>Selected seat</Text>
+                <Text style={styles.selectionValue}>{selectedSeat.label}</Text>
+                <Text style={styles.selectionSubtext}>
+                  Tap reserve to confirm your booking
+                </Text>
+              </View>
+            </View>
+
+            <Button
+              title="Reserve"
+              onPress={() => setShowConfirmModal(true)}
+              disabled={reserving}
+            />
+          </View>
+        </Card>
+      )}
 
       {loading ? (
         <View style={styles.loadingContainer}>
@@ -397,7 +657,6 @@ const DeskReservationScreen = () => {
           style={styles.scrollView}
           contentContainerStyle={styles.mapContainer}
           showsVerticalScrollIndicator
-          showsHorizontalScrollIndicator
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -406,62 +665,14 @@ const DeskReservationScreen = () => {
             />
           }
         >
-          {Object.entries(seatsByTable).map(([tableId, tableSeats]) => {
-            const bounds = getTableBounds(tableSeats);
-            if (!bounds) return null;
-
-            return (
-              <View key={tableId} style={styles.tableGroup}>
-                <View
-                  style={[
-                    styles.tableRectangle,
-                    {
-                      left: bounds.x,
-                      top: bounds.y,
-                      width: bounds.width,
-                      height: bounds.height,
-                    },
-                  ]}
-                />
-                {tableSeats.map((seat) => (
-                  <TouchableOpacity
-                    key={seat.id}
-                    style={[
-                      styles.seatCircle,
-                      {
-                        left: seat.positionX - 14,
-                        top: seat.positionY - 14,
-                        backgroundColor: getSeatColor(seat),
-                        opacity:
-                          hasMyReservation &&
-                          !seat.isReserved &&
-                          seat.label !== mySeatLabel
-                            ? 0.45
-                            : 1,
-                      },
-                    ]}
-                    onPress={() => handleSeatPress(seat)}
-                    activeOpacity={
-                      hasMyReservation &&
-                      !seat.isReserved &&
-                      seat.label !== mySeatLabel
-                        ? 1
-                        : 0.8
-                    }
-                  >
-                    <Text style={styles.seatLabel}>{seat.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            );
-          })}
+          {seatsByTable.map((table) => renderTable(table))}
 
           {seats.length === 0 && (
             <View style={styles.emptyContainer}>
               <Ionicons
                 name="grid-outline"
                 size={48}
-                color={colors.textTertiary}
+                color={colors.textMuted}
               />
               <Text style={styles.emptyText}>No seats configured</Text>
             </View>
@@ -557,7 +768,6 @@ const DeskReservationScreen = () => {
         animationType="fade"
         onRequestClose={() => {
           setShowConfirmModal(false);
-          setSelectedSeat(null);
         }}
       >
         <View style={styles.modalOverlay}>
@@ -586,7 +796,6 @@ const DeskReservationScreen = () => {
                 variant="secondary"
                 onPress={() => {
                   setShowConfirmModal(false);
-                  setSelectedSeat(null);
                 }}
                 disabled={reserving}
                 style={styles.modalButtonHalf}

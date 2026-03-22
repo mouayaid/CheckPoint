@@ -2,12 +2,11 @@ import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
-import { Button } from "../components";
-import { spacing, typography } from "../theme/theme";
+import { Button, Card } from "../components";
 import { useTheme } from "../context/ThemeContext";
 
 const ProfileScreen = () => {
-  const { colors } = useTheme();
+  const { colors, spacing, typography, borderRadius } = useTheme();
   const { user, signOut } = useAuth();
 
   const displayName =
@@ -28,43 +27,44 @@ const ProfileScreen = () => {
     },
 
     card: {
-      backgroundColor: colors.surface,
-      borderRadius: 14,
-      padding: spacing.xxl,
       alignItems: "center",
       marginTop: spacing.lg,
-      borderWidth: 1,
-      borderColor: colors.border,
     },
 
     avatarWrap: {
       width: 80,
       height: 80,
       borderRadius: 40,
-      backgroundColor: colors.borderLight,
+      backgroundColor: colors.surfaceMuted,
       alignItems: "center",
       justifyContent: "center",
       marginBottom: spacing.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
 
     name: {
       fontSize: typography.xxl,
       fontWeight: typography.semibold,
-      color: colors.textPrimary,
+      color: colors.text,
       marginBottom: spacing.xs,
+      textAlign: "center",
     },
 
     email: {
       fontSize: typography.sm,
       color: colors.textSecondary,
       marginBottom: spacing.md,
+      textAlign: "center",
     },
 
     roleBadge: {
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.xs,
-      backgroundColor: colors.borderLight,
-      borderRadius: 8,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: borderRadius.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
 
     roleText: {
@@ -80,7 +80,7 @@ const ProfileScreen = () => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.card}>
+      <Card style={styles.card}>
         <View style={styles.avatarWrap}>
           <Ionicons name="person" size={40} color={colors.primary} />
         </View>
@@ -94,10 +94,10 @@ const ProfileScreen = () => {
             <Text style={styles.roleText}>{role}</Text>
           </View>
         ) : null}
-      </View>
+      </Card>
 
       <View style={styles.footer}>
-        <Button title="Log out" variant="danger" onPress={() => signOut()} />
+        <Button title="Log out" variant="danger" onPress={signOut} />
       </View>
     </View>
   );

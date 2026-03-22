@@ -15,12 +15,13 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigation } from '@react-navigation/native';
 import { authService } from '../services/api';
 import { Button, Input } from '../components';
-import { colors, spacing, typography } from '../theme/theme';
+import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 
 const LoginScreen = () => {
   const navigation = useNavigation();
   const { signIn } = useAuth();
+  const { colors, spacing, typography, borderRadius, shadows } = useTheme();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -80,9 +81,98 @@ const LoginScreen = () => {
     }
   };
 
+  const styles = StyleSheet.create({
+    gradient: {
+      flex: 1,
+    },
+    safeArea: {
+      flex: 1,
+    },
+    keyboardView: {
+      flex: 1,
+    },
+    scrollContent: {
+      flexGrow: 1,
+      justifyContent: 'center',
+      paddingHorizontal: spacing.xl,
+      paddingVertical: spacing.xxxl,
+    },
+    header: {
+      alignItems: 'center',
+      marginBottom: spacing.xxl,
+    },
+    logoBox: {
+      width: 96,
+      height: 96,
+      borderRadius: borderRadius.xl + 4,
+      backgroundColor: colors.surfaceElevated,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      ...shadows.md,
+    },
+    logo: {
+      width: 74,
+      height: 74,
+    },
+    brandText: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+      marginBottom: spacing.sm,
+      fontWeight: typography.medium,
+    },
+    subtitle: {
+      fontSize: typography.xxl,
+      color: colors.text,
+      fontWeight: typography.bold,
+      textAlign: 'center',
+    },
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: 28,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.xl + 4,
+      paddingBottom: spacing.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      ...shadows.md,
+    },
+    forgotButton: {
+      alignSelf: 'flex-end',
+      marginTop: 2,
+      marginBottom: spacing.sm,
+    },
+    forgotText: {
+      fontSize: typography.sm,
+      color: colors.primary,
+      fontWeight: typography.semibold,
+    },
+    signInButton: {
+      marginTop: 4,
+    },
+    footer: {
+      marginTop: spacing.xl + 2,
+      flexDirection: 'row',
+      justifyContent: 'center',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+    },
+    footerText: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+    },
+    footerLink: {
+      fontSize: typography.sm,
+      color: colors.primary,
+      fontWeight: typography.bold,
+    },
+  });
+
   return (
     <LinearGradient
-      colors={['#EF4444', '#DC2626', '#B91C1C']}
+      colors={[colors.authBackgroundTop, colors.authBackgroundBottom]}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
       style={styles.gradient}
@@ -180,98 +270,5 @@ const LoginScreen = () => {
     </LinearGradient>
   );
 };
-
-const styles = StyleSheet.create({
-  gradient: {
-    flex: 1,
-  },
-  safeArea: {
-    flex: 1,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 32,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 28,
-  },
-  logoBox: {
-    width: 96,
-    height: 96,
-    borderRadius: 24,
-    backgroundColor: colors.white,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 14,
-    elevation: 5,
-  },
-  logo: {
-    width: 74,
-    height: 74,
-  },
-  brandText: {
-    fontSize: typography.sm,
-    color: '#FFE5E5',
-    marginBottom: 8,
-    fontWeight: '500',
-  },
-  subtitle: {
-    fontSize: typography.xxl,
-    color: colors.white,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  card: {
-    backgroundColor: colors.white,
-    borderRadius: 28,
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 6,
-  },
-  forgotButton: {
-    alignSelf: 'flex-end',
-    marginTop: 2,
-    marginBottom: 8,
-  },
-  forgotText: {
-    fontSize: typography.sm,
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  signInButton: {
-    marginTop: 4,
-  },
-  footer: {
-    marginTop: 22,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-  },
-  footerText: {
-    fontSize: typography.sm,
-    color: colors.textSecondary,
-  },
-  footerLink: {
-    fontSize: typography.sm,
-    color: colors.primary,
-    fontWeight: '700',
-  },
-});
 
 export default LoginScreen;

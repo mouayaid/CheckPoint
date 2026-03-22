@@ -1,9 +1,25 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
-import { colors, spacing, borderRadius, shadows } from '../theme/theme';
+import { useTheme } from '../context/ThemeContext';
 
 export function Card({ children, onPress, style, padding = true }) {
+  const { colors, spacing, borderRadius, shadows } = useTheme();
+
   const Wrapper = onPress ? TouchableOpacity : View;
+
+  const styles = StyleSheet.create({
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      ...shadows.sm,
+    },
+    padding: {
+      padding: spacing.lg,
+    },
+  });
+
   return (
     <Wrapper
       onPress={onPress}
@@ -14,16 +30,5 @@ export function Card({ children, onPress, style, padding = true }) {
     </Wrapper>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    ...shadows.sm,
-  },
-  padding: {
-    padding: spacing.lg,
-  },
-});
 
 export default Card;

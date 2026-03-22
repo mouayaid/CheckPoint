@@ -11,6 +11,8 @@ export const authService = {
     return await axiosInstance.post('/auth/login', { email, password });
   },
 
+  
+
   /**
    * Register new user
    * @param {object} data - Registration data

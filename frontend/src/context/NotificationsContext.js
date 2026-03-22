@@ -6,7 +6,7 @@ import React, {
   useCallback,
   useEffect,
 } from "react";
-import api from "../services/api/axiosInstance";
+import { notificationService } from "../services/api";
 
 const NotificationsContext = createContext(null);
 
@@ -21,14 +21,10 @@ export function NotificationsProvider({ children }) {
   const refreshNotifications = useCallback(async () => {
     try {
       setLoading(true);
-
-      const res = await api.get("/notification");
-
-      if (res?.success) {
-        const list = res.data || [];
-        setNotifications(list);
-        setUnreadCount(computeUnread(list));
-      }
+      const res = await notificationService.getNotifications();
+      const list = res?.data || [];
+      setNotifications(list);
+      setUnreadCount(computeUnread(list));
     } catch (err) {
       console.log("Notification load error:", err?.response?.data || err.message);
     } finally {
@@ -39,15 +35,6 @@ export function NotificationsProvider({ children }) {
   // Load notifications once when provider mounts
   useEffect(() => {
     refreshNotifications();
-  }, [refreshNotifications]);
-
-  // Optional: auto-refresh every 20 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      refreshNotifications();
-    }, 20000);
-
-    return () => clearInterval(interval);
   }, [refreshNotifications]);
 
   const value = useMemo(

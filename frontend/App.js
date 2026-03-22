@@ -14,7 +14,10 @@ import {
 } from "react-native";
 
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
-import { NotificationsProvider, useNotifications } from "./src/context/NotificationsContext";
+import {
+  NotificationsProvider,
+  useNotifications,
+} from "./src/context/NotificationsContext";
 import { AuthProvider, useAuth } from "./src/context/AuthContext";
 import { typography } from "./src/theme/theme";
 
@@ -54,15 +57,6 @@ function HomeTabs() {
             case "Home":
               iconName = focused ? "home" : "home-outline";
               break;
-            case "Desk":
-              iconName = focused ? "desktop" : "desktop-outline";
-              break;
-            case "Rooms":
-              iconName = focused ? "business" : "business-outline";
-              break;
-            case "Requests":
-              iconName = focused ? "document-text" : "document-text-outline";
-              break;
             case "Events":
               iconName = focused ? "calendar" : "calendar-outline";
               break;
@@ -71,6 +65,15 @@ function HomeTabs() {
               break;
             case "Profile":
               iconName = focused ? "person" : "person-outline";
+              break;
+            case "Desk":
+              iconName = focused ? "desktop" : "desktop-outline";
+              break;
+            case "Rooms":
+              iconName = focused ? "business" : "business-outline";
+              break;
+            case "Requests":
+              iconName = focused ? "document-text" : "document-text-outline";
               break;
             default:
               iconName = "help-outline";
@@ -105,26 +108,40 @@ function HomeTabs() {
         component={DashboardScreen}
         options={{ title: "Home" }}
       />
+
       <Tab.Screen
         name="Desk"
         component={DeskReservationScreen}
-        options={{ title: "Desk" }}
+        options={{
+          title: "Desk Reservation",
+          tabBarButton: () => null,
+        }}
       />
+
       <Tab.Screen
         name="Rooms"
         component={RoomReservationScreen}
-        options={{ title: "Rooms" }}
+        options={{
+          title: "Room Reservation",
+          tabBarButton: () => null,
+        }}
       />
+
       <Tab.Screen
         name="Requests"
         component={LeaveRequestScreen}
-        options={{ title: "Requests" }}
+        options={{
+          title: "Leave Request",
+          tabBarButton: () => null,
+        }}
       />
+
       <Tab.Screen
         name="Events"
         component={EventsScreen}
         options={{ title: "Events" }}
       />
+
       <Tab.Screen
         name="Notifications"
         component={NotificationsScreen}
@@ -133,6 +150,7 @@ function HomeTabs() {
           tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
         }}
       />
+
       <Tab.Screen
         name="Profile"
         component={ProfileScreen}

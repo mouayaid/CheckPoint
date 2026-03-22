@@ -1,14 +1,12 @@
-import React, { createContext, useContext, useState } from "react";
-import { colors as lightColors } from "../theme/theme";
-
-const darkColors = {
-  ...lightColors,
-  background: "#0F172A",
-  surface: "#1E293B",
-  textPrimary: "#F8FAFC",
-  textSecondary: "#CBD5F5",
-  border: "#334155",
-};
+import React, { createContext, useContext, useMemo, useState } from "react";
+import {
+  lightColors,
+  darkColors,
+  spacing,
+  borderRadius,
+  typography,
+  shadows,
+} from "../theme/theme";
 
 const ThemeContext = createContext();
 
@@ -19,11 +17,19 @@ export const ThemeProvider = ({ children }) => {
     setDarkMode((prev) => !prev);
   };
 
-  const theme = {
-    colors: darkMode ? darkColors : lightColors,
-    darkMode,
-    toggleTheme,
-  };
+  const theme = useMemo(() => {
+    const activeColors = darkMode ? darkColors : lightColors;
+
+    return {
+      colors: activeColors,
+      spacing,
+      borderRadius,
+      typography,
+      shadows,
+      darkMode,
+      toggleTheme,
+    };
+  }, [darkMode]);
 
   return (
     <ThemeContext.Provider value={theme}>

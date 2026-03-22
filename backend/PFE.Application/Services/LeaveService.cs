@@ -20,14 +20,26 @@ public class LeaveService : ILeaveService
         _notificationService = notificationService;
     }
 
+
     public async Task<LeaveRequestDto?> CreateLeaveRequestAsync(int userId, CreateLeaveRequestDto dto)
     {
-        // You don't have User.Manager navigation, so don't Include(u => u.Manager)
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
-        if (user == null) return null;
+        if (user == null)
+            return null;
 
-        // You need a manager id. If your User entity doesn't have ManagerId,
-        // you can pick any manager from same department as a first step.
+        // Validate dates
+        if (dto.EndDate < dto.StartDate)
+            return null;
+
+        // Calculate requested leave days (calendar days)
+        var requestedDays = (dto.EndDate - dto.StartDate).Days + 1;
+
+        // Block request if user has no balance or insufficient balance
+        var currentBalance = user.LeaveBalance ?? 0;
+        if (currentBalance <= 0 || currentBalance < requestedDays)
+            return null;
+
+        // Find a manager in the same department
         int? managerId = await _context.Users
             .Where(u => u.Role == Role.Manager && u.DepartmentId == user.DepartmentId)
             .Select(u => (int?)u.Id)
@@ -37,10 +49,10 @@ public class LeaveService : ILeaveService
         {
             UserId = userId,
             ManagerId = managerId,
-            Type = dto.Type,                 // must be LeaveType (enum)
+            Type = dto.Type,
             StartDate = dto.StartDate,
             EndDate = dto.EndDate,
-            Status = RequestStatus.Pending,  // enum, not string
+            Status = RequestStatus.Pending,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -100,10 +112,29 @@ public class LeaveService : ILeaveService
         if (request == null || request.Status != RequestStatus.Pending)
             return false;
 
-        request.Status = dto.Status; // must be RequestStatus enum
+        var user = request.User;
+        if (user == null)
+            return false;
+
+        // If manager wants to approve, check balance first
+        if (dto.Status == RequestStatus.Approved)
+        {
+            var days = (request.EndDate - request.StartDate).Days + 1;
+            var currentBalance = user.LeaveBalance ?? 0;
+
+            // Block approval if balance is not enough
+            if (currentBalance < days)
+            {
+                return false;
+            }
+
+            user.LeaveBalance = currentBalance - days;
+        }
+
+        request.Status = dto.Status;
+
         await _context.SaveChangesAsync();
 
-        // Notify user
         await _notificationService.CreateNotificationAsync(
             request.UserId,
             "Leave Request Reviewed",

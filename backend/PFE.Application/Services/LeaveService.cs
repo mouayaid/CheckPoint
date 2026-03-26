@@ -1,6 +1,7 @@
 using AutoMapper;
 using Microsoft.EntityFrameworkCore;
 using PFE.Application.Abstractions;
+using PFE.Application.Common.Exceptions;
 using PFE.Application.DTOs.Leave;
 using PFE.Domain.Entities;
 using PFE.Domain.Enums;
@@ -23,21 +24,70 @@ public class LeaveService : ILeaveService
 
     public async Task<LeaveRequestDto?> CreateLeaveRequestAsync(int userId, CreateLeaveRequestDto dto)
     {
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
-        if (user == null)
-            return null;
+        var user = await _context.Users
+            .Include(u => u.Department)
+            .FirstOrDefaultAsync(u => u.Id == userId);
 
-        // Validate dates
-        if (dto.EndDate < dto.StartDate)
-            return null;
+        if (user == null)
+        {
+            throw new FrontendValidationException(
+                404,
+                "User not found.",
+                new[] { "USER_NOT_FOUND" }
+            );
+        }
+
+        if (!user.IsActive)
+        {
+            throw new FrontendValidationException(
+                403,
+                "Your account is not active yet.",
+                new[] { "USER_INACTIVE" }
+            );
+        }
+
+        var today = GetTunisiaNow().Date;
+        var start = dto.StartDate.Date;
+        var end = dto.EndDate.Date;
+
+        if (start < today)
+        {
+            throw new FrontendValidationException(
+                400,
+                $"Start date cannot be in the past. (Server today: {today:yyyy-MM-dd})",
+                new[] { "START_DATE_IN_PAST" }
+            );
+        }
+
+        if (end < start)
+        {
+            throw new FrontendValidationException(
+                400,
+                "End date must be the same day or after start date.",
+                new[] { "END_BEFORE_START" }
+            );
+        }
 
         // Calculate requested leave days (calendar days)
-        var requestedDays = (dto.EndDate - dto.StartDate).Days + 1;
+        var requestedDays = (end - start).Days + 1;
+        if (requestedDays <= 0)
+        {
+            throw new FrontendValidationException(
+                400,
+                "Invalid date range.",
+                new[] { "INVALID_DATE_RANGE" }
+            );
+        }
 
-        // Block request if user has no balance or insufficient balance
         var currentBalance = user.LeaveBalance ?? 0;
-        if (currentBalance <= 0 || currentBalance < requestedDays)
-            return null;
+        if (currentBalance < requestedDays)
+        {
+            throw new FrontendValidationException(
+                409,
+                $"Insufficient leave balance. Requested {requestedDays} day(s), available {currentBalance}.",
+                new[] { "INSUFFICIENT_LEAVE_BALANCE" }
+            );
+        }
 
         // Find a manager in the same department
         int? managerId = await _context.Users
@@ -50,8 +100,9 @@ public class LeaveService : ILeaveService
             UserId = userId,
             ManagerId = managerId,
             Type = dto.Type,
-            StartDate = dto.StartDate,
-            EndDate = dto.EndDate,
+            StartDate = start,
+            EndDate = end,
+            Reason = dto.Reason,
             Status = RequestStatus.Pending,
             CreatedAt = DateTime.UtcNow
         };
@@ -125,7 +176,11 @@ public class LeaveService : ILeaveService
             // Block approval if balance is not enough
             if (currentBalance < days)
             {
-                return false;
+                throw new FrontendValidationException(
+                    409,
+                    $"Cannot approve: user has insufficient leave balance. Needed {days}, available {currentBalance}.",
+                    new[] { "INSUFFICIENT_LEAVE_BALANCE" }
+                );
             }
 
             user.LeaveBalance = currentBalance - days;
@@ -144,5 +199,42 @@ public class LeaveService : ILeaveService
             request.Id);
 
         return true;
+    }
+
+    // ✅ Cross-platform Tunisia time helper (same pattern used in seat/room modules)
+    private static DateTime GetTunisiaNow()
+    {
+        TimeZoneInfo tz;
+
+        if (TryFindTimeZone("Africa/Tunis", out tz))
+            return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+
+        var windowsCandidates = new[]
+        {
+            "Tunisia Standard Time",
+            "W. Central Africa Standard Time"
+        };
+
+        foreach (var id in windowsCandidates)
+        {
+            if (TryFindTimeZone(id, out tz))
+                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+        }
+
+        return DateTime.Now;
+    }
+
+    private static bool TryFindTimeZone(string id, out TimeZoneInfo tz)
+    {
+        try
+        {
+            tz = TimeZoneInfo.FindSystemTimeZoneById(id);
+            return true;
+        }
+        catch
+        {
+            tz = null!;
+            return false;
+        }
     }
 }

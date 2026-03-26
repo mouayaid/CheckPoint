@@ -150,6 +150,33 @@ const formatDuration = (minutes) => {
   return `${mins}m`;
 };
 
+/** Axios / API error shape from interceptor */
+function getErrorMessage(error, fallback) {
+  if (!error) return fallback;
+  if (typeof error === "string") return error;
+  return (
+    error.message ||
+    error.data?.message ||
+    error.response?.data?.message ||
+    fallback
+  );
+}
+
+/** Backend ReservationStatus: Pending=0, Active=1, Cancelled=2, Completed=3, Rejected=4 */
+function normalizeStatusKey(status) {
+  if (typeof status === "number" && Number.isFinite(status)) {
+    const map = {
+      0: "pending",
+      1: "active",
+      2: "cancelled",
+      3: "completed",
+      4: "rejected",
+    };
+    return map[status] || String(status);
+  }
+  return String(status ?? "").toLowerCase();
+}
+
 export default function RoomReservationScreen() {
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
   const styles = useMemo(
@@ -183,6 +210,9 @@ export default function RoomReservationScreen() {
 
   const [roomDayStatusMap, setRoomDayStatusMap] = useState({});
   const [loadingRoomStatuses, setLoadingRoomStatuses] = useState(false);
+  /** Set when /for-day fails (e.g. not server "today") — avoids showing false "free all day" */
+  const [roomDayLoadError, setRoomDayLoadError] = useState(null);
+  const [modalScheduleError, setModalScheduleError] = useState(null);
 
   const [refreshing, setRefreshing] = useState(false);
   const [reserving, setReserving] = useState(false);
@@ -236,10 +266,16 @@ export default function RoomReservationScreen() {
       if (response?.success) {
         setRooms(response.data || []);
       } else {
-        Alert.alert("Error", response?.message || "Failed to load rooms");
+        Alert.alert(
+          "Couldn’t load rooms",
+          response?.message || "Pull down to refresh and try again.",
+        );
       }
     } catch (error) {
-      Alert.alert("Error", "Failed to load rooms");
+      Alert.alert(
+        "Couldn’t load rooms",
+        getErrorMessage(error, "Check your connection and try again."),
+      );
     }
   };
 
@@ -262,28 +298,58 @@ export default function RoomReservationScreen() {
   const fetchReservationsForRoomAndDate = async (roomId, date) => {
     try {
       const res = await roomService.getReservationsForDay(roomId, date);
-      return res?.success ? res.data || [] : [];
-    } catch {
-      return [];
+      if (res?.success) {
+        return { ok: true, data: res.data || [], message: null };
+      }
+      return {
+        ok: false,
+        data: [],
+        message: res?.message || "Could not load bookings for this day.",
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        data: [],
+        message: getErrorMessage(
+          error,
+          "Could not load bookings for this day.",
+        ),
+      };
     }
   };
 
   const loadRoomStatusesForSelectedDate = async () => {
     setLoadingRoomStatuses(true);
+    setRoomDayLoadError(null);
     try {
+      if (rooms.length === 0) {
+        setRoomDayStatusMap({});
+        return;
+      }
+
       const results = await Promise.all(
         rooms.map(async (room) => {
-          const reservations = await fetchReservationsForRoomAndDate(
+          const out = await fetchReservationsForRoomAndDate(
             room.id,
             selectedDate
           );
-          return { roomId: room.id, reservations };
+          return { roomId: room.id, ...out };
         })
       );
 
+      const failed = results.find((r) => !r.ok);
+      if (failed) {
+        setRoomDayLoadError(
+          failed.message ||
+            "Availability can only be loaded for the server’s current day.",
+        );
+        setRoomDayStatusMap({});
+        return;
+      }
+
       const map = {};
       results.forEach((item) => {
-        map[item.roomId] = item.reservations;
+        map[item.roomId] = item.data;
       });
 
       setRoomDayStatusMap(map);
@@ -295,11 +361,22 @@ export default function RoomReservationScreen() {
   const loadReservationsForSelected = async () => {
     if (!selectedRoom?.id) return;
     setLoadingReservations(true);
+    setModalScheduleError(null);
     try {
-      const reservations = await fetchReservationsForRoomAndDate(
-        selectedRoom.id,
-        selectedDate
-      );
+      const { ok, data: reservations, message } =
+        await fetchReservationsForRoomAndDate(
+          selectedRoom.id,
+          selectedDate
+        );
+
+      if (!ok) {
+        setDayReservations([]);
+        setModalScheduleError(
+          message ||
+            "This day’s schedule isn’t available. Try today’s date on the calendar.",
+        );
+        return;
+      }
 
       setDayReservations(reservations);
 
@@ -308,9 +385,9 @@ export default function RoomReservationScreen() {
         setStartTime(suggestion.start);
         setEndTime(suggestion.end);
       }
-    } catch {
+    } catch (error) {
       setDayReservations([]);
-      Alert.alert("Error", "Failed to load reservations");
+      setModalScheduleError(getErrorMessage(error, "Failed to load schedule."));
     } finally {
       setLoadingReservations(false);
     }
@@ -322,6 +399,7 @@ export default function RoomReservationScreen() {
     setPurpose("");
     setDayReservations([]);
     setLoadingReservations(false);
+    setModalScheduleError(null);
     setSelectedRoom(null);
     setModalVisible(false);
     setShowStartPicker(false);
@@ -338,16 +416,53 @@ export default function RoomReservationScreen() {
   };
 
   const handleOpenModal = async (room) => {
+    if (roomDayLoadError) {
+      Alert.alert(
+        "Schedule unavailable",
+        roomDayLoadError,
+        [{ text: "OK" }],
+      );
+      return;
+    }
+
     setSelectedRoom(room);
     setModalVisible(true);
+    setModalScheduleError(null);
 
     const selected = parseDateKey(selectedDate);
-    setStartTime(new Date(selected.getFullYear(), selected.getMonth(), selected.getDate(), 9, 0));
-    setEndTime(new Date(selected.getFullYear(), selected.getMonth(), selected.getDate(), 10, 0));
+    setStartTime(
+      new Date(
+        selected.getFullYear(),
+        selected.getMonth(),
+        selected.getDate(),
+        9,
+        0
+      )
+    );
+    setEndTime(
+      new Date(
+        selected.getFullYear(),
+        selected.getMonth(),
+        selected.getDate(),
+        10,
+        0
+      )
+    );
 
     setLoadingReservations(true);
     try {
-      const reservations = await fetchReservationsForRoomAndDate(room.id, selectedDate);
+      const { ok, data: reservations, message } =
+        await fetchReservationsForRoomAndDate(room.id, selectedDate);
+
+      if (!ok) {
+        setDayReservations([]);
+        setModalScheduleError(
+          message ||
+            "Could not load this room’s schedule for the selected day.",
+        );
+        return;
+      }
+
       setDayReservations(reservations);
 
       const suggestion = findNextAvailableSlot(reservations, selectedDate, 60);
@@ -355,8 +470,11 @@ export default function RoomReservationScreen() {
         setStartTime(suggestion.start);
         setEndTime(suggestion.end);
       }
-    } catch {
+    } catch (error) {
       setDayReservations([]);
+      setModalScheduleError(
+        getErrorMessage(error, "Could not load schedule for this room."),
+      );
     } finally {
       setLoadingReservations(false);
     }
@@ -371,12 +489,23 @@ export default function RoomReservationScreen() {
 
   const handleReserve = async () => {
     if (!selectedRoom?.id) {
-      Alert.alert("Error", "Please select a room");
+      Alert.alert("No room", "Choose a room from the list first.");
       return;
     }
 
-    if (!startTime || !endTime || !purpose.trim()) {
-      Alert.alert("Error", "Please fill in all fields");
+    if (!startTime || !endTime) {
+      Alert.alert(
+        "Pick a time range",
+        "Select a start and end time for your request.",
+      );
+      return;
+    }
+
+    if (!purpose.trim()) {
+      Alert.alert(
+        "Add a purpose",
+        "Briefly describe the meeting so your manager can approve the request.",
+      );
       return;
     }
 
@@ -384,14 +513,17 @@ export default function RoomReservationScreen() {
     const endDateTime = combineDateAndTime(selectedDate, endTime);
 
     if (endDateTime <= startDateTime) {
-      Alert.alert("Error", "End time must be after start time");
+      Alert.alert(
+        "Invalid time range",
+        "End time must be after start time on the same day.",
+      );
       return;
     }
 
     if (hasOverlap(startDateTime, endDateTime)) {
       Alert.alert(
-        "Not available",
-        "This time overlaps an existing reservation. Choose another slot."
+        "Time conflict",
+        "This range overlaps a confirmed booking for this room. Only approved reservations block the calendar — pick another slot.",
       );
       return;
     }
@@ -406,7 +538,12 @@ export default function RoomReservationScreen() {
       });
 
       if (response?.success) {
-        Alert.alert("Success", "Room reservation submitted successfully");
+        Alert.alert(
+          "Request sent",
+          response.message ||
+            "Your room request was submitted. It stays pending until a manager approves it.",
+          [{ text: "OK" }],
+        );
         await Promise.all([
           loadReservationsForSelected(),
           loadMyReservations(),
@@ -414,54 +551,83 @@ export default function RoomReservationScreen() {
         ]);
         resetModal();
       } else {
-        Alert.alert("Error", response?.message || "Failed to reserve room");
+        Alert.alert(
+          "Request not sent",
+          response?.message || "Something went wrong. Try again.",
+        );
       }
     } catch (error) {
-      Alert.alert("Error", "Failed to reserve room");
+      const status = error?.status;
+      const msg = getErrorMessage(error, "Could not submit your request.");
+      if (status === 409) {
+        Alert.alert(
+          "Slot no longer available",
+          msg ||
+            "Another approved booking overlaps this time. Refresh and choose a different range.",
+        );
+      } else if (status === 400) {
+        Alert.alert("Can’t submit this request", msg);
+      } else {
+        Alert.alert("Request failed", msg);
+      }
     } finally {
       setReserving(false);
     }
   };
 
   const getStatusStyle = (status) => {
-    const value = String(status || "").toLowerCase();
+    const key = normalizeStatusKey(status);
 
-    if (value === "pending") {
+    if (key === "pending") {
       return {
         badge: styles.statusPending,
         text: styles.statusPendingText,
-        label: "Pending",
+        label: "Awaiting approval",
+        hint: "A manager must approve before this is confirmed.",
       };
     }
 
-    if (value === "approved" || value === "active") {
+    if (key === "active" || key === "approved") {
       return {
         badge: styles.statusApproved,
         text: styles.statusApprovedText,
         label: "Approved",
+        hint: "Confirmed — this time counts toward room availability.",
       };
     }
 
-    if (value === "rejected") {
+    if (key === "completed") {
+      return {
+        badge: styles.statusApproved,
+        text: styles.statusApprovedText,
+        label: "Completed",
+        hint: null,
+      };
+    }
+
+    if (key === "rejected") {
       return {
         badge: styles.statusRejected,
         text: styles.statusRejectedText,
         label: "Rejected",
+        hint: "See manager comment below if provided.",
       };
     }
 
-    if (value === "cancelled") {
+    if (key === "cancelled") {
       return {
         badge: styles.statusCancelled,
         text: styles.statusCancelledText,
         label: "Cancelled",
+        hint: null,
       };
     }
 
     return {
       badge: styles.statusDefault,
       text: styles.statusDefaultText,
-      label: status || "Unknown",
+      label: String(status ?? "Unknown"),
+      hint: null,
     };
   };
 
@@ -470,7 +636,16 @@ export default function RoomReservationScreen() {
 
     if (loadingRoomStatuses) {
       return {
-        label: "Checking...",
+        label: "Checking…",
+        badge: styles.roomStatusMuted,
+        text: styles.roomStatusMutedText,
+        border: styles.roomBorderMuted,
+      };
+    }
+
+    if (roomDayLoadError) {
+      return {
+        label: "No data",
         badge: styles.roomStatusMuted,
         text: styles.roomStatusMutedText,
         border: styles.roomBorderMuted,
@@ -479,7 +654,7 @@ export default function RoomReservationScreen() {
 
     if (reservations.length === 0) {
       return {
-        label: "Free all day",
+        label: "No confirmed blocks",
         badge: styles.roomStatusAvailable,
         text: styles.roomStatusAvailableText,
         border: styles.roomBorderAvailable,
@@ -507,7 +682,7 @@ export default function RoomReservationScreen() {
     }
 
     return {
-      label: "Partially booked",
+      label: "Has confirmed slots",
       badge: styles.roomStatusBooked,
       text: styles.roomStatusBookedText,
       border: styles.roomBorderBooked,
@@ -523,6 +698,7 @@ export default function RoomReservationScreen() {
   }, [selectedDate]);
 
   const selectedDayRoomSummary = useMemo(() => {
+    if (roomDayLoadError) return null;
     let freeAllDay = 0;
     let partial = 0;
 
@@ -533,7 +709,7 @@ export default function RoomReservationScreen() {
     });
 
     return { freeAllDay, partial };
-  }, [rooms, roomDayStatusMap]);
+  }, [rooms, roomDayStatusMap, roomDayLoadError]);
 
   const filteredMyReservations = useMemo(() => {
     const now = new Date();
@@ -581,17 +757,31 @@ export default function RoomReservationScreen() {
         )
       : false;
 
-  const suggestedSlotText =
-    startTime && endTime
-      ? `Suggested slot: ${formatTime(startTime)} - ${formatTime(endTime)}`
-      : "No free slot suggested for this date";
+  const combinedStart =
+    startTime && selectedDate
+      ? combineDateAndTime(selectedDate, startTime)
+      : null;
+  const combinedEnd =
+    endTime && selectedDate
+      ? combineDateAndTime(selectedDate, endTime)
+      : null;
+
+  const canSubmitRequest =
+    !!selectedRoom?.id &&
+    !!startTime &&
+    !!endTime &&
+    purpose.trim().length > 0 &&
+    !overlapWarning &&
+    !!combinedStart &&
+    !!combinedEnd &&
+    combinedEnd > combinedStart;
 
   return (
     <View style={styles.container}>
       <View style={styles.stickyHeader}>
-        <Text style={styles.screenTitle}>Room Reservation</Text>
+        <Text style={styles.screenTitle}>Room requests</Text>
         <Text style={styles.screenSubtitle}>
-          Choose a workday and reserve a meeting room
+          Pick a time range and submit a request — bookings need manager approval
         </Text>
       </View>
 
@@ -610,7 +800,8 @@ export default function RoomReservationScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.blockTitle}>Select a workday</Text>
             <Text style={styles.blockSubtitle}>
-              Monday to Friday only
+              Monday–Friday • Availability loads for the server’s current day
+              only (same rule as submitting a request)
             </Text>
           </View>
 
@@ -714,19 +905,41 @@ export default function RoomReservationScreen() {
             })}
           </View>
 
-          <View style={styles.daySummaryCard}>
-            <Text style={styles.daySummaryTitle}>{selectedDateReadable}</Text>
-            <Text style={styles.daySummaryText}>
-              {selectedDayRoomSummary.freeAllDay} free all day •{" "}
-              {selectedDayRoomSummary.partial} partially booked
-            </Text>
-          </View>
+          {roomDayLoadError ? (
+            <View style={styles.dayErrorCard}>
+              <Ionicons
+                name="alert-circle-outline"
+                size={20}
+                color={colors.warning}
+                style={{ marginRight: spacing.sm }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.dayErrorTitle}>Can’t load day view</Text>
+                <Text style={styles.dayErrorText}>{roomDayLoadError}</Text>
+                <Text style={styles.dayErrorHint}>
+                  Switch to today’s date in the calendar, or pull to refresh.
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.daySummaryCard}>
+              <Text style={styles.daySummaryTitle}>{selectedDateReadable}</Text>
+              <Text style={styles.daySummaryText}>
+                {selectedDayRoomSummary
+                  ? `${selectedDayRoomSummary.freeAllDay} with no confirmed bookings • ${selectedDayRoomSummary.partial} with confirmed slots`
+                  : "—"}
+              </Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.sectionBlock}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.blockTitle}>My reservations</Text>
-            <Text style={styles.blockSubtitle}>Track your room bookings</Text>
+            <Text style={styles.blockTitle}>My requests</Text>
+            <Text style={styles.blockSubtitle}>
+              Pending items need approval; approved ones block the room on the
+              map
+            </Text>
           </View>
 
           <ScrollView
@@ -763,14 +976,17 @@ export default function RoomReservationScreen() {
             <Text style={styles.muted}>Loading your reservations…</Text>
           ) : filteredMyReservations.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No reservations found</Text>
+              <Text style={styles.emptyTitle}>No requests yet</Text>
               <Text style={styles.emptyText}>
-                Your room bookings will appear here once created.
+                After you submit a room request, it will appear here with
+                pending or approved status.
               </Text>
             </View>
           ) : (
             filteredMyReservations.map((reservation) => {
-              const statusStyle = getStatusStyle(reservation.status);
+              const statusStyle = getStatusStyle(
+                reservation.status ?? reservation.Status
+              );
 
               return (
                 <View key={reservation.id} style={styles.myReservationCard}>
@@ -793,6 +1009,10 @@ export default function RoomReservationScreen() {
                       </Text>
                     </View>
                   </View>
+
+                  {!!statusStyle.hint && (
+                    <Text style={styles.statusHint}>{statusStyle.hint}</Text>
+                  )}
 
                   {!!reservation.purpose && (
                     <View style={styles.infoPill}>
@@ -819,8 +1039,10 @@ export default function RoomReservationScreen() {
 
         <View style={styles.sectionBlock}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.blockTitle}>Available rooms</Text>
-            <Text style={styles.blockSubtitle}>Tap a room to reserve it</Text>
+            <Text style={styles.blockTitle}>Rooms</Text>
+            <Text style={styles.blockSubtitle}>
+              Tap a room to choose a time and send a request
+            </Text>
           </View>
 
           <View style={styles.roomsList}>
@@ -860,8 +1082,11 @@ export default function RoomReservationScreen() {
                     </View>
 
                     <Text style={styles.roomBookingCount}>
-                      {reservationCount}{" "}
-                      {reservationCount === 1 ? "booking" : "bookings"} that day
+                      {roomDayLoadError
+                        ? "—"
+                        : `${reservationCount} confirmed ${
+                            reservationCount === 1 ? "slot" : "slots"
+                          }`}
                     </Text>
                   </View>
 
@@ -914,22 +1139,39 @@ export default function RoomReservationScreen() {
               contentContainerStyle={styles.modalScrollContent}
             >
               <Text style={styles.modalTitle}>
-                Reserve {selectedRoom?.name}
+                Request {selectedRoom?.name}
               </Text>
-              <Text style={styles.modalSubtitle}>{selectedDateReadable}</Text>
+              <Text style={styles.modalSubtitle}>
+                {selectedDateReadable}
+                {"\n"}
+                <Text style={styles.modalSubtitleEmphasis}>
+                  Submission creates a pending request — not an instant booking.
+                </Text>
+              </Text>
 
+              {modalScheduleError ? (
+                <View style={styles.warningCard}>
+                  <Text style={styles.warningLabel}>Schedule unavailable</Text>
+                  <Text style={styles.warningText}>{modalScheduleError}</Text>
+                </View>
+              ) : null}
 
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>
-                  Reservations for this day
+                  Confirmed bookings (approved only)
+                </Text>
+                <Text style={styles.sectionCaption}>
+                  Pending requests from anyone are not listed here — they only
+                  appear after approval.
                 </Text>
 
                 {loadingReservations ? (
-                  <Text style={styles.muted}>Loading…</Text>
+                  <Text style={styles.muted}>Loading today’s schedule…</Text>
                 ) : dayReservations.length === 0 ? (
                   <View style={styles.emptyInlineCard}>
                     <Text style={styles.emptyInlineText}>
-                      No reservations yet for this day.
+                      No confirmed blocks — the room looks free on the calendar
+                      for this day.
                     </Text>
                   </View>
                 ) : (
@@ -941,27 +1183,40 @@ export default function RoomReservationScreen() {
                           new Date(a.startDateTime || a.startDate || a.start) -
                           new Date(b.startDateTime || b.startDate || b.start)
                       )
-                      .map((r) => (
-                        <View key={r.id} style={styles.resItem}>
-                          <Text style={styles.resTime}>
-                            {formatRange(
-                              r.startDateTime || r.startDate || r.start,
-                              r.endDateTime || r.endDate || r.end
-                            )}
-                          </Text>
-                          {!!r.purpose && (
-                            <Text style={styles.resPurpose} numberOfLines={1}>
-                              {r.purpose}
+                      .map((r) => {
+                        const who =
+                          r.reservedBy?.fullName ||
+                          r.reservedBy?.FullName ||
+                          r.reservedBy?.userName;
+                        return (
+                          <View key={r.id} style={styles.resItem}>
+                            <Text style={styles.resTime}>
+                              {formatRange(
+                                r.startDateTime || r.startDate || r.start,
+                                r.endDateTime || r.endDate || r.end
+                              )}
                             </Text>
-                          )}
-                        </View>
-                      ))}
+                            {!!who && (
+                              <Text style={styles.resPurpose} numberOfLines={2}>
+                                {who}
+                                {r.reservedBy?.departmentName ||
+                                r.reservedBy?.DepartmentName
+                                  ? ` • ${
+                                      r.reservedBy?.departmentName ||
+                                      r.reservedBy?.DepartmentName
+                                    }`
+                                  : ""}
+                              </Text>
+                            )}
+                          </View>
+                        );
+                      })}
                   </View>
                 )}
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Choose time</Text>
+                <Text style={styles.sectionTitle}>Your requested time</Text>
 
                 <View style={styles.timeRow}>
                   <Pressable
@@ -969,9 +1224,9 @@ export default function RoomReservationScreen() {
                     onPress={() => setShowStartPicker(true)}
                   >
                     <Text style={styles.timeText}>
-                      {startTime ? formatTime(startTime) : "Start"}
+                      {startTime ? formatTime(startTime) : "—"}
                     </Text>
-                    <Text style={styles.timeLabel}>Start time</Text>
+                    <Text style={styles.timeLabel}>Start</Text>
                   </Pressable>
 
                   <Pressable
@@ -979,11 +1234,24 @@ export default function RoomReservationScreen() {
                     onPress={() => setShowEndPicker(true)}
                   >
                     <Text style={styles.timeText}>
-                      {endTime ? formatTime(endTime) : "End"}
+                      {endTime ? formatTime(endTime) : "—"}
                     </Text>
-                    <Text style={styles.timeLabel}>End time</Text>
+                    <Text style={styles.timeLabel}>End</Text>
                   </Pressable>
                 </View>
+
+                {startTime && endTime && (
+                  <View style={styles.timeRangeCard}>
+                    <Text style={styles.timeRangeLabel}>Selected range</Text>
+                    <Text style={styles.timeRangeValue}>
+                      {formatTime(startTime)} → {formatTime(endTime)}
+                    </Text>
+                    <Text style={styles.timeRangeDate}>{selectedDateReadable}</Text>
+                    <Text style={styles.timeRangeDuration}>
+                      Duration: {formatDuration(durationMinutes)}
+                    </Text>
+                  </View>
+                )}
 
                 <View style={styles.quickDurationRow}>
                   {QUICK_DURATIONS.map((item) => (
@@ -1009,9 +1277,11 @@ export default function RoomReservationScreen() {
 
                 {overlapWarning && (
                   <View style={styles.warningCard}>
-                    <Text style={styles.warningLabel}>Overlap detected</Text>
+                    <Text style={styles.warningLabel}>Conflicts with a confirmed slot</Text>
                     <Text style={styles.warningText}>
-                      This time conflicts with an existing reservation.
+                      Adjust your start or end time so it doesn’t overlap the
+                      bookings listed above. The server will also reject overlaps
+                      with approved reservations.
                     </Text>
                   </View>
                 )}
@@ -1057,10 +1327,13 @@ export default function RoomReservationScreen() {
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Purpose</Text>
+                <Text style={styles.sectionTitle}>Purpose (required)</Text>
+                <Text style={styles.sectionCaption}>
+                  Shown to approvers — keep it short and specific.
+                </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g., Team meeting"
+                  placeholder="e.g. Sprint planning with Design"
                   placeholderTextColor={colors.placeholder}
                   value={purpose}
                   onChangeText={setPurpose}
@@ -1079,19 +1352,38 @@ export default function RoomReservationScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.button, styles.reserveButton]}
+                  style={[
+                    styles.button,
+                    styles.reserveButton,
+                    (!canSubmitRequest || reserving || !!modalScheduleError) &&
+                      styles.reserveButtonDisabled,
+                  ]}
                   activeOpacity={0.9}
                   onPress={handleReserve}
-                  disabled={reserving}
+                  disabled={!canSubmitRequest || reserving || !!modalScheduleError}
                 >
                   <Text style={styles.buttonText}>
-                    {reserving ? "Reserving..." : "Reserve"}
+                    {reserving ? "Sending…" : "Submit request"}
                   </Text>
                 </TouchableOpacity>
               </View>
 
+              {!canSubmitRequest &&
+                !reserving &&
+                !modalScheduleError &&
+                (startTime && endTime && !purpose.trim() ? (
+                  <Text style={styles.tip}>
+                    Add a purpose to enable Submit request.
+                  </Text>
+                ) : overlapWarning ? (
+                  <Text style={styles.tip}>
+                    Fix the time conflict above to submit.
+                  </Text>
+                ) : null)}
+
               <Text style={styles.tip}>
-                Tip: choose a free slot or use the suggested one to avoid overlap.
+                If the slot was taken by another approved booking, you’ll get a
+                clear error — refresh and pick a new range.
               </Text>
             </ScrollView>
           </View>
@@ -1269,6 +1561,37 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
     daySummaryText: {
       fontSize: typography.sm,
       color: colors.textSecondary,
+    },
+
+    dayErrorCard: {
+      marginTop: spacing.md,
+      flexDirection: "row",
+      alignItems: "flex-start",
+      backgroundColor: colors.warningLight,
+      borderWidth: 1,
+      borderColor: colors.warning,
+      borderRadius: borderRadius.lg,
+      padding: spacing.md,
+    },
+
+    dayErrorTitle: {
+      fontSize: typography.sm,
+      fontWeight: typography.bold,
+      color: colors.text,
+      marginBottom: spacing.xs,
+    },
+
+    dayErrorText: {
+      fontSize: typography.sm,
+      color: colors.text,
+      lineHeight: 20,
+      marginBottom: spacing.xs,
+    },
+
+    dayErrorHint: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      lineHeight: 18,
     },
 
     filterRow: {
@@ -1511,6 +1834,13 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       color: colors.textSecondary,
     },
 
+    statusHint: {
+      marginTop: spacing.sm,
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      lineHeight: 18,
+    },
+
     infoPill: {
       marginTop: spacing.md,
       backgroundColor: colors.infoLight,
@@ -1654,6 +1984,13 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       textAlign: "center",
       marginTop: spacing.xs,
       marginBottom: spacing.lg,
+      lineHeight: 20,
+    },
+
+    modalSubtitleEmphasis: {
+      fontSize: typography.xs,
+      fontWeight: typography.semibold,
+      color: colors.text,
     },
 
     suggestionCard: {
@@ -1684,8 +2021,15 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
     sectionTitle: {
       fontSize: typography.sm,
       fontWeight: typography.bold,
-      marginBottom: spacing.sm,
+      marginBottom: spacing.xs,
       color: colors.text,
+    },
+
+    sectionCaption: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      lineHeight: 18,
+      marginBottom: spacing.sm,
     },
 
     emptyInlineCard: {
@@ -1749,6 +2093,42 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       marginTop: spacing.xs,
       fontSize: typography.xs,
       color: colors.textSecondary,
+    },
+
+    timeRangeCard: {
+      marginTop: spacing.md,
+      padding: spacing.md,
+      borderRadius: borderRadius.lg,
+      backgroundColor: colors.surfaceMuted,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+
+    timeRangeLabel: {
+      fontSize: typography.xs,
+      fontWeight: typography.bold,
+      color: colors.textSecondary,
+      marginBottom: 4,
+    },
+
+    timeRangeValue: {
+      fontSize: typography.xl,
+      fontWeight: typography.bold,
+      color: colors.text,
+      letterSpacing: 0.3,
+    },
+
+    timeRangeDate: {
+      marginTop: spacing.xs,
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+    },
+
+    timeRangeDuration: {
+      marginTop: spacing.sm,
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+      color: colors.primary,
     },
 
     quickDurationRow: {
@@ -1850,6 +2230,10 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       backgroundColor: colors.primary,
       marginLeft: spacing.sm,
       ...shadows.sm,
+    },
+
+    reserveButtonDisabled: {
+      opacity: 0.45,
     },
 
     buttonText: {

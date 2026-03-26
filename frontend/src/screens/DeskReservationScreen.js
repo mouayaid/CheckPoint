@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   View,
   Text,
@@ -19,6 +19,17 @@ import { useTheme } from "../context/ThemeContext";
 
 const { width } = Dimensions.get("window");
 
+function getErrorMessage(error, fallback) {
+  if (!error) return fallback;
+  if (typeof error === "string") return error;
+  return (
+    error.message ||
+    error.data?.message ||
+    error.response?.data?.message ||
+    fallback
+  );
+}
+
 const DeskReservationScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
@@ -26,13 +37,13 @@ const DeskReservationScreen = () => {
 
   const [seats, setSeats] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [selectedSeat, setSelectedSeat] = useState(null);
+  const [loadingMyReservation, setLoadingMyReservation] = useState(true);
+  const [reservingSeatId, setReservingSeatId] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const [showReservedModal, setShowReservedModal] = useState(false);
   const [reservedSeatInfo, setReservedSeatInfo] = useState(null);
 
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [reserving, setReserving] = useState(false);
   const [myReservation, setMyReservation] = useState(null);
 
   useEffect(() => {
@@ -47,17 +58,21 @@ const DeskReservationScreen = () => {
   };
 
   const fetchMyReservation = async () => {
+    setLoadingMyReservation(true);
     try {
       const response = await seatService.getMyTodayReservation();
+      const raw = response?.data ?? null;
 
-      if (response.success && response.data) {
-        setMyReservation(response.data);
+      if (response?.success && raw) {
+        setMyReservation(raw);
       } else {
         setMyReservation(null);
       }
     } catch (error) {
       console.log("My reservation fetch error", error);
       setMyReservation(null);
+    } finally {
+      setLoadingMyReservation(false);
     }
   };
 
@@ -77,23 +92,45 @@ const DeskReservationScreen = () => {
 
         setSeats(normalizedSeats);
       } else {
-        Alert.alert("Error", response.message || "Failed to load seat map");
+        Alert.alert(
+          "Couldn’t load map",
+          response.message || "Pull down to try again.",
+        );
       }
     } catch (error) {
-      Alert.alert("Error", error.message || "Failed to load seat map");
+      Alert.alert(
+        "Couldn’t load map",
+        getErrorMessage(error, "Check your connection and pull to refresh."),
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     await Promise.all([fetchSeatMap(), fetchMyReservation()]);
-  };
+  }, [selectedDate]);
 
   const mySeatLabel =
     myReservation?.seatLabel || myReservation?.SeatLabel || null;
 
+  const myReservationId =
+    myReservation?.reservationId ||
+    myReservation?.ReservationId ||
+    myReservation?.id ||
+    myReservation?.Id ||
+    null;
+
   const hasMyReservation = !!mySeatLabel;
+
+  const prettyToday = useMemo(() => {
+    return new Date().toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }, []);
 
   const seatsByTable = useMemo(() => {
     const grouped = seats.reduce((acc, seat) => {
@@ -121,8 +158,18 @@ const DeskReservationScreen = () => {
       .sort((a, b) => Number(a.tableId) - Number(b.tableId));
   }, [seats]);
 
-  const handleSeatPress = (seat) => {
+  const handleReserveSeat = async (seat) => {
+    if (!seat) return;
+
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
+
+    if (isMySeat) {
+      Alert.alert(
+        "Your seat for today",
+        `You already have seat ${seat.label} for today.`,
+      );
+      return;
+    }
 
     if (seat.isReserved) {
       const reservedBy = seat.reservedBy || {};
@@ -140,65 +187,98 @@ const DeskReservationScreen = () => {
       return;
     }
 
-    if (hasMyReservation && !isMySeat) {
+    if (hasMyReservation) {
+      Alert.alert(
+        "Already booked for today",
+        `You already have seat ${mySeatLabel}. Cancel it first if you want another one.`,
+      );
       return;
     }
 
-    setSelectedSeat(seat);
-  };
-
-  const handleConfirmReservation = async () => {
-    if (!selectedSeat) return;
-
-    setReserving(true);
+    setReservingSeatId(seat.id);
 
     try {
-      const response = await seatService.createReservation(
-        selectedSeat.id,
-        selectedDate,
-      );
+      const response = await seatService.createReservation(seat.id, selectedDate);
 
       if (response.success) {
-        Alert.alert("Success", "Seat reserved successfully!", [
-          {
-            text: "OK",
-            onPress: async () => {
-              setShowConfirmModal(false);
-              setSelectedSeat(null);
-              await fetchSeatMap();
-              await fetchMyReservation();
-            },
-          },
-        ]);
+        await Promise.all([fetchSeatMap(), fetchMyReservation()]);
+        Alert.alert(
+          "Desk reserved",
+          `Seat ${seat.label} is yours for today (${prettyToday}).`,
+        );
       } else {
-        Alert.alert("Error", response.message || "Failed to reserve seat");
+        Alert.alert(
+          "Couldn’t reserve",
+          response.message ||
+            "That seat may have just been taken. Refresh and try another.",
+        );
       }
     } catch (error) {
-      Alert.alert("Error", error.message || "Failed to reserve seat");
+      Alert.alert(
+        "Couldn’t reserve",
+        getErrorMessage(
+          error,
+          "That seat may be unavailable. Refresh and try again.",
+        ),
+      );
     } finally {
-      setReserving(false);
+      setReservingSeatId(null);
+    }
+  };
+
+  const handleCancelReservation = () => {
+    if (!hasMyReservation) return;
+
+    Alert.alert(
+      "Cancel reservation?",
+      `Do you want to cancel your seat ${mySeatLabel} for today?`,
+      [
+        { text: "Keep it", style: "cancel" },
+        {
+          text: "Cancel reservation",
+          style: "destructive",
+          onPress: confirmCancelReservation,
+        },
+      ],
+    );
+  };
+
+  const confirmCancelReservation = async () => {
+    setCancelling(true);
+
+    try {
+      const response = await seatService.cancelMyTodayReservation();
+
+      if (response?.success) {
+        await Promise.all([fetchSeatMap(), fetchMyReservation()]);
+        Alert.alert("Reservation cancelled", "Your desk reservation was cancelled.");
+      } else {
+        Alert.alert(
+          "Couldn’t cancel",
+          response?.message || "Unable to cancel your reservation right now.",
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        "Couldn’t cancel",
+        getErrorMessage(error, "Something went wrong while cancelling."),
+      );
+    } finally {
+      setCancelling(false);
     }
   };
 
   const getSeatColor = (seat) => {
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
+    const isLoadingThisSeat = reservingSeatId === seat.id;
 
     if (isMySeat) return colors.seatMine;
-    if (selectedSeat && selectedSeat.id === seat.id) return colors.seatSelected;
+    if (isLoadingThisSeat) return colors.seatSelected;
     if (seat.isReserved) return colors.seatReserved;
     if (hasMyReservation) return colors.border;
 
     return colors.seatAvailable;
   };
-
-  const prettyToday = useMemo(() => {
-    return new Date().toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  }, []);
 
   const getTableLayout = (tableSeats) => {
     const count = tableSeats.length;
@@ -230,8 +310,12 @@ const DeskReservationScreen = () => {
 
   const renderSeat = (seat) => {
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
-    const isSelected = selectedSeat?.id === seat.id;
-    const isDisabled = hasMyReservation && !seat.isReserved && !isMySeat;
+    const isDisabled =
+      cancelling ||
+      !!reservingSeatId ||
+      (hasMyReservation && !seat.isReserved && !isMySeat);
+
+    const isLoadingThisSeat = reservingSeatId === seat.id;
 
     return (
       <TouchableOpacity
@@ -240,21 +324,31 @@ const DeskReservationScreen = () => {
           styles.seatBox,
           {
             backgroundColor: getSeatColor(seat),
-            opacity: isDisabled ? 0.45 : 1,
-            transform: isSelected ? [{ scale: 1.07 }] : [{ scale: 1 }],
-            borderColor: isSelected ? colors.textOnPrimary : colors.surface,
-            borderWidth: isSelected ? 2 : 1.5,
+            opacity: isDisabled && !isMySeat && !isLoadingThisSeat ? 0.45 : 1,
+            borderColor: isLoadingThisSeat ? colors.textOnPrimary : colors.surface,
+            borderWidth: isLoadingThisSeat ? 2 : 1.5,
           },
         ]}
-        onPress={() => handleSeatPress(seat)}
-        activeOpacity={isDisabled ? 1 : 0.85}
+        onPress={() => handleReserveSeat(seat)}
+        disabled={isDisabled && !seat.isReserved && !isMySeat}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={`Seat ${seat.label}${
+          seat.isReserved ? ", taken" : isMySeat ? ", your seat" : ", available"
+        }`}
       >
-        <Ionicons
-          name={seat.isReserved ? "lock-closed" : "desktop-outline"}
-          size={13}
-          color={colors.textOnPrimary}
-        />
-        <Text style={styles.seatLabel}>{seat.label}</Text>
+        {isLoadingThisSeat ? (
+          <ActivityIndicator size="small" color={colors.textOnPrimary} />
+        ) : (
+          <>
+            <Ionicons
+              name={seat.isReserved ? "lock-closed" : "desktop-outline"}
+              size={13}
+              color={colors.textOnPrimary}
+            />
+            <Text style={styles.seatLabel}>{seat.label}</Text>
+          </>
+        )}
       </TouchableOpacity>
     );
   };
@@ -320,26 +414,83 @@ const DeskReservationScreen = () => {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
-    dateButton: {
+    dateBlock: {
       flex: 1,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.lg,
-      backgroundColor: colors.surfaceMuted,
-      borderRadius: borderRadius.md,
-      overflow: "hidden",
     },
     dateButtonText: {
       fontSize: typography.sm,
-      fontWeight: typography.medium,
+      fontWeight: typography.semibold,
       color: colors.text,
     },
-    todayOnlyText: {
-      marginTop: 2,
+    todayBadge: {
+      alignSelf: "flex-start",
+      marginTop: spacing.xs,
+      backgroundColor: colors.primary,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: borderRadius.sm,
+    },
+    todayBadgeText: {
+      fontSize: typography.xs,
+      fontWeight: typography.bold,
+      color: colors.textOnPrimary,
+    },
+    todayRules: {
+      marginTop: 4,
       fontSize: typography.xs,
       color: colors.textSecondary,
+      lineHeight: 18,
+    },
+    refreshBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: borderRadius.md,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    statusCard: {
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+      marginBottom: spacing.sm,
+      padding: spacing.md,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    statusRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.md,
+    },
+    statusIconWrap: {
+      width: 40,
+      height: 40,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    statusTitle: {
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+      color: colors.text,
+    },
+    statusBody: {
+      marginTop: 2,
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+      lineHeight: 20,
+    },
+    statusSuccess: {
+      backgroundColor: colors.successLight,
+      borderColor: colors.success,
+    },
+    statusActions: {
+      marginTop: spacing.md,
+      alignItems: "flex-start",
     },
     scrollView: {
       flex: 1,
@@ -353,11 +504,19 @@ const DeskReservationScreen = () => {
       flex: 1,
       justifyContent: "center",
       alignItems: "center",
+      paddingHorizontal: spacing.xl,
     },
     loadingText: {
       marginTop: spacing.md,
       fontSize: typography.sm,
       color: colors.textSecondary,
+      textAlign: "center",
+    },
+    loadingHint: {
+      marginTop: spacing.sm,
+      fontSize: typography.xs,
+      color: colors.textMuted,
+      textAlign: "center",
     },
     emptyContainer: {
       flex: 1,
@@ -369,6 +528,13 @@ const DeskReservationScreen = () => {
     emptyText: {
       fontSize: typography.base,
       color: colors.textSecondary,
+      textAlign: "center",
+    },
+    emptyHint: {
+      fontSize: typography.sm,
+      color: colors.textMuted,
+      textAlign: "center",
+      paddingHorizontal: spacing.lg,
     },
     tableCard: {
       padding: spacing.lg,
@@ -410,7 +576,6 @@ const DeskReservationScreen = () => {
       alignItems: "center",
       minWidth: Math.min(width * 0.32, 128),
     },
-
     tableVisual: {
       width: Math.min(width * 0.32, 128),
       backgroundColor: colors.surfaceMuted,
@@ -424,15 +589,12 @@ const DeskReservationScreen = () => {
       overflow: "hidden",
       ...shadows.sm,
     },
-
     tableVisualLarge: {
       minHeight: 280,
     },
-
     tableVisualMedium: {
       minHeight: 220,
     },
-
     tableInnerSurface: {
       position: "absolute",
       top: 10,
@@ -443,7 +605,6 @@ const DeskReservationScreen = () => {
       backgroundColor: colors.surface,
       opacity: 0.18,
     },
-
     tableInnerLine: {
       position: "absolute",
       top: 18,
@@ -453,7 +614,6 @@ const DeskReservationScreen = () => {
       backgroundColor: colors.border,
       opacity: 0.75,
     },
-
     tableVisualText: {
       fontSize: typography.sm,
       fontWeight: typography.semibold,
@@ -471,14 +631,12 @@ const DeskReservationScreen = () => {
       borderColor: colors.surface,
       ...shadows.sm,
     },
-
     seatLabel: {
       color: colors.textOnPrimary,
       fontSize: 12,
       fontWeight: typography.bold,
       marginTop: 2,
     },
-
     seatColumn: {
       justifyContent: "space-between",
       alignItems: "center",
@@ -489,51 +647,6 @@ const DeskReservationScreen = () => {
       marginTop: spacing.md,
       alignItems: "center",
       justifyContent: "center",
-    },
-    selectionCard: {
-      marginHorizontal: spacing.lg,
-      marginTop: spacing.md,
-      marginBottom: spacing.sm,
-      padding: spacing.md,
-      borderRadius: borderRadius.xl,
-    },
-    selectionTopRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: spacing.md,
-    },
-    selectionLeft: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.md,
-      flex: 1,
-    },
-    selectedSeatBadge: {
-      width: 48,
-      height: 48,
-      borderRadius: borderRadius.lg,
-      justifyContent: "center",
-      alignItems: "center",
-      backgroundColor: colors.seatSelected,
-    },
-    selectionInfo: {
-      flex: 1,
-    },
-    selectionTitle: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      marginBottom: 2,
-    },
-    selectionValue: {
-      fontSize: typography.base,
-      fontWeight: typography.semibold,
-      color: colors.text,
-    },
-    selectionSubtext: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      marginTop: 2,
     },
     legend: {
       flexDirection: "row",
@@ -551,6 +664,7 @@ const DeskReservationScreen = () => {
       flexDirection: "row",
       alignItems: "center",
       gap: spacing.sm,
+      maxWidth: "48%",
     },
     legendDot: {
       width: 12,
@@ -560,6 +674,7 @@ const DeskReservationScreen = () => {
     legendText: {
       fontSize: typography.xs,
       color: colors.textSecondary,
+      flexShrink: 1,
     },
     modalOverlay: {
       flex: 1,
@@ -577,7 +692,13 @@ const DeskReservationScreen = () => {
       fontSize: typography.lg,
       fontWeight: typography.semibold,
       color: colors.text,
+      marginBottom: spacing.sm,
+    },
+    infoModalSubtitle: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
       marginBottom: spacing.lg,
+      lineHeight: 20,
     },
     infoRow: {
       marginBottom: spacing.md,
@@ -595,62 +716,102 @@ const DeskReservationScreen = () => {
     modalButton: {
       marginTop: spacing.lg,
     },
-    modalButtonsRow: {
-      flexDirection: "row",
-      gap: spacing.md,
-      marginTop: spacing.lg,
-    },
-    modalButtonHalf: {
-      flex: 1,
-    },
   });
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.dateButton}>
-          <Ionicons name="today-outline" size={20} color={colors.primary} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.dateButtonText}>{prettyToday}</Text>
-            <Text style={styles.todayOnlyText}>Today only</Text>
+        <View style={styles.dateBlock}>
+          <Text style={styles.dateButtonText}>{prettyToday}</Text>
+          <View style={styles.todayBadge}>
+            <Text style={styles.todayBadgeText}>TODAY ONLY</Text>
           </View>
+          <Text style={styles.todayRules}>
+            Tap an available seat to reserve it instantly. One desk per person per day.
+          </Text>
         </View>
+
+        <TouchableOpacity
+          style={styles.refreshBtn}
+          onPress={handleRefresh}
+          disabled={loading || refreshing}
+          accessibilityLabel="Refresh seat map"
+        >
+          <Ionicons
+            name="refresh"
+            size={22}
+            color={loading || refreshing ? colors.textMuted : colors.primary}
+          />
+        </TouchableOpacity>
       </View>
 
-      {selectedSeat && (
-        <Card style={styles.selectionCard}>
-          <View style={styles.selectionTopRow}>
-            <View style={styles.selectionLeft}>
-              <View style={styles.selectedSeatBadge}>
-                <Ionicons
-                  name="checkmark-circle"
-                  size={22}
-                  color={colors.textOnPrimary}
-                />
+      <Card
+        style={[
+          styles.statusCard,
+          hasMyReservation && !loadingMyReservation && styles.statusSuccess,
+        ]}
+      >
+        {loadingMyReservation ? (
+          <View style={styles.statusRow}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statusTitle}>Checking your booking…</Text>
+              <Text style={styles.statusBody}>
+                Looking up whether you already have a desk for today.
+              </Text>
+            </View>
+          </View>
+        ) : hasMyReservation ? (
+          <>
+            <View style={styles.statusRow}>
+              <View style={styles.statusIconWrap}>
+                <Ionicons name="checkmark-circle" size={22} color={colors.success} />
               </View>
-
-              <View style={styles.selectionInfo}>
-                <Text style={styles.selectionTitle}>Selected seat</Text>
-                <Text style={styles.selectionValue}>{selectedSeat.label}</Text>
-                <Text style={styles.selectionSubtext}>
-                  Tap reserve to confirm your booking
+              <View style={{ flex: 1 }}>
+                <Text style={styles.statusTitle}>You&apos;re booked for today</Text>
+                <Text style={styles.statusBody}>
+                  Your desk is seat <Text style={{ fontWeight: "700" }}>{mySeatLabel}</Text>.
+                  You can cancel this reservation if needed.
                 </Text>
               </View>
             </View>
 
-            <Button
-              title="Reserve"
-              onPress={() => setShowConfirmModal(true)}
-              disabled={reserving}
-            />
+            <View style={styles.statusActions}>
+              <Button
+                title="Cancel reservation"
+                variant="secondary"
+                onPress={handleCancelReservation}
+                loading={cancelling}
+                disabled={cancelling}
+              />
+            </View>
+          </>
+        ) : (
+          <View style={styles.statusRow}>
+            <View style={styles.statusIconWrap}>
+              <Ionicons
+                name="desktop-outline"
+                size={20}
+                color={colors.primary}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statusTitle}>No desk yet today</Text>
+              <Text style={styles.statusBody}>
+                Tap any green available seat to reserve it instantly. Red seats are already taken.
+              </Text>
+            </View>
           </View>
-        </Card>
-      )}
+        )}
+      </Card>
 
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading seat map…</Text>
+          <Text style={styles.loadingText}>Loading today&apos;s seat map…</Text>
+          <Text style={styles.loadingHint}>
+            This can take a moment on a slow connection.
+          </Text>
         </View>
       ) : (
         <ScrollView
@@ -674,7 +835,11 @@ const DeskReservationScreen = () => {
                 size={48}
                 color={colors.textMuted}
               />
-              <Text style={styles.emptyText}>No seats configured</Text>
+              <Text style={styles.emptyText}>No seats on the map</Text>
+              <Text style={styles.emptyHint}>
+                There may be no layout configured for today, or the list is empty.
+                Pull to refresh or try again later.
+              </Text>
             </View>
           )}
         </ScrollView>
@@ -682,34 +847,23 @@ const DeskReservationScreen = () => {
 
       <View style={styles.legend}>
         <View style={styles.legendItem}>
-          <View
-            style={[styles.legendDot, { backgroundColor: colors.seatMine }]}
-          />
+          <View style={[styles.legendDot, { backgroundColor: colors.seatMine }]} />
           <Text style={styles.legendText}>Your seat</Text>
         </View>
 
         <View style={styles.legendItem}>
-          <View
-            style={[
-              styles.legendDot,
-              { backgroundColor: colors.seatAvailable },
-            ]}
-          />
+          <View style={[styles.legendDot, { backgroundColor: colors.seatAvailable }]} />
           <Text style={styles.legendText}>Available</Text>
         </View>
 
         <View style={styles.legendItem}>
-          <View
-            style={[styles.legendDot, { backgroundColor: colors.seatReserved }]}
-          />
-          <Text style={styles.legendText}>Reserved</Text>
+          <View style={[styles.legendDot, { backgroundColor: colors.seatReserved }]} />
+          <Text style={styles.legendText}>Taken</Text>
         </View>
 
         <View style={styles.legendItem}>
-          <View
-            style={[styles.legendDot, { backgroundColor: colors.seatSelected }]}
-          />
-          <Text style={styles.legendText}>Selected</Text>
+          <View style={[styles.legendDot, { backgroundColor: colors.border }]} />
+          <Text style={styles.legendText}>Unavailable</Text>
         </View>
       </View>
 
@@ -721,15 +875,16 @@ const DeskReservationScreen = () => {
       >
         <View style={styles.modalOverlay}>
           <Card style={styles.infoModalContent}>
-            <Text style={styles.infoModalTitle}>Seat reserved</Text>
+            <Text style={styles.infoModalTitle}>Seat not available</Text>
+            <Text style={styles.infoModalSubtitle}>
+              Someone else has this seat for today. One person per seat per day.
+            </Text>
 
             {reservedSeatInfo && (
               <>
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>Seat</Text>
-                  <Text style={styles.infoValue}>
-                    {reservedSeatInfo.seatLabel}
-                  </Text>
+                  <Text style={styles.infoValue}>{reservedSeatInfo.seatLabel}</Text>
                 </View>
 
                 {reservedSeatInfo.reservedBy && (
@@ -753,62 +908,11 @@ const DeskReservationScreen = () => {
             )}
 
             <Button
-              title="Close"
+              title="OK"
               variant="secondary"
               onPress={() => setShowReservedModal(false)}
               style={styles.modalButton}
             />
-          </Card>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={showConfirmModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setShowConfirmModal(false);
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <Card style={styles.infoModalContent}>
-            <Text style={styles.infoModalTitle}>Confirm reservation</Text>
-
-            {selectedSeat && (
-              <>
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Seat</Text>
-                  <Text style={styles.infoValue}>{selectedSeat.label}</Text>
-                </View>
-
-                <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Date</Text>
-                  <Text style={styles.infoValue}>
-                    {new Date().toLocaleDateString()}
-                  </Text>
-                </View>
-              </>
-            )}
-
-            <View style={styles.modalButtonsRow}>
-              <Button
-                title="Cancel"
-                variant="secondary"
-                onPress={() => {
-                  setShowConfirmModal(false);
-                }}
-                disabled={reserving}
-                style={styles.modalButtonHalf}
-              />
-
-              <Button
-                title={reserving ? "" : "Confirm"}
-                onPress={handleConfirmReservation}
-                loading={reserving}
-                disabled={reserving}
-                style={styles.modalButtonHalf}
-              />
-            </View>
           </Card>
         </View>
       </Modal>

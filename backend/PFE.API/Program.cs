@@ -135,7 +135,6 @@ builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IRoomReservationService, RoomReservationService>();
 builder.Services.AddScoped<IApprovalService, ApprovalService>();
 builder.Services.AddScoped<ILeaveService, LeaveService>();
-builder.Services.AddScoped<ILeaveRequestService, LeaveRequestService>();
 builder.Services.AddScoped<IAbsenceRequestService, AbsenceRequestService>();
 builder.Services.AddScoped<IGeneralRequestService, GeneralRequestService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();

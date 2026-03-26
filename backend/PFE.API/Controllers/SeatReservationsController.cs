@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PFE.Application.Common;
+using PFE.Application.Common.Exceptions;
 using PFE.Application.DTOs.SeatReservation;
 using PFE.Application.Services;
 using System.Security.Claims;
@@ -24,30 +25,15 @@ public class SeatReservationsController : ControllerBase
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-        // ✅ Tunisia timezone (Africa/Tunis)
-        var tz = TimeZoneInfo.FindSystemTimeZoneById("Africa/Tunis");
-        var tunisNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-        var tunisToday = tunisNow.Date;
-
-        // dto.Date could be DateTime or DateOnly; handle DateTime safely:
-        var requestDate = dto.Date.Date;
-
-        if (requestDate != tunisToday)
+        try
         {
-            return BadRequest(ApiResponse<SeatReservationDto>.ErrorResponse(
-                $"Seat reservation is allowed only for today's date (Tunisia): {tunisToday:yyyy-MM-dd}."
-            ));
+            var result = await _seatReservationService.CreateReservationAsync(userId, dto);
+            return Ok(ApiResponse<SeatReservationDto>.SuccessResponse(result, "Seat reservation created successfully"));
         }
-
-        var result = await _seatReservationService.CreateReservationAsync(userId, dto);
-
-        if (result == null)
+        catch (FrontendValidationException ex)
         {
-            return BadRequest(ApiResponse<SeatReservationDto>.ErrorResponse(
-                "Failed to create reservation. Seat may be already reserved, you may already have a reservation for this date, or the seat is inactive."));
+            return StatusCode(ex.StatusCode, ApiResponse<SeatReservationDto>.ErrorResponse(ex.Message, ex.Errors));
         }
-
-        return Ok(ApiResponse<SeatReservationDto>.SuccessResponse(result, "Seat reservation created successfully"));
     }
 
     [HttpDelete("{id}")]
@@ -66,6 +52,25 @@ public class SeatReservationsController : ControllerBase
 
         return Ok(ApiResponse<bool>.SuccessResponse(true, "Seat reservation cancelled successfully"));
     }
+
+    [HttpDelete("my-today")]
+    public async Task<ActionResult<ApiResponse<bool>>> CancelMyTodayReservation()
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        var cancelled = await _seatReservationService.CancelMyTodayReservationAsync(userId);
+
+        if (!cancelled)
+        {
+            return NotFound(ApiResponse<bool>.ErrorResponse(
+                "No active desk reservation found for today."));
+        }
+
+        return Ok(ApiResponse<bool>.SuccessResponse(
+            true,
+            "Desk reservation cancelled successfully"));
+    }
+
     [HttpGet("my-today")]
     public async Task<ActionResult<ApiResponse<SeatReservationDto?>>> GetMyTodayReservation()
     {

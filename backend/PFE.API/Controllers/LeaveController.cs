@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PFE.Application.Common;
+using PFE.Application.Common.Exceptions;
 using PFE.Application.DTOs.Leave;
 using PFE.Application.Services;
 using System.Security.Claims;
@@ -23,14 +24,15 @@ public class LeaveController : ControllerBase
     public async Task<ActionResult<ApiResponse<LeaveRequestDto>>> CreateLeaveRequest([FromBody] CreateLeaveRequestDto dto)
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        var result = await _leaveService.CreateLeaveRequestAsync(userId, dto);
-        
-        if (result == null)
+        try
         {
-            return BadRequest(ApiResponse<LeaveRequestDto>.ErrorResponse("Failed to create leave request"));
+            var result = await _leaveService.CreateLeaveRequestAsync(userId, dto);
+            return Ok(ApiResponse<LeaveRequestDto>.SuccessResponse(result, "Leave request created successfully"));
         }
-
-        return Ok(ApiResponse<LeaveRequestDto>.SuccessResponse(result, "Leave request created successfully"));
+        catch (FrontendValidationException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<LeaveRequestDto>.ErrorResponse(ex.Message, ex.Errors));
+        }
     }
 
     [HttpGet("requests/my")]
@@ -55,14 +57,24 @@ public class LeaveController : ControllerBase
     public async Task<ActionResult<ApiResponse<bool>>> ReviewLeaveRequest(int id, [FromBody] ReviewLeaveRequestDto dto)
     {
         var managerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        var result = await _leaveService.ReviewLeaveRequestAsync(id, managerId, dto);
-        
-        if (!result)
+        try
         {
-            return BadRequest(ApiResponse<bool>.ErrorResponse("Leave request not found or cannot be reviewed"));
-        }
+            var result = await _leaveService.ReviewLeaveRequestAsync(id, managerId, dto);
 
-        return Ok(ApiResponse<bool>.SuccessResponse(true, "Leave request reviewed successfully"));
+            if (!result)
+            {
+                return BadRequest(ApiResponse<bool>.ErrorResponse(
+                    "Leave request not found or cannot be reviewed",
+                    new List<string> { "NOT_FOUND_OR_NOT_REVIEWABLE" }
+                ));
+            }
+
+            return Ok(ApiResponse<bool>.SuccessResponse(true, "Leave request reviewed successfully"));
+        }
+        catch (FrontendValidationException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<bool>.ErrorResponse(ex.Message, ex.Errors));
+        }
     }
 }
 

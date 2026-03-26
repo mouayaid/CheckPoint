@@ -1,25 +1,6 @@
 import axiosInstance from "./axiosInstance";
 
-/**
- * Unified request service that matches backend controllers:
- * - LeaveRequestsController  -> /api/LeaveRequests
- * - AbsenceRequestsController -> /api/AbsenceRequests
- * - GeneralRequestsController -> /api/GeneralRequests
- */
 export const requestService = {
-  // Leave Requests
-  createLeaveRequest: async (data) => {
-    return await axiosInstance.post("/LeaveRequests", data);
-  },
-
-  getMyLeaveRequests: async () => {
-    return await axiosInstance.get("/LeaveRequests/my");
-  },
-
-  getPendingLeaveRequests: async () => {
-    return await axiosInstance.get("/LeaveRequests/pending");
-  },
-
   // Absence Requests
   createAbsenceRequest: async (data) => {
     return await axiosInstance.post("/AbsenceRequests", data);
@@ -54,4 +35,3 @@ export const requestService = {
     return await axiosInstance.put(`/GeneralRequests/${id}/status`, data);
   },
 };
-

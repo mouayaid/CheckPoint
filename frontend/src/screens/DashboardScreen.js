@@ -14,6 +14,24 @@ import { seatService, profileService, eventService } from "../services/api";
 import { Card, Button } from "../components";
 import { useTheme } from "../context/ThemeContext";
 
+/** Compact label for next event (backend may send date as ISO or display string). */
+function formatEventCompact(event) {
+  const raw = event?.date ?? event?.Date ?? event?.startDateTime ?? event?.StartDateTime;
+  if (!raw) return "Date to be announced";
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return String(raw);
+  const datePart = d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  const timePart = d.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${datePart} · ${timePart}`;
+}
+
 const DashboardScreen = () => {
   const navigation = useNavigation();
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
@@ -82,11 +100,10 @@ const DashboardScreen = () => {
 
       const rawBalance = user?.leaveBalance ?? user?.LeaveBalance ?? 0;
       const balance = Number(rawBalance);
+      const safe = Number.isNaN(balance) ? 0 : balance;
 
-      setLeaveBalance(Number.isNaN(balance) ? 0 : balance);
+      setLeaveBalance(safe);
       const name = user?.fullName ?? user?.FullName ?? "";
-
-      setLeaveBalance(balance);
       setUserName(name);
     } catch (error) {
       console.log("Leave balance error", error);
@@ -150,11 +167,22 @@ const DashboardScreen = () => {
         ? "Good afternoon 👋"
         : "Good evening 👋";
 
-  const heroStatus = loadingDesk
-    ? "Checking your desk for today..."
+  const heroDeskLine = loadingDesk
+    ? "Checking your desk…"
     : seatLabel
-      ? `Your desk today: ${seatLabel}`
-      : "You do not have a desk reservation yet";
+      ? `Desk ${seatLabel} · reserved for today`
+      : "No desk reserved yet — reserve below when you need one";
+
+  const balanceKnown = leaveBalance !== null;
+  const balanceNum = balanceKnown ? Number(leaveBalance) : NaN;
+  const canRequestLeave =
+    !loadingBalance && balanceKnown && !Number.isNaN(balanceNum) && balanceNum > 0;
+  const noLeaveDaysLeft =
+    !loadingBalance && balanceKnown && !Number.isNaN(balanceNum) && balanceNum <= 0;
+  const balanceLoadFailed = !loadingBalance && leaveBalance === null;
+
+  const showReserveDeskAction = !loadingDesk && !seatLabel;
+  const showViewDeskAction = !loadingDesk && !!seatLabel;
 
   return (
     <ScrollView
@@ -175,7 +203,7 @@ const DashboardScreen = () => {
             <Text style={styles.heroTitle}>
               {greeting}
               {userName ? `, ${userName.split(" ")[0]}` : ""}
-            </Text>{" "}
+            </Text>
             <Text style={styles.heroSubtitle}>{today}</Text>
           </View>
 
@@ -187,47 +215,64 @@ const DashboardScreen = () => {
             />
           </View>
         </View>
+
+        <View style={styles.heroStatusCard}>
+          <Text style={styles.heroStatusLabel}>Today</Text>
+          <Text style={styles.heroStatusText}>{heroDeskLine}</Text>
+        </View>
       </View>
 
-      <Text style={styles.sectionTitle}>Overview</Text>
+      <Text style={styles.sectionTitle}>Your desk today</Text>
 
-      <View style={styles.summaryGrid}>
-        <Card style={styles.summaryCard}>
-          <View style={styles.summaryTopRow}>
-            <Ionicons name="desktop-outline" size={20} color={colors.primary} />
-            <Text style={styles.summaryTitle}>Today's Desk</Text>
+      <Card style={styles.summaryCard}>
+        <View style={styles.summaryTopRow}>
+          <Ionicons name="desktop-outline" size={20} color={colors.primary} />
+          <Text style={styles.summaryTitle}>Workspace</Text>
+        </View>
+
+        {loadingDesk ? (
+          <View style={styles.loadingInline}>
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.summaryMuted}>Loading reservation…</Text>
           </View>
-
-          {loadingDesk ? (
-            <View style={styles.loadingInline}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={styles.summaryMuted}>Checking reservation...</Text>
-            </View>
-          ) : seatLabel ? (
-            <>
-              <Text style={styles.summaryValue}>{seatLabel}</Text>
-              <Text style={styles.summarySubtitle}>Reserved for today</Text>
-              <Button
-                title="Open desk view"
-                onPress={() => navigation.navigate("Desk")}
-                style={styles.summaryButton}
+        ) : seatLabel ? (
+          <>
+            <View style={styles.successPill}>
+              <Ionicons
+                name="checkmark-circle"
+                size={18}
+                color={colors.success}
               />
-            </>
-          ) : (
-            <>
-              <Text style={styles.summaryEmptyValue}>No desk</Text>
-              <Text style={styles.summarySubtitle}>
-                Reserve your workspace for today
+              <Text style={styles.successPillText}>
+                You&apos;re set — seat {seatLabel} for today
               </Text>
-              <Button
-                title="Reserve a desk"
-                onPress={() => navigation.navigate("Desk")}
-                style={styles.summaryButton}
-              />
-            </>
-          )}
-        </Card>
-      </View>
+            </View>
+            <Text style={styles.summarySubtitle}>
+              Tap below to open the desk map or change if your office allows it.
+            </Text>
+            <Button
+              title="Open desk map"
+              variant="secondary"
+              onPress={() => navigation.navigate("Desk")}
+              style={styles.summaryButton}
+            />
+          </>
+        ) : (
+          <>
+            <Text style={styles.summaryEmptyValue}>No reservation</Text>
+            <Text style={styles.summarySubtitle}>
+              Pick a seat on the map to work from the office today.
+            </Text>
+            <Button
+              title="Reserve a desk"
+              onPress={() => navigation.navigate("Desk")}
+              style={styles.summaryButton}
+            />
+          </>
+        )}
+      </Card>
+
+      <Text style={styles.sectionTitle}>Leave balance</Text>
 
       <Card style={styles.infoCard}>
         <View style={styles.infoCardRow}>
@@ -236,39 +281,70 @@ const DashboardScreen = () => {
           </View>
 
           <View style={styles.infoTextWrap}>
-            <Text style={styles.infoTitle}>Leave Balance</Text>
+            <Text style={styles.infoTitle}>Annual leave</Text>
 
             {loadingBalance ? (
               <View style={styles.loadingInline}>
                 <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.infoSubtitle}>Loading balance...</Text>
+                <Text style={styles.infoSubtitle}>Loading balance…</Text>
               </View>
+            ) : balanceLoadFailed ? (
+              <>
+                <Text style={styles.infoSubtitle}>
+                  Couldn&apos;t load your balance. Pull to refresh or open
+                  leave requests to see your history.
+                </Text>
+              </>
             ) : (
               <>
                 <Text style={styles.balanceValue}>
-                  {leaveBalance ?? "--"} days
+                  {balanceNum} {balanceNum === 1 ? "day" : "days"} left
                 </Text>
-                <Text style={styles.infoSubtitle}>Available leave days</Text>
+                <Text style={styles.infoSubtitle}>
+                  {canRequestLeave
+                    ? "You can submit a new leave request."
+                    : noLeaveDaysLeft
+                      ? "No days left to book — you can still view past requests."
+                      : ""}
+                </Text>
               </>
             )}
           </View>
         </View>
 
-        <Button
-          title={
-            Number(leaveBalance) > 0
-              ? "Go to leave requests"
-              : "View leave history"
-          }
-          onPress={() => navigation.navigate("Requests")}
-          style={styles.infoButton}
-        />
-        {!loadingBalance && Number(leaveBalance) <= 0 && (
-          <Text style={styles.balanceWarningTextSmall}>
-            You have no remaining leave days.
-          </Text>
+        {canRequestLeave && (
+          <Button
+            title="Request leave"
+            onPress={() => navigation.navigate("Requests")}
+            style={styles.infoButton}
+          />
+        )}
+
+        {noLeaveDaysLeft && (
+          <>
+            <Text style={styles.balanceWarningTextSmall}>
+              You have no remaining leave days for new bookings.
+            </Text>
+            <Button
+              title="View leave history"
+              variant="secondary"
+              onPress={() => navigation.navigate("Requests")}
+              style={styles.infoButton}
+            />
+          </>
+        )}
+
+        {balanceLoadFailed && (
+          <Button
+            title="Open leave requests"
+            variant="secondary"
+            onPress={() => navigation.navigate("Requests")}
+            style={styles.infoButton}
+          />
         )}
       </Card>
+
+      <Text style={styles.sectionTitle}>Next event</Text>
 
       <Card style={styles.infoCard}>
         <View style={styles.infoCardRow}>
@@ -281,53 +357,82 @@ const DashboardScreen = () => {
           </View>
 
           <View style={styles.infoTextWrap}>
-            <Text style={styles.infoTitle}>Upcoming Event</Text>
-
             {loadingEvent ? (
               <View style={styles.loadingInline}>
                 <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.infoSubtitle}>Loading events...</Text>
+                <Text style={styles.infoSubtitle}>Loading calendar…</Text>
               </View>
             ) : upcomingEvent ? (
               <>
-                <Text style={styles.eventTitle}>
+                <Text style={styles.eventTitle} numberOfLines={2}>
                   {upcomingEvent.title ??
                     upcomingEvent.Title ??
                     "Untitled event"}
                 </Text>
-                <Text style={styles.infoSubtitle}>
-                  {upcomingEvent.date ?? upcomingEvent.Date ?? "Upcoming soon"}
+                <Text style={styles.eventCompact}>
+                  {formatEventCompact(upcomingEvent)}
                 </Text>
               </>
             ) : (
-              <Text style={styles.infoSubtitle}>No upcoming events</Text>
+              <>
+                <Text style={styles.infoTitle}>Nothing scheduled</Text>
+                <Text style={styles.infoSubtitle}>
+                  No events in the next 7 days. Check the Events tab for more.
+                </Text>
+              </>
             )}
           </View>
         </View>
 
         <Button
-          title="View events"
+          title={upcomingEvent ? "All events" : "Browse events"}
+          variant={upcomingEvent ? "secondary" : "primary"}
           onPress={() => navigation.navigate("Events")}
           style={styles.infoButton}
         />
       </Card>
 
       <Text style={styles.sectionTitle}>Quick actions</Text>
+      <Text style={styles.sectionHint}>
+        Shortcuts based on what you can do right now.
+      </Text>
 
       <View style={styles.actionsGrid}>
-        <TouchableOpacity
-          style={styles.actionCard}
-          activeOpacity={0.88}
-          onPress={() => navigation.navigate("Desk")}
-        >
-          <View style={styles.actionIconWrap}>
-            <Ionicons name="desktop-outline" size={24} color={colors.primary} />
-          </View>
-          <Text style={styles.actionText}>Reserve desk</Text>
-          <Text style={styles.actionSubtext}>
-            Book your workspace for today
-          </Text>
-        </TouchableOpacity>
+        {showReserveDeskAction && (
+          <TouchableOpacity
+            style={styles.actionCard}
+            activeOpacity={0.88}
+            onPress={() => navigation.navigate("Desk")}
+          >
+            <View style={styles.actionIconWrap}>
+              <Ionicons
+                name="desktop-outline"
+                size={24}
+                color={colors.primary}
+              />
+            </View>
+            <Text style={styles.actionText}>Reserve desk</Text>
+            <Text style={styles.actionSubtext}>
+              Choose a seat for today
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {showViewDeskAction && (
+          <TouchableOpacity
+            style={styles.actionCard}
+            activeOpacity={0.88}
+            onPress={() => navigation.navigate("Desk")}
+          >
+            <View style={styles.actionIconWrap}>
+              <Ionicons name="map-outline" size={24} color={colors.primary} />
+            </View>
+            <Text style={styles.actionText}>View desk</Text>
+            <Text style={styles.actionSubtext}>
+              Seat {seatLabel} · open map
+            </Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           style={styles.actionCard}
@@ -343,9 +448,29 @@ const DashboardScreen = () => {
           </View>
           <Text style={styles.actionText}>Book room</Text>
           <Text style={styles.actionSubtext}>
-            Reserve a meeting room quickly
+            Reserve a meeting room
           </Text>
         </TouchableOpacity>
+
+        {canRequestLeave && (
+          <TouchableOpacity
+            style={styles.actionCard}
+            activeOpacity={0.88}
+            onPress={() => navigation.navigate("Requests")}
+          >
+            <View style={styles.actionIconWrap}>
+              <Ionicons
+                name="calendar-outline"
+                size={24}
+                color={colors.primary}
+              />
+            </View>
+            <Text style={styles.actionText}>Request leave</Text>
+            <Text style={styles.actionSubtext}>
+              {balanceNum} {balanceNum === 1 ? "day" : "days"} available
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     </ScrollView>
   );
@@ -372,7 +497,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     },
 
     balanceWarningTextSmall: {
-      marginTop: 6,
+      marginTop: spacing.sm,
       fontSize: typography.xs,
       color: colors.warning,
       fontWeight: typography.semibold,
@@ -382,7 +507,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       flexDirection: "row",
       alignItems: "flex-start",
       justifyContent: "space-between",
-      marginBottom: spacing.lg,
+      marginBottom: spacing.md,
       gap: spacing.md,
     },
 
@@ -427,26 +552,29 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     },
 
     heroStatusText: {
-      fontSize: typography.base,
-      fontWeight: typography.semibold,
+      fontSize: typography.sm,
+      fontWeight: typography.medium,
       color: colors.textOnPrimary,
+      lineHeight: 20,
     },
 
     sectionTitle: {
-      marginBottom: spacing.md,
+      marginBottom: spacing.xs,
       fontSize: typography.base,
       fontWeight: typography.semibold,
       color: colors.text,
     },
 
-    summaryGrid: {
-      gap: spacing.lg,
-      marginBottom: spacing.lg,
+    sectionHint: {
+      marginBottom: spacing.md,
+      fontSize: typography.xs,
+      color: colors.textSecondary,
     },
 
     summaryCard: {
       backgroundColor: colors.surface,
       padding: spacing.lg,
+      marginBottom: spacing.xl,
     },
 
     summaryTopRow: {
@@ -469,15 +597,16 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     },
 
     summaryEmptyValue: {
-      fontSize: 24,
+      fontSize: typography.lg,
       fontWeight: typography.bold,
       color: colors.text,
     },
 
     summarySubtitle: {
-      marginTop: 4,
+      marginTop: spacing.sm,
       fontSize: typography.sm,
       color: colors.textSecondary,
+      lineHeight: 20,
     },
 
     summaryMuted: {
@@ -487,6 +616,24 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     summaryButton: {
       marginTop: spacing.md,
+    },
+
+    successPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.successLight,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.md,
+      alignSelf: "flex-start",
+    },
+
+    successPillText: {
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+      color: colors.success,
+      flex: 1,
     },
 
     loadingInline: {
@@ -540,6 +687,19 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       lineHeight: 20,
     },
 
+    eventTitle: {
+      fontSize: typography.base,
+      fontWeight: typography.semibold,
+      color: colors.text,
+      marginBottom: 4,
+    },
+
+    eventCompact: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+      fontWeight: typography.medium,
+    },
+
     infoButton: {
       marginTop: spacing.md,
     },
@@ -552,8 +712,8 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     actionCard: {
       width: "47%",
-      paddingVertical: spacing.xl,
-      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.lg,
+      paddingHorizontal: spacing.md,
       backgroundColor: colors.surface,
       borderRadius: borderRadius.lg,
       alignItems: "center",

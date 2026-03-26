@@ -8,7 +8,7 @@ export const authService = {
    * @returns {Promise} Response with { success, data: { token, user }, message }
    */
   login: async (email, password) => {
-    return await axiosInstance.post('/auth/login', { email, password });
+    return await axiosInstance.post('/Auth/login', { email, password });
   },
 
   
@@ -19,7 +19,7 @@ export const authService = {
    * @returns {Promise} Response with { success, data: { token, user }, message }
    */
   register: async (data) => {
-    return await axiosInstance.post('/auth/register', data);
+    return await axiosInstance.post('/Auth/register', data);
   },
 
   /**
@@ -27,7 +27,7 @@ export const authService = {
    * @returns {Promise} Response with { success, data: { user }, message }
    */
   getCurrentUser: async () => {
-    return await axiosInstance.get('/auth/me');
+    return await axiosInstance.get('/Auth/me');
   },
 };
 

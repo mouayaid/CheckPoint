@@ -62,6 +62,7 @@ public class SeatService : ISeatService
 
             return dto;
         }).ToList();
+        
 
         return seatMapDtos;
     }

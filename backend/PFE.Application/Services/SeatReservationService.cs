@@ -1,5 +1,6 @@
 using AutoMapper;
 using Microsoft.EntityFrameworkCore;
+using PFE.Application.Common.Exceptions;
 using PFE.Application.DTOs.SeatReservation;
 using PFE.Domain.Entities;
 using PFE.Domain.Enums;
@@ -9,10 +10,30 @@ namespace PFE.Application.Services;
 
 public class SeatReservationService : ISeatReservationService
 {
+
     private readonly IApplicationDbContext _context;
     private readonly IMapper _mapper;
     private readonly INotificationService _notificationService;
 
+    public async Task<bool> CancelMyTodayReservationAsync(int userId)
+    {
+        var tunisTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Tunis");
+        var today = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tunisTimeZone).Date;
+
+        var reservation = await _context.SeatReservations
+            .FirstOrDefaultAsync(r =>
+                r.UserId == userId &&
+                r.Date.Date == today &&
+                r.Status == ReservationStatus.Active);
+
+        if (reservation == null)
+            return false;
+
+        reservation.Status = ReservationStatus.Cancelled;
+
+        await _context.SaveChangesAsync();
+        return true;
+    }
     public SeatReservationService(
         IApplicationDbContext context,
         IMapper mapper,
@@ -33,7 +54,11 @@ public class SeatReservationService : ISeatReservationService
         // Allow ONLY today's date (Tunisia)
         if (dateOnly != tunisToday)
         {
-            throw new Exception("Desk reservation is allowed for today only.");
+            throw new FrontendValidationException(
+                400,
+                $"Desk reservation is allowed for today only (Tunisia): {tunisToday:yyyy-MM-dd}.",
+                new[] { "NOT_TODAY" }
+            );
         }
 
         // Validation 1: Check if seat exists and is active
@@ -43,7 +68,11 @@ public class SeatReservationService : ISeatReservationService
 
         if (seat == null)
         {
-            return null; // Seat not found or inactive
+            throw new FrontendValidationException(
+                422,
+                "Selected seat is inactive or does not exist.",
+                new[] { "SEAT_INACTIVE" }
+            );
         }
 
         // Validation 2: Prevent double booking - seat already reserved for this date
@@ -54,7 +83,11 @@ public class SeatReservationService : ISeatReservationService
 
         if (existingSeatReservation)
         {
-            return null; // Seat already reserved for this date
+            throw new FrontendValidationException(
+                409,
+                "Selected seat is already reserved for today.",
+                new[] { "SEAT_TAKEN" }
+            );
         }
 
         // Validation 3: Prevent user booking 2 seats on the same date
@@ -65,7 +98,11 @@ public class SeatReservationService : ISeatReservationService
 
         if (existingUserReservation)
         {
-            return null; // User already has a seat reservation for this date
+            throw new FrontendValidationException(
+                409,
+                "You already have a seat reservation for today.",
+                new[] { "USER_ALREADY_HAS_SEAT" }
+            );
         }
 
         // Create reservation

@@ -6,7 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // - iOS Simulator: localhost
 // - Android Emulator: 10.0.2.2 (alias for host machine)
 // - Physical device: set API_HOST below to your PC's IP (e.g. 192.168.1.10)
-const API_HOST = '192.168.1.59'; // e.g. '192.168.1.10' for real device
+const API_HOST = '192.168.1.12'; // e.g. '192.168.1.10' for real device
 const getBaseUrl = () => {
   if (!__DEV__) return 'https://your-api-domain.com/api';
   if (API_HOST) return `http://${API_HOST}:5000/api`;
@@ -15,6 +15,7 @@ const getBaseUrl = () => {
     : 'http://localhost:5000/api';
 };
 const BASE_URL = getBaseUrl();
+console.log('API BASE URL:', BASE_URL);
 
 // Create axios instance
 const axiosInstance = axios.create({

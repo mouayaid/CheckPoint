@@ -16,8 +16,6 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<User> Users { get; set; }
     public DbSet<OfficeTable> OfficeTables { get; set; }
 
-    public DbSet<Desk> Desks { get; set; }
-    public DbSet<DeskReservation> DeskReservations { get; set; }
     public DbSet<InternalRequest> InternalRequests { get; set; }
 
     public DbSet<Seat> Seats { get; set; }
@@ -413,8 +411,8 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasKey(e => e.Id);
 
             entity.Property(e => e.Reason)
-    .IsRequired()
-    .HasMaxLength(1000);
+                .IsRequired()
+                .HasMaxLength(1000);
 
             entity.Property(e => e.ManagerComment)
                 .HasMaxLength(1000);
@@ -422,12 +420,14 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.Property(e => e.ReviewedAt)
                 .HasColumnType("datetime2");
 
-
             entity.HasIndex(e => e.UserId)
                 .HasDatabaseName("IX_LeaveRequests_UserId");
 
-            entity.HasIndex(e => e.ManagerId)
-                .HasDatabaseName("IX_LeaveRequests_ManagerId");
+            entity.HasIndex(e => e.AssignedManagerId)
+                .HasDatabaseName("IX_LeaveRequests_AssignedManagerId");
+
+            entity.HasIndex(e => e.ReviewedById)
+                .HasDatabaseName("IX_LeaveRequests_ReviewedById");
 
             entity.HasIndex(e => e.Status)
                 .HasDatabaseName("IX_LeaveRequests_Status");
@@ -458,27 +458,31 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
                 .HasConversion<int>()
                 .HasDefaultValue(RequestStatus.Pending);
 
-            entity.Property(e => e.ManagerId)
-                .HasComment("Manager who will review this request");
-
             entity.Property(e => e.CreatedAt)
                 .IsRequired()
                 .HasDefaultValueSql("GETUTCDATE()");
 
             // Relationships
+
             entity.HasOne(e => e.User)
                 .WithMany(e => e.LeaveRequests)
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("FK_LeaveRequests_User");
 
-            entity.HasOne(e => e.Manager)
-                .WithMany(e => e.ManagedLeaveRequests)
-                .HasForeignKey(e => e.ManagerId)
+            entity.HasOne(e => e.AssignedManager)
+                .WithMany()
+                .HasForeignKey(e => e.AssignedManagerId)
                 .OnDelete(DeleteBehavior.Restrict)
-                .HasConstraintName("FK_LeaveRequests_Manager");
+                .HasConstraintName("FK_LeaveRequests_AssignedManager");
 
-            // Check constraint: EndDate >= StartDate
+            entity.HasOne(e => e.ReviewedBy)
+                .WithMany()
+                .HasForeignKey(e => e.ReviewedById)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_LeaveRequests_ReviewedBy");
+
+            // Check constraint
             entity.ToTable(t => t.HasCheckConstraint(
                 "CK_LeaveRequests_EndDate_After_StartDate",
                 "[EndDate] >= [StartDate]"));

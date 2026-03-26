@@ -15,7 +15,7 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
-import { axiosInstance, requestService, profileService } from "../services/api";
+import { axiosInstance, leaveService, profileService } from "../services/api";
 import {
   roleToString,
   requestStatusToString,
@@ -157,10 +157,10 @@ export default function LeaveRequestScreen() {
     setLoadingRequests(true);
     try {
       const res = isManager
-        ? await requestService.getPendingLeaveRequests()
-        : await requestService.getMyLeaveRequests();
+        ? await leaveService.getPendingLeaveRequests()
+        : await leaveService.getMyLeaveRequests();
 
-      if (res?.success) {
+      if (res?.data?.success) {
         const normalized = (res.data || []).map((request) => ({
           ...request,
           normalizedStatus: normalizeStatus(
@@ -213,14 +213,14 @@ export default function LeaveRequestScreen() {
     setCreating(true);
 
     try {
-      const res = await requestService.createLeaveRequest({
+      const res = await leaveService.createLeaveRequest({
         type: leaveTypeToInt(type),
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
         reason: reason.trim(),
       });
 
-      if (res?.success) {
+      if (res?.data?.success) {
         Alert.alert("Success", "Leave request created");
         resetCreateModal();
         await loadRequests();
@@ -253,13 +253,10 @@ export default function LeaveRequestScreen() {
     setReviewingAction(status);
 
     try {
-      const res = await axiosInstance.put(
-        `/Approvals/leave/${selectedRequest.id}`,
-        {
-          decision,
-          comment: reviewComment.trim(),
-        },
-      );
+      const res = await leaveService.review(selectedRequest.id, {
+        decision,
+        comment: reviewComment.trim(),
+      });
 
       const success = res?.data?.success ?? res?.success;
 

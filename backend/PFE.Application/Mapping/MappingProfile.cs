@@ -4,7 +4,6 @@ using PFE.Application.DTOs.Department;
 using PFE.Application.DTOs.Event;
 using PFE.Application.DTOs.EventParticipant;
 using PFE.Application.DTOs.GeneralRequest;
-using PFE.Application.DTOs.LeaveRequest;
 using PFE.Application.DTOs.Notification;
 using PFE.Application.DTOs.OfficeTable;
 using PFE.Application.DTOs.Room;
@@ -21,6 +20,8 @@ namespace PFE.Application.Mapping;
 
 public class MappingProfile : Profile
 {
+
+
     public MappingProfile()
     {
         // Department mappings
@@ -105,41 +106,60 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.Reservations, opt => opt.Ignore())
             .ForMember(dest => dest.Events, opt => opt.Ignore());
 
-        // RoomReservation mappings
-        // RoomReservation mappings
-CreateMap<RoomReservation, RoomReservationDto>()
-    .ForMember(dest => dest.RoomName, opt => opt.MapFrom(src => src.Room.Name))
-    .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.User.FullName));
 
-CreateMap<CreateRoomReservationDto, RoomReservation>()
-    .ForMember(dest => dest.Id, opt => opt.Ignore())
-    .ForMember(dest => dest.UserId, opt => opt.Ignore())
-    .ForMember(dest => dest.Status, opt => opt.Ignore())
-    .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
-    .ForMember(dest => dest.Room, opt => opt.Ignore())
-    .ForMember(dest => dest.User, opt => opt.Ignore());
+
+        // RoomReservation mappings
+        CreateMap<RoomReservation, RoomReservationDto>()
+            .ForMember(dest => dest.RoomName, opt => opt.MapFrom(src => src.Room.Name))
+            .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.User.FullName));
+
+        CreateMap<CreateRoomReservationDto, RoomReservation>()
+            .ForMember(dest => dest.Id, opt => opt.Ignore())
+            .ForMember(dest => dest.UserId, opt => opt.Ignore())
+            .ForMember(dest => dest.Status, opt => opt.Ignore())
+            .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
+            .ForMember(dest => dest.Room, opt => opt.Ignore())
+            .ForMember(dest => dest.User, opt => opt.Ignore());
 
         // LeaveRequest mappings
+        // LeaveRequest mappings
         CreateMap<LeaveRequest, LeaveRequestDto>()
-            .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.User.FullName))
-            .ForMember(dest => dest.ManagerName, opt => opt.MapFrom(src => src.Manager != null ? src.Manager.FullName : null));
+            .ForMember(dest => dest.UserName,
+                opt => opt.MapFrom(src => src.User.FullName))
+
+            .ForMember(dest => dest.AssignedManagerName,
+                opt => opt.MapFrom(src =>
+                    src.AssignedManager != null
+                        ? src.AssignedManager.FullName
+                        : null))
+
+            .ForMember(dest => dest.ReviewedByName,
+                opt => opt.MapFrom(src =>
+                    src.ReviewedBy != null
+                        ? src.ReviewedBy.FullName
+                        : null));
+
         CreateMap<CreateLeaveRequestDto, LeaveRequest>()
             .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.UserId, opt => opt.Ignore()) // Will be set from authenticated user
+            .ForMember(dest => dest.UserId, opt => opt.Ignore())
             .ForMember(dest => dest.Status, opt => opt.MapFrom(src => RequestStatus.Pending))
-            .ForMember(dest => dest.ManagerId, opt => opt.Ignore()) // Will be set from user's manager
             .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
             .ForMember(dest => dest.User, opt => opt.Ignore())
-            .ForMember(dest => dest.Manager, opt => opt.Ignore());
+            .ForMember(dest => dest.AssignedManagerId, opt => opt.Ignore())
+            .ForMember(dest => dest.AssignedManager, opt => opt.Ignore())
+            .ForMember(dest => dest.ReviewedById, opt => opt.Ignore())
+            .ForMember(dest => dest.ReviewedBy, opt => opt.Ignore());
+
         CreateMap<UpdateLeaveRequestDto, LeaveRequest>()
             .ForMember(dest => dest.Id, opt => opt.Ignore())
             .ForMember(dest => dest.UserId, opt => opt.Ignore())
             .ForMember(dest => dest.Status, opt => opt.Ignore())
-            .ForMember(dest => dest.ManagerId, opt => opt.Ignore())
             .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
             .ForMember(dest => dest.User, opt => opt.Ignore())
-            .ForMember(dest => dest.Manager, opt => opt.Ignore());
-
+            .ForMember(dest => dest.AssignedManagerId, opt => opt.Ignore())
+            .ForMember(dest => dest.AssignedManager, opt => opt.Ignore())
+            .ForMember(dest => dest.ReviewedById, opt => opt.Ignore())
+            .ForMember(dest => dest.ReviewedBy, opt => opt.Ignore());
         // AbsenceRequest mappings
         CreateMap<AbsenceRequest, AbsenceRequestDto>()
             .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.User.FullName))

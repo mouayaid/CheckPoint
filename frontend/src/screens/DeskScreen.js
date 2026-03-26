@@ -30,7 +30,7 @@ function getErrorMessage(error, fallback) {
   );
 }
 
-const DeskReservationScreen = () => {
+const DeskScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
   const selectedDate = useMemo(() => formatDate(new Date()), []);
@@ -920,4 +920,4 @@ const DeskReservationScreen = () => {
   );
 };
 
-export default DeskReservationScreen;
+export default DeskScreen;

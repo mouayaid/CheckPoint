@@ -24,7 +24,7 @@ import { typography } from "./src/theme/theme";
 import LoginScreen from "./src/screens/LoginScreen";
 import RegisterScreen from "./src/screens/RegisterScreen";
 import DashboardScreen from "./src/screens/DashboardScreen";
-import DeskReservationScreen from "./src/screens/DeskReservationScreen";
+import DeskScreen from "./src/screens/DeskScreen";
 import RoomReservationScreen from "./src/screens/RoomReservationScreen";
 import LeaveRequestScreen from "./src/screens/LeaveRequestScreen";
 import EventsScreen from "./src/screens/EventsScreen";
@@ -111,7 +111,7 @@ function HomeTabs() {
 
       <Tab.Screen
         name="Desk"
-        component={DeskReservationScreen}
+        component={DeskScreen}
         options={{
           title: "Desk Reservation",
           tabBarButton: () => null,

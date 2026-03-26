@@ -1,6 +1,6 @@
 using PFE.Domain.Enums;
 
-namespace PFE.Application.DTOs.LeaveRequest;
+namespace PFE.Application.DTOs.Leave;
 
 public class UpdateLeaveRequestDto
 {

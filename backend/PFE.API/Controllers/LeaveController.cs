@@ -24,6 +24,7 @@ public class LeaveController : ControllerBase
     public async Task<ActionResult<ApiResponse<LeaveRequestDto>>> CreateLeaveRequest([FromBody] CreateLeaveRequestDto dto)
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
         try
         {
             var result = await _leaveService.CreateLeaveRequestAsync(userId, dto);
@@ -40,41 +41,40 @@ public class LeaveController : ControllerBase
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         var requests = await _leaveService.GetUserLeaveRequestsAsync(userId);
+
         return Ok(ApiResponse<List<LeaveRequestDto>>.SuccessResponse(requests));
     }
 
-    [HttpGet("requests/pending")]
     [Authorize(Roles = "Manager,Admin")]
-    public async Task<ActionResult<ApiResponse<List<LeaveRequestDto>>>> GetPendingLeaveRequests()
+    [HttpGet("pending-review")]
+    public async Task<IActionResult> GetPendingForReview()
     {
-        var managerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        var requests = await _leaveService.GetPendingLeaveRequestsForManagerAsync(managerId);
-        return Ok(ApiResponse<List<LeaveRequestDto>>.SuccessResponse(requests));
+        var reviewerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        var requests = await _leaveService.GetPendingLeaveRequestsForReviewerAsync(reviewerId);
+
+        return Ok(requests);
     }
 
-    [HttpPut("requests/{id}/review")]
     [Authorize(Roles = "Manager,Admin")]
-    public async Task<ActionResult<ApiResponse<bool>>> ReviewLeaveRequest(int id, [FromBody] ReviewLeaveRequestDto dto)
+    [HttpPut("requests/{id}/approve")]
+    public async Task<IActionResult> Approve(int id, [FromBody] ApproveLeaveRequestDto dto)
     {
-        var managerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        try
-        {
-            var result = await _leaveService.ReviewLeaveRequestAsync(id, managerId, dto);
+        var reviewerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-            if (!result)
-            {
-                return BadRequest(ApiResponse<bool>.ErrorResponse(
-                    "Leave request not found or cannot be reviewed",
-                    new List<string> { "NOT_FOUND_OR_NOT_REVIEWABLE" }
-                ));
-            }
+        var result = await _leaveService.ApproveLeaveRequestAsync(id, reviewerId, dto);
 
-            return Ok(ApiResponse<bool>.SuccessResponse(true, "Leave request reviewed successfully"));
-        }
-        catch (FrontendValidationException ex)
-        {
-            return StatusCode(ex.StatusCode, ApiResponse<bool>.ErrorResponse(ex.Message, ex.Errors));
-        }
+        return Ok(result);
+    }
+
+    [Authorize(Roles = "Manager,Admin")]
+    [HttpPut("requests/{id}/reject")]
+    public async Task<IActionResult> Reject(int id, [FromBody] RejectLeaveRequestDto dto)
+    {
+        var reviewerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        var result = await _leaveService.RejectLeaveRequestAsync(id, reviewerId, dto);
+
+        return Ok(result);
     }
 }
-

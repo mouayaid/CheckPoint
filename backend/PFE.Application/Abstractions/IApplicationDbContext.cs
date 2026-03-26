@@ -8,8 +8,6 @@ public interface IApplicationDbContext
     DbSet<User> Users { get; }
     DbSet<Department> Departments { get; }
 
-    DbSet<Desk> Desks { get; }
-DbSet<DeskReservation> DeskReservations { get; }
 DbSet<InternalRequest> InternalRequests { get; }
 
 

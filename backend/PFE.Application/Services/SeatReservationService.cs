@@ -17,8 +17,7 @@ public class SeatReservationService : ISeatReservationService
 
     public async Task<bool> CancelMyTodayReservationAsync(int userId)
     {
-        var tunisTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Africa/Tunis");
-        var today = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tunisTimeZone).Date;
+        var today = GetTunisiaNow().Date;
 
         var reservation = await _context.SeatReservations
             .FirstOrDefaultAsync(r =>

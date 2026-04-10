@@ -5,9 +5,9 @@
 
 export const lightColors = {
   // Brand
-  primary: "#E53935",
-  primaryDark: "#C62828",
-  primaryLight: "#FF6B6B",
+  primary: "#E11D48",
+  primaryDark: "#BE123C",
+  primaryLight: "#FDA4AF",
 
   // Base
   white: "#FFFFFF",
@@ -65,9 +65,9 @@ export const lightColors = {
 
 export const darkColors = {
   // Brand
-  primary: "#FF5A57",
-  primaryDark: "#E53935",
-  primaryLight: "#FF8A80",
+  primary: "#FB7185",
+  primaryDark: "#E11D48",
+  primaryLight: "#FDA4AF",
 
   // Base
   white: "#FFFFFF",
@@ -151,6 +151,13 @@ export const typography = {
   xxxl: 28,
   display: 32,
 
+  fontFamily: {
+    regular: "Inter_400Regular",
+    medium: "Inter_500Medium",
+    semibold: "Inter_600SemiBold",
+    bold: "Inter_700Bold",
+  },
+
   regular: "400",
   medium: "500",
   semibold: "600",
@@ -160,23 +167,23 @@ export const typography = {
 export const shadows = {
   sm: {
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowRadius: 4,
     elevation: 2,
   },
   md: {
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
-    shadowRadius: 8,
+    shadowRadius: 10,
     elevation: 4,
   },
   lg: {
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.12,
-    shadowRadius: 16,
+    shadowRadius: 18,
     elevation: 8,
   },
 };

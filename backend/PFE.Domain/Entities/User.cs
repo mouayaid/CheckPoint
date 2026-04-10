@@ -16,8 +16,11 @@ public class User
     public bool IsActive { get; set; } = false;
     public DateTime? ApprovedAt { get; set; }
     public int? ApprovedByUserId { get; set; }
-    
-    // Navigation properties
+
+    public DateTime? RejectedAt { get; set; }
+    public int? RejectedById { get; set; }
+    public string? RejectionReason { get; set; }
+
     public ICollection<SeatReservation> SeatReservations { get; set; } = new List<SeatReservation>();
     public ICollection<RoomReservation> RoomReservations { get; set; } = new List<RoomReservation>();
     public ICollection<LeaveRequest> LeaveRequests { get; set; } = new List<LeaveRequest>();
@@ -26,9 +29,11 @@ public class User
     public ICollection<Event> CreatedEvents { get; set; } = new List<Event>();
     public ICollection<EventParticipant> EventParticipants { get; set; } = new List<EventParticipant>();
     public ICollection<Notification> Notifications { get; set; } = new List<Notification>();
-    
-    // Manager relationships
+
     public ICollection<LeaveRequest> ManagedLeaveRequests { get; set; } = new List<LeaveRequest>();
     public ICollection<AbsenceRequest> ManagedAbsenceRequests { get; set; } = new List<AbsenceRequest>();
     public ICollection<GeneralRequest> AssignedGeneralRequests { get; set; } = new List<GeneralRequest>();
+
+    public ICollection<DepartmentChannelMessage> SentDepartmentMessages { get; set; } = new List<DepartmentChannelMessage>();
+    public ICollection<DepartmentPollVote> DepartmentPollVotes { get; set; } = new List<DepartmentPollVote>();
 }

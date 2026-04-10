@@ -22,6 +22,47 @@ namespace PFE.Infrastructure.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Announcement", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("CreatedById")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("PublishAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedById");
+
+                    b.ToTable("Announcements");
+                });
+
             modelBuilder.Entity("PFE.Domain.Entities.AbsenceRequest", b =>
                 {
                     b.Property<int>("Id")
@@ -100,7 +141,7 @@ namespace PFE.Infrastructure.Migrations
                     b.ToTable("Departments");
                 });
 
-            modelBuilder.Entity("PFE.Domain.Entities.Desk", b =>
+            modelBuilder.Entity("PFE.Domain.Entities.DepartmentChannelMessage", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -108,28 +149,44 @@ namespace PFE.Infrastructure.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<string>("Description")
-                        .HasColumnType("nvarchar(max)");
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
 
-                    b.Property<bool>("IsAvailable")
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<int>("DepartmentId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("IsPinned")
                         .HasColumnType("bit");
 
-                    b.Property<string>("Name")
+                    b.Property<string>("MessageType")
                         .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int>("SenderId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Title")
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("X")
-                        .HasColumnType("int");
-
-                    b.Property<int>("Y")
-                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
-                    b.ToTable("Desks");
+                    b.HasIndex("DepartmentId")
+                        .HasDatabaseName("IX_ChannelMessages_DepartmentId");
+
+                    b.HasIndex("SenderId");
+
+                    b.ToTable("DepartmentChannelMessages");
                 });
 
-            modelBuilder.Entity("PFE.Domain.Entities.DeskReservation", b =>
+            modelBuilder.Entity("PFE.Domain.Entities.DepartmentPoll", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -137,29 +194,92 @@ namespace PFE.Infrastructure.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AllowMultipleChoices")
+                        .HasColumnType("bit");
+
                     b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<DateTime?>("ExpiresAt")
                         .HasColumnType("datetime2");
 
-                    b.Property<int>("DeskId")
+                    b.Property<bool>("IsClosed")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("MessageId")
                         .HasColumnType("int");
 
-                    b.Property<DateTime>("ReservationDate")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Status")
+                    b.Property<string>("Question")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MessageId")
+                        .IsUnique();
+
+                    b.ToTable("DepartmentPolls");
+                });
+
+            modelBuilder.Entity("PFE.Domain.Entities.DepartmentPollOption", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("PollId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PollId");
+
+                    b.ToTable("DepartmentPollOptions");
+                });
+
+            modelBuilder.Entity("PFE.Domain.Entities.DepartmentPollVote", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("PollId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("PollOptionId")
+                        .HasColumnType("int");
 
                     b.Property<int>("UserId")
                         .HasColumnType("int");
 
+                    b.Property<DateTime>("VotedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("DeskId");
+                    b.HasIndex("PollOptionId");
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("DeskReservations");
+                    b.HasIndex("PollId", "UserId", "PollOptionId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_PollVotes_UniqueVote");
+
+                    b.ToTable("DepartmentPollVotes");
                 });
 
             modelBuilder.Entity("PFE.Domain.Entities.Event", b =>
@@ -393,6 +513,9 @@ namespace PFE.Infrastructure.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("AssignedManagerId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2")
@@ -405,10 +528,6 @@ namespace PFE.Infrastructure.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
-                    b.Property<int?>("ManagerId")
-                        .HasColumnType("int")
-                        .HasComment("Manager who will review this request");
-
                     b.Property<string>("Reason")
                         .IsRequired()
                         .HasMaxLength(1000)
@@ -416,6 +535,9 @@ namespace PFE.Infrastructure.Migrations
 
                     b.Property<DateTime?>("ReviewedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<int?>("ReviewedById")
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("StartDate")
                         .HasColumnType("date");
@@ -433,8 +555,11 @@ namespace PFE.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ManagerId")
-                        .HasDatabaseName("IX_LeaveRequests_ManagerId");
+                    b.HasIndex("AssignedManagerId")
+                        .HasDatabaseName("IX_LeaveRequests_AssignedManagerId");
+
+                    b.HasIndex("ReviewedById")
+                        .HasDatabaseName("IX_LeaveRequests_ReviewedById");
 
                     b.HasIndex("Status")
                         .HasDatabaseName("IX_LeaveRequests_Status");
@@ -734,11 +859,13 @@ namespace PFE.Infrastructure.Migrations
 
                     b.HasIndex("SeatId", "Date")
                         .IsUnique()
-                        .HasDatabaseName("IX_SeatReservations_Seat_Date_Unique");
+                        .HasDatabaseName("IX_SeatReservations_Seat_Date_Unique")
+                        .HasFilter("[Status] = 1");
 
                     b.HasIndex("UserId", "Date")
                         .IsUnique()
-                        .HasDatabaseName("IX_SeatReservations_User_Date_Unique");
+                        .HasDatabaseName("IX_SeatReservations_User_Date_Unique")
+                        .HasFilter("[Status] = 1");
 
                     b.ToTable("SeatReservations");
                 });
@@ -789,6 +916,15 @@ namespace PFE.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<DateTime?>("RejectedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("RejectedById")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RejectionReason")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("Role")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
@@ -807,6 +943,17 @@ namespace PFE.Infrastructure.Migrations
                         .HasDatabaseName("IX_Users_Role");
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("Announcement", b =>
+                {
+                    b.HasOne("PFE.Domain.Entities.User", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CreatedBy");
                 });
 
             modelBuilder.Entity("PFE.Domain.Entities.AbsenceRequest", b =>
@@ -829,21 +976,70 @@ namespace PFE.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("PFE.Domain.Entities.DeskReservation", b =>
+            modelBuilder.Entity("PFE.Domain.Entities.DepartmentChannelMessage", b =>
                 {
-                    b.HasOne("PFE.Domain.Entities.Desk", "Desk")
-                        .WithMany("Reservations")
-                        .HasForeignKey("DeskId")
+                    b.HasOne("PFE.Domain.Entities.Department", "Department")
+                        .WithMany("ChannelMessages")
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PFE.Domain.Entities.User", "Sender")
+                        .WithMany("SentDepartmentMessages")
+                        .HasForeignKey("SenderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Department");
+
+                    b.Navigation("Sender");
+                });
+
+            modelBuilder.Entity("PFE.Domain.Entities.DepartmentPoll", b =>
+                {
+                    b.HasOne("PFE.Domain.Entities.DepartmentChannelMessage", "Message")
+                        .WithOne("Poll")
+                        .HasForeignKey("PFE.Domain.Entities.DepartmentPoll", "MessageId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Message");
+                });
+
+            modelBuilder.Entity("PFE.Domain.Entities.DepartmentPollOption", b =>
+                {
+                    b.HasOne("PFE.Domain.Entities.DepartmentPoll", "Poll")
+                        .WithMany("Options")
+                        .HasForeignKey("PollId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Poll");
+                });
+
+            modelBuilder.Entity("PFE.Domain.Entities.DepartmentPollVote", b =>
+                {
+                    b.HasOne("PFE.Domain.Entities.DepartmentPoll", "Poll")
+                        .WithMany("Votes")
+                        .HasForeignKey("PollId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PFE.Domain.Entities.DepartmentPollOption", "PollOption")
+                        .WithMany("Votes")
+                        .HasForeignKey("PollOptionId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("PFE.Domain.Entities.User", "User")
-                        .WithMany()
+                        .WithMany("DepartmentPollVotes")
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("Desk");
+                    b.Navigation("Poll");
+
+                    b.Navigation("PollOption");
 
                     b.Navigation("User");
                 });
@@ -934,11 +1130,17 @@ namespace PFE.Infrastructure.Migrations
 
             modelBuilder.Entity("PFE.Domain.Entities.LeaveRequest", b =>
                 {
-                    b.HasOne("PFE.Domain.Entities.User", "Manager")
+                    b.HasOne("PFE.Domain.Entities.User", "AssignedManager")
                         .WithMany("ManagedLeaveRequests")
-                        .HasForeignKey("ManagerId")
+                        .HasForeignKey("AssignedManagerId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("FK_LeaveRequests_Manager");
+                        .HasConstraintName("FK_LeaveRequests_AssignedManager");
+
+                    b.HasOne("PFE.Domain.Entities.User", "ReviewedBy")
+                        .WithMany()
+                        .HasForeignKey("ReviewedById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_LeaveRequests_ReviewedBy");
 
                     b.HasOne("PFE.Domain.Entities.User", "User")
                         .WithMany("LeaveRequests")
@@ -947,7 +1149,9 @@ namespace PFE.Infrastructure.Migrations
                         .IsRequired()
                         .HasConstraintName("FK_LeaveRequests_User");
 
-                    b.Navigation("Manager");
+                    b.Navigation("AssignedManager");
+
+                    b.Navigation("ReviewedBy");
 
                     b.Navigation("User");
                 });
@@ -1038,12 +1242,26 @@ namespace PFE.Infrastructure.Migrations
 
             modelBuilder.Entity("PFE.Domain.Entities.Department", b =>
                 {
+                    b.Navigation("ChannelMessages");
+
                     b.Navigation("Users");
                 });
 
-            modelBuilder.Entity("PFE.Domain.Entities.Desk", b =>
+            modelBuilder.Entity("PFE.Domain.Entities.DepartmentChannelMessage", b =>
                 {
-                    b.Navigation("Reservations");
+                    b.Navigation("Poll");
+                });
+
+            modelBuilder.Entity("PFE.Domain.Entities.DepartmentPoll", b =>
+                {
+                    b.Navigation("Options");
+
+                    b.Navigation("Votes");
+                });
+
+            modelBuilder.Entity("PFE.Domain.Entities.DepartmentPollOption", b =>
+                {
+                    b.Navigation("Votes");
                 });
 
             modelBuilder.Entity("PFE.Domain.Entities.Event", b =>
@@ -1076,6 +1294,8 @@ namespace PFE.Infrastructure.Migrations
 
                     b.Navigation("CreatedEvents");
 
+                    b.Navigation("DepartmentPollVotes");
+
                     b.Navigation("EventParticipants");
 
                     b.Navigation("GeneralRequests");
@@ -1091,6 +1311,8 @@ namespace PFE.Infrastructure.Migrations
                     b.Navigation("RoomReservations");
 
                     b.Navigation("SeatReservations");
+
+                    b.Navigation("SentDepartmentMessages");
                 });
 #pragma warning restore 612, 618
         }

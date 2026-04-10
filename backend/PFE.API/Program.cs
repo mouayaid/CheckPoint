@@ -135,10 +135,13 @@ builder.Services.AddScoped<IRoomReservationService, RoomReservationService>();
 builder.Services.AddScoped<IAbsenceRequestService, AbsenceRequestService>();
 builder.Services.AddScoped<IGeneralRequestService, GeneralRequestService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
+builder.Services.AddScoped<ILeaveService, LeaveService>();
 builder.Services.AddScoped<IInternalRequestService, InternalRequestService>();
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
+builder.Services.AddScoped<IDepartmentChannelService, DepartmentChannelService>();
+builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
 
 var app = builder.Build();
 

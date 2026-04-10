@@ -28,10 +28,26 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<Event> Events { get; set; }
     public DbSet<EventParticipant> EventParticipants { get; set; }
     public DbSet<Notification> Notifications { get; set; }
+    public DbSet<Announcement> Announcements => Set<Announcement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<DepartmentChannelMessage>()
+    .HasOne(m => m.Poll)
+    .WithOne(p => p.Message)
+    .HasForeignKey<DepartmentPoll>(p => p.MessageId);
+
+        modelBuilder.Entity<DepartmentPollOption>()
+        .HasOne(o => o.Poll)
+        .WithMany(p => p.Options)
+        .HasForeignKey(o => o.PollId);
+
+        modelBuilder.Entity<DepartmentPollVote>()
+            .HasOne(v => v.Poll)
+            .WithMany(p => p.Votes)
+            .HasForeignKey(v => v.PollId);
 
         ConfigureDepartment(modelBuilder);
         ConfigureUser(modelBuilder);
@@ -46,6 +62,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         ConfigureEvent(modelBuilder);
         ConfigureEventParticipant(modelBuilder);
         ConfigureNotification(modelBuilder);
+        ConfigureDepartmentChannelMessage(modelBuilder);
+        ConfigureDepartmentPoll(modelBuilder);
+        ConfigureDepartmentPollOption(modelBuilder);
+        ConfigureDepartmentPollVote(modelBuilder);
     }
 
     private void ConfigureDepartment(ModelBuilder modelBuilder)
@@ -71,6 +91,106 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
                 .HasForeignKey(e => e.DepartmentId)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK_Users_Department");
+        });
+    }
+    private void ConfigureDepartmentChannelMessage(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DepartmentChannelMessage>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Content)
+                .HasMaxLength(2000);
+
+            entity.Property(e => e.MessageType)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            entity.Property(e => e.CreatedAt)
+                .IsRequired()
+                .HasDefaultValueSql("GETUTCDATE()");
+
+            entity.HasIndex(e => e.DepartmentId)
+                .HasDatabaseName("IX_ChannelMessages_DepartmentId");
+
+            // Department → Messages
+            entity.HasOne(e => e.Department)
+                .WithMany(d => d.ChannelMessages)
+                .HasForeignKey(e => e.DepartmentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // User → Messages
+            entity.HasOne(e => e.Sender)
+                .WithMany(u => u.SentDepartmentMessages)
+                .HasForeignKey(e => e.SenderId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Message → Poll (1-1)
+            entity.HasOne(e => e.Poll)
+                .WithOne(p => p.Message)
+                .HasForeignKey<DepartmentPoll>(p => p.MessageId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+    private void ConfigureDepartmentPoll(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DepartmentPoll>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Question)
+                .IsRequired()
+                .HasMaxLength(500);
+
+            entity.Property(e => e.CreatedAt)
+                .IsRequired()
+                .HasDefaultValueSql("GETUTCDATE()");
+
+            entity.HasMany(e => e.Options)
+                .WithOne(o => o.Poll)
+                .HasForeignKey(o => o.PollId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasMany(e => e.Votes)
+                .WithOne(v => v.Poll)
+                .HasForeignKey(v => v.PollId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+    private void ConfigureDepartmentPollOption(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DepartmentPollOption>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Text)
+                .IsRequired()
+                .HasMaxLength(300);
+
+            entity.HasMany(e => e.Votes)
+                .WithOne(v => v.PollOption)
+                .HasForeignKey(v => v.PollOptionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+    private void ConfigureDepartmentPollVote(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DepartmentPollVote>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.VotedAt)
+                .IsRequired()
+                .HasDefaultValueSql("GETUTCDATE()");
+
+            entity.HasOne(e => e.User)
+                .WithMany(u => u.DepartmentPollVotes)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => new { e.PollId, e.UserId, e.PollOptionId })
+                .IsUnique()
+                .HasDatabaseName("IX_PollVotes_UniqueVote");
         });
     }
 
@@ -231,14 +351,16 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         {
             entity.HasKey(e => e.Id);
 
-            // Unique constraint: Only one reservation per seat per date
+            // Unique constraint: Only one reservation per seat per date (Active only)
             entity.HasIndex(e => new { e.SeatId, e.Date })
                 .IsUnique()
+                .HasFilter("[Status] = 1")
                 .HasDatabaseName("IX_SeatReservations_Seat_Date_Unique");
 
-            // Unique constraint: Only one seat per user per date
+            // Unique constraint: Only one seat per user per date (Active only)
             entity.HasIndex(e => new { e.UserId, e.Date })
                 .IsUnique()
+                .HasFilter("[Status] = 1")
                 .HasDatabaseName("IX_SeatReservations_User_Date_Unique");
 
             entity.HasIndex(e => e.UserId)
@@ -465,13 +587,13 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             // Relationships
 
             entity.HasOne(e => e.User)
-                .WithMany(e => e.LeaveRequests)
-                .HasForeignKey(e => e.UserId)
-                .OnDelete(DeleteBehavior.Cascade)
-                .HasConstraintName("FK_LeaveRequests_User");
+    .WithMany(u => u.LeaveRequests)
+    .HasForeignKey(e => e.UserId)
+    .OnDelete(DeleteBehavior.Cascade)
+    .HasConstraintName("FK_LeaveRequests_User");
 
             entity.HasOne(e => e.AssignedManager)
-                .WithMany()
+                .WithMany(u => u.ManagedLeaveRequests)
                 .HasForeignKey(e => e.AssignedManagerId)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK_LeaveRequests_AssignedManager");
@@ -746,7 +868,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
                 .HasConstraintName("FK_EventParticipants_User");
         });
     }
-
+    public DbSet<DepartmentChannelMessage> DepartmentChannelMessages => Set<DepartmentChannelMessage>();
+    public DbSet<DepartmentPoll> DepartmentPolls => Set<DepartmentPoll>();
+    public DbSet<DepartmentPollOption> DepartmentPollOptions => Set<DepartmentPollOption>();
+    public DbSet<DepartmentPollVote> DepartmentPollVotes => Set<DepartmentPollVote>();
     private void ConfigureNotification(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Notification>(entity =>

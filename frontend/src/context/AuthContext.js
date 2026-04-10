@@ -1,15 +1,17 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '../utils/constants';
-import { axiosInstance } from '../services/api';
+import React, { createContext, useState, useEffect, useContext } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { STORAGE_KEYS } from "../utils/constants";
+import { axiosInstance } from "../services/api";
 
 const AuthContext = createContext();
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
+
   if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
+    throw new Error("useAuth must be used within AuthProvider");
   }
+
   return context;
 };
 
@@ -33,42 +35,47 @@ export const AuthProvider = ({ children }) => {
         setIsAuthenticated(true);
       }
     } catch (error) {
-      console.error('Error loading stored auth:', error);
+      console.error("Error loading stored auth:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
   /**
-   * Sign in user and store session
    * @param {string} token - JWT token from backend
    * @param {object} userData - User data object
    */
   const signIn = async (token, userData) => {
     try {
-      // Store token and user data in AsyncStorage
       await AsyncStorage.setItem(STORAGE_KEYS.USER_TOKEN, token);
-      await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(userData));
-      
-      // Set token in axios instance for future API calls
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.USER_DATA,
+        JSON.stringify(userData),
+      );
+
       await axiosInstance.setAuthToken(token);
-      
-      // Update state (this will trigger navigation to HomeTabs)
+
       setUser(userData);
       setIsAuthenticated(true);
     } catch (error) {
-      console.error('Error signing in:', error);
+      console.error("Error signing in:", error);
       throw error;
     }
   };
 
   const signOut = async () => {
     try {
+      await AsyncStorage.multiRemove([
+        STORAGE_KEYS.USER_TOKEN,
+        STORAGE_KEYS.USER_DATA,
+      ]);
+
       await axiosInstance.clearAuthToken();
+
       setUser(null);
       setIsAuthenticated(false);
     } catch (error) {
-      console.error('Error signing out:', error);
+      console.error("Error signing out:", error);
       throw error;
     }
   };

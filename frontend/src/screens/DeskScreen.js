@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Dimensions,
   RefreshControl,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { seatService } from "../services/api";
@@ -30,9 +31,357 @@ function getErrorMessage(error, fallback) {
   );
 }
 
+const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+
+    // ── Header ──────────────────────────────────────────────
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      backgroundColor: colors.surface,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    headerLeft: {
+      flex: 1,
+    },
+    headerDate: {
+      fontSize: typography.base,
+      fontWeight: typography.bold,
+      color: colors.text,
+    },
+    headerBadge: {
+      alignSelf: "flex-start",
+      marginTop: 4,
+      backgroundColor: colors.primary,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: borderRadius.sm,
+    },
+    headerBadgeText: {
+      fontSize: typography.xs,
+      fontWeight: typography.bold,
+      color: colors.textOnPrimary,
+      letterSpacing: 0.5,
+    },
+    refreshBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: borderRadius.md,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+
+    // ── Status card ─────────────────────────────────────────
+    statusCard: {
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+      marginBottom: spacing.sm,
+      padding: spacing.md,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    statusCardBooked: {
+      backgroundColor: colors.successLight,
+      borderColor: colors.success,
+    },
+    statusRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+    },
+    statusIconWrap: {
+      width: 38,
+      height: 38,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    statusTextWrap: {
+      flex: 1,
+    },
+    statusTitle: {
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+      color: colors.text,
+    },
+    statusSeat: {
+      fontSize: typography.sm,
+      fontWeight: typography.bold,
+      color: colors.success,
+    },
+    statusHint: {
+      marginTop: 2,
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+    },
+    cancelBtn: {
+      marginTop: spacing.sm,
+      alignSelf: "flex-start",
+    },
+
+    // ── Map ─────────────────────────────────────────────────
+    scrollView: {
+      flex: 1,
+    },
+    mapContainer: {
+      padding: spacing.lg,
+      paddingBottom: 120,
+      gap: spacing.lg,
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    emptyContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingTop: 80,
+      gap: spacing.sm,
+    },
+    emptyText: {
+      fontSize: typography.base,
+      fontWeight: typography.semibold,
+      color: colors.textSecondary,
+    },
+    emptyHint: {
+      fontSize: typography.sm,
+      color: colors.textMuted,
+      textAlign: "center",
+      paddingHorizontal: spacing.xl,
+    },
+
+    // ── Table card ──────────────────────────────────────────
+    tableCard: {
+      padding: spacing.lg,
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    tableHeaderRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: spacing.lg,
+    },
+    tableTitle: {
+      fontSize: typography.sm,
+      fontWeight: typography.bold,
+      color: colors.text,
+      letterSpacing: 0.3,
+    },
+    tableSubtitle: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      backgroundColor: colors.surfaceMuted,
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+      borderRadius: 999,
+    },
+    tableWrap: {
+      alignItems: "center",
+    },
+    tableRow: {
+      flexDirection: "row",
+      justifyContent: "center",
+      alignItems: "stretch",
+      gap: spacing.md,
+      width: "100%",
+    },
+    tableCenter: {
+      justifyContent: "center",
+      alignItems: "center",
+      minWidth: Math.min(width * 0.28, 112),
+    },
+    tableVisual: {
+      width: Math.min(width * 0.28, 112),
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 24,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingHorizontal: spacing.sm,
+      overflow: "hidden",
+      ...shadows.sm,
+    },
+    tableVisualLarge: { minHeight: 280 },
+    tableVisualMedium: { minHeight: 220 },
+    tableInnerLine: {
+      position: "absolute",
+      top: 16,
+      bottom: 16,
+      width: 3,
+      borderRadius: 999,
+      backgroundColor: colors.border,
+      opacity: 0.6,
+    },
+    tableVisualText: {
+      fontSize: typography.xs,
+      fontWeight: typography.semibold,
+      color: colors.textSecondary,
+      letterSpacing: 0.3,
+    },
+    seatColumn: {
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: 2,
+    },
+
+    // ── Seat ────────────────────────────────────────────────
+    seatBox: {
+      width: 56,
+      height: 50,
+      borderRadius: borderRadius.md,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1.5,
+      borderColor: "transparent",
+      ...shadows.sm,
+    },
+    seatLabel: {
+      color: colors.textOnPrimary,
+      fontSize: 11,
+      fontWeight: typography.bold,
+      marginTop: 2,
+    },
+    endSeatContainer: {
+      marginTop: spacing.md,
+      alignItems: "center",
+    },
+
+    // ── Legend ──────────────────────────────────────────────
+    legend: {
+      flexDirection: "row",
+      justifyContent: "center",
+      gap: spacing.lg,
+      paddingVertical: spacing.sm + 2,
+      paddingHorizontal: spacing.lg,
+      backgroundColor: colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    legendItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    legendDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+    },
+    legendText: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+    },
+
+    // ── Modal ───────────────────────────────────────────────
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: colors.overlay,
+      justifyContent: "center",
+      alignItems: "center",
+      padding: spacing.xl,
+    },
+    infoModalContent: {
+      width: Math.min(width * 0.88, 340),
+      padding: spacing.xl,
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.xl,
+      ...shadows.lg,
+    },
+    infoModalTitle: {
+      fontSize: typography.base,
+      fontWeight: typography.bold,
+      color: colors.text,
+      marginBottom: spacing.xs,
+    },
+    infoModalSeat: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+      marginBottom: spacing.lg,
+    },
+    infoRow: {
+      marginBottom: spacing.sm,
+    },
+    infoLabel: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      marginBottom: 2,
+    },
+    infoValue: {
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+      color: colors.text,
+    },
+    modalButton: {
+      marginTop: spacing.lg,
+    },
+
+    // ── Action panel ────────────────────────────────────────
+    actionPanel: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.xxxl ?? spacing.xl,
+      ...shadows.lg,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    actionPanelLeft: {
+      flex: 1,
+    },
+    actionPanelTitle: {
+      fontSize: typography.lg,
+      fontWeight: typography.bold,
+      color: colors.text,
+    },
+    actionPanelSubtitle: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    actionPanelButton: {
+      marginLeft: spacing.lg,
+    },
+  });
+
 const DeskScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
+
+  const styles = useMemo(
+    () => createStyles(colors, spacing, borderRadius, typography, shadows),
+    [colors, spacing, borderRadius, typography, shadows],
+  );
+
   const selectedDate = useMemo(() => formatDate(new Date()), []);
 
   const [seats, setSeats] = useState([]);
@@ -43,6 +392,7 @@ const DeskScreen = () => {
 
   const [showReservedModal, setShowReservedModal] = useState(false);
   const [reservedSeatInfo, setReservedSeatInfo] = useState(null);
+  const [selectedAvailableSeat, setSelectedAvailableSeat] = useState(null);
 
   const [myReservation, setMyReservation] = useState(null);
 
@@ -62,14 +412,8 @@ const DeskScreen = () => {
     try {
       const response = await seatService.getMyTodayReservation();
       const raw = response?.data ?? null;
-
-      if (response?.success && raw) {
-        setMyReservation(raw);
-      } else {
-        setMyReservation(null);
-      }
-    } catch (error) {
-      console.log("My reservation fetch error", error);
+      setMyReservation(response?.success && raw ? raw : null);
+    } catch {
       setMyReservation(null);
     } finally {
       setLoadingMyReservation(false);
@@ -80,7 +424,6 @@ const DeskScreen = () => {
     setLoading(true);
     try {
       const response = await seatService.getSeatMap(selectedDate);
-
       if (response.success) {
         const normalizedSeats = (response.data || []).map((seat) => ({
           id: seat.id || seat.Id,
@@ -89,17 +432,16 @@ const DeskScreen = () => {
           isReserved: seat.isReserved ?? seat.IsReserved ?? false,
           reservedBy: seat.reservedBy || seat.ReservedBy,
         }));
-
         setSeats(normalizedSeats);
       } else {
         Alert.alert(
-          "Couldn’t load map",
+          "Couldn't load map",
           response.message || "Pull down to try again.",
         );
       }
     } catch (error) {
       Alert.alert(
-        "Couldn’t load map",
+        "Couldn't load map",
         getErrorMessage(error, "Check your connection and pull to refresh."),
       );
     } finally {
@@ -113,24 +455,17 @@ const DeskScreen = () => {
 
   const mySeatLabel =
     myReservation?.seatLabel || myReservation?.SeatLabel || null;
-
-  const myReservationId =
-    myReservation?.reservationId ||
-    myReservation?.ReservationId ||
-    myReservation?.id ||
-    myReservation?.Id ||
-    null;
-
   const hasMyReservation = !!mySeatLabel;
 
-  const prettyToday = useMemo(() => {
-    return new Date().toLocaleDateString("en-US", {
-      weekday: "long",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  }, []);
+  const prettyToday = useMemo(
+    () =>
+      new Date().toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+      }),
+    [],
+  );
 
   const seatsByTable = useMemo(() => {
     const grouped = seats.reduce((acc, seat) => {
@@ -142,13 +477,12 @@ const DeskScreen = () => {
     return Object.entries(grouped)
       .map(([tableId, tableSeats], index) => {
         const sortedSeats = [...tableSeats].sort((a, b) => {
-          const getSeatNumber = (label) => {
-            const match = String(label).match(/\d+/);
-            return match ? parseInt(match[0], 10) : 999;
+          const n = (l) => {
+            const m = String(l).match(/\d+/);
+            return m ? parseInt(m[0], 10) : 999;
           };
-          return getSeatNumber(a.label) - getSeatNumber(b.label);
+          return n(a.label) - n(b.label);
         });
-
         return {
           tableId,
           tableName: `Table ${String.fromCharCode(65 + index)}`,
@@ -158,22 +492,17 @@ const DeskScreen = () => {
       .sort((a, b) => Number(a.tableId) - Number(b.tableId));
   }, [seats]);
 
-  const handleReserveSeat = async (seat) => {
+  const handleSeatPress = (seat) => {
     if (!seat) return;
-
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
 
     if (isMySeat) {
-      Alert.alert(
-        "Your seat for today",
-        `You already have seat ${seat.label} for today.`,
-      );
+      Alert.alert("Your seat", `You have seat ${seat.label} for today.`);
       return;
     }
 
     if (seat.isReserved) {
       const reservedBy = seat.reservedBy || {};
-
       setReservedSeatInfo({
         seatLabel: seat.label,
         reservedBy: {
@@ -182,44 +511,48 @@ const DeskScreen = () => {
             reservedBy.departmentName || reservedBy.DepartmentName || "—",
         },
       });
-
       setShowReservedModal(true);
       return;
     }
 
     if (hasMyReservation) {
       Alert.alert(
-        "Already booked for today",
-        `You already have seat ${mySeatLabel}. Cancel it first if you want another one.`,
+        "Already booked",
+        `You have seat ${mySeatLabel}. Cancel it first.`,
       );
       return;
     }
 
-    setReservingSeatId(seat.id);
+    setSelectedAvailableSeat(
+      selectedAvailableSeat?.id === seat.id ? null : seat,
+    );
+  };
 
+  const confirmSeatReservation = async () => {
+    if (!selectedAvailableSeat) return;
+    setReservingSeatId(selectedAvailableSeat.id);
     try {
-      const response = await seatService.createReservation(seat.id, selectedDate);
-
+      const response = await seatService.createReservation(
+        selectedAvailableSeat.id,
+        selectedDate,
+      );
       if (response.success) {
         await Promise.all([fetchSeatMap(), fetchMyReservation()]);
+        setSelectedAvailableSeat(null);
         Alert.alert(
-          "Desk reserved",
-          `Seat ${seat.label} is yours for today (${prettyToday}).`,
+          "Reserved!",
+          `Seat ${selectedAvailableSeat.label} is yours today.`,
         );
       } else {
         Alert.alert(
-          "Couldn’t reserve",
-          response.message ||
-            "That seat may have just been taken. Refresh and try another.",
+          "Couldn't reserve",
+          response.message || "That seat may have just been taken.",
         );
       }
     } catch (error) {
       Alert.alert(
-        "Couldn’t reserve",
-        getErrorMessage(
-          error,
-          "That seat may be unavailable. Refresh and try again.",
-        ),
+        "Couldn't reserve",
+        getErrorMessage(error, "Please try again."),
       );
     } finally {
       setReservingSeatId(null);
@@ -228,14 +561,13 @@ const DeskScreen = () => {
 
   const handleCancelReservation = () => {
     if (!hasMyReservation) return;
-
     Alert.alert(
       "Cancel reservation?",
-      `Do you want to cancel your seat ${mySeatLabel} for today?`,
+      `Release seat ${mySeatLabel} for today?`,
       [
         { text: "Keep it", style: "cancel" },
         {
-          text: "Cancel reservation",
+          text: "Cancel",
           style: "destructive",
           onPress: confirmCancelReservation,
         },
@@ -245,23 +577,17 @@ const DeskScreen = () => {
 
   const confirmCancelReservation = async () => {
     setCancelling(true);
-
     try {
       const response = await seatService.cancelMyTodayReservation();
-
       if (response?.success) {
         await Promise.all([fetchSeatMap(), fetchMyReservation()]);
-        Alert.alert("Reservation cancelled", "Your desk reservation was cancelled.");
       } else {
-        Alert.alert(
-          "Couldn’t cancel",
-          response?.message || "Unable to cancel your reservation right now.",
-        );
+        Alert.alert("Couldn't cancel", response?.message || "Try again.");
       }
     } catch (error) {
       Alert.alert(
-        "Couldn’t cancel",
-        getErrorMessage(error, "Something went wrong while cancelling."),
+        "Couldn't cancel",
+        getErrorMessage(error, "Something went wrong."),
       );
     } finally {
       setCancelling(false);
@@ -270,19 +596,18 @@ const DeskScreen = () => {
 
   const getSeatColor = (seat) => {
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
+    const isSelected = selectedAvailableSeat?.id === seat.id;
     const isLoadingThisSeat = reservingSeatId === seat.id;
 
     if (isMySeat) return colors.seatMine;
-    if (isLoadingThisSeat) return colors.seatSelected;
+    if (isLoadingThisSeat || isSelected) return colors.seatSelected;
     if (seat.isReserved) return colors.seatReserved;
     if (hasMyReservation) return colors.border;
-
     return colors.seatAvailable;
   };
 
   const getTableLayout = (tableSeats) => {
     const count = tableSeats.length;
-
     if (count === 11) {
       return {
         type: "eleven",
@@ -291,7 +616,6 @@ const DeskScreen = () => {
         endSeat: tableSeats[10],
       };
     }
-
     if (count === 8) {
       return {
         type: "eight",
@@ -299,7 +623,6 @@ const DeskScreen = () => {
         rightSeats: tableSeats.slice(4, 8),
       };
     }
-
     const middle = Math.ceil(count / 2);
     return {
       type: "generic",
@@ -310,12 +633,12 @@ const DeskScreen = () => {
 
   const renderSeat = (seat) => {
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
+    const isLoadingThisSeat = reservingSeatId === seat.id;
     const isDisabled =
       cancelling ||
       !!reservingSeatId ||
       (hasMyReservation && !seat.isReserved && !isMySeat);
-
-    const isLoadingThisSeat = reservingSeatId === seat.id;
+    const isSelected = selectedAvailableSeat?.id === seat.id;
 
     return (
       <TouchableOpacity
@@ -324,26 +647,31 @@ const DeskScreen = () => {
           styles.seatBox,
           {
             backgroundColor: getSeatColor(seat),
-            opacity: isDisabled && !isMySeat && !isLoadingThisSeat ? 0.45 : 1,
-            borderColor: isLoadingThisSeat ? colors.textOnPrimary : colors.surface,
-            borderWidth: isLoadingThisSeat ? 2 : 1.5,
+            opacity: isDisabled && !isMySeat && !isLoadingThisSeat ? 0.4 : 1,
+            borderColor: isSelected ? colors.textOnPrimary : "transparent",
+            borderWidth: isSelected ? 2 : 1.5,
+            transform: [{ scale: isSelected ? 1.05 : 1 }],
           },
         ]}
-        onPress={() => handleReserveSeat(seat)}
+        onPress={() => handleSeatPress(seat)}
         disabled={isDisabled && !seat.isReserved && !isMySeat}
-        activeOpacity={0.85}
+        activeOpacity={0.8}
         accessibilityRole="button"
-        accessibilityLabel={`Seat ${seat.label}${
-          seat.isReserved ? ", taken" : isMySeat ? ", your seat" : ", available"
-        }`}
+        accessibilityLabel={`Seat ${seat.label}${seat.isReserved ? ", taken" : isMySeat ? ", your seat" : ", available"}`}
       >
         {isLoadingThisSeat ? (
           <ActivityIndicator size="small" color={colors.textOnPrimary} />
         ) : (
           <>
             <Ionicons
-              name={seat.isReserved ? "lock-closed" : "desktop-outline"}
-              size={13}
+              name={
+                isMySeat
+                  ? "checkmark-circle"
+                  : seat.isReserved
+                    ? "lock-closed"
+                    : "desktop-outline"
+              }
+              size={14}
               color={colors.textOnPrimary}
             />
             <Text style={styles.seatLabel}>{seat.label}</Text>
@@ -381,7 +709,6 @@ const DeskScreen = () => {
                   isEleven ? styles.tableVisualLarge : styles.tableVisualMedium,
                 ]}
               >
-                <View style={styles.tableInnerSurface} />
                 <View style={styles.tableInnerLine} />
                 <Text style={styles.tableVisualText}>{table.tableName}</Text>
               </View>
@@ -400,335 +727,15 @@ const DeskScreen = () => {
     );
   };
 
-  const styles = StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.md,
-      padding: spacing.lg,
-      backgroundColor: colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    dateBlock: {
-      flex: 1,
-    },
-    dateButtonText: {
-      fontSize: typography.sm,
-      fontWeight: typography.semibold,
-      color: colors.text,
-    },
-    todayBadge: {
-      alignSelf: "flex-start",
-      marginTop: spacing.xs,
-      backgroundColor: colors.primary,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 2,
-      borderRadius: borderRadius.sm,
-    },
-    todayBadgeText: {
-      fontSize: typography.xs,
-      fontWeight: typography.bold,
-      color: colors.textOnPrimary,
-    },
-    todayRules: {
-      marginTop: 4,
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      lineHeight: 18,
-    },
-    refreshBtn: {
-      width: 44,
-      height: 44,
-      borderRadius: borderRadius.md,
-      backgroundColor: colors.surfaceMuted,
-      alignItems: "center",
-      justifyContent: "center",
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    statusCard: {
-      marginHorizontal: spacing.lg,
-      marginTop: spacing.md,
-      marginBottom: spacing.sm,
-      padding: spacing.md,
-      borderRadius: borderRadius.lg,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    statusRow: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.md,
-    },
-    statusIconWrap: {
-      width: 40,
-      height: 40,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.surfaceMuted,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    statusTitle: {
-      fontSize: typography.sm,
-      fontWeight: typography.semibold,
-      color: colors.text,
-    },
-    statusBody: {
-      marginTop: 2,
-      fontSize: typography.sm,
-      color: colors.textSecondary,
-      lineHeight: 20,
-    },
-    statusSuccess: {
-      backgroundColor: colors.successLight,
-      borderColor: colors.success,
-    },
-    statusActions: {
-      marginTop: spacing.md,
-      alignItems: "flex-start",
-    },
-    scrollView: {
-      flex: 1,
-    },
-    mapContainer: {
-      padding: spacing.lg,
-      paddingBottom: spacing.xl,
-      gap: spacing.lg,
-    },
-    loadingContainer: {
-      flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-      paddingHorizontal: spacing.xl,
-    },
-    loadingText: {
-      marginTop: spacing.md,
-      fontSize: typography.sm,
-      color: colors.textSecondary,
-      textAlign: "center",
-    },
-    loadingHint: {
-      marginTop: spacing.sm,
-      fontSize: typography.xs,
-      color: colors.textMuted,
-      textAlign: "center",
-    },
-    emptyContainer: {
-      flex: 1,
-      justifyContent: "center",
-      alignItems: "center",
-      paddingTop: 80,
-      gap: spacing.md,
-    },
-    emptyText: {
-      fontSize: typography.base,
-      color: colors.textSecondary,
-      textAlign: "center",
-    },
-    emptyHint: {
-      fontSize: typography.sm,
-      color: colors.textMuted,
-      textAlign: "center",
-      paddingHorizontal: spacing.lg,
-    },
-    tableCard: {
-      padding: spacing.lg,
-      borderRadius: borderRadius.xl,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    tableHeaderRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: spacing.lg,
-    },
-    tableTitle: {
-      fontSize: typography.base,
-      fontWeight: typography.semibold,
-      color: colors.text,
-    },
-    tableSubtitle: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      backgroundColor: colors.surfaceMuted,
-      paddingHorizontal: 10,
-      paddingVertical: 4,
-      borderRadius: 999,
-    },
-    tableWrap: {
-      alignItems: "center",
-    },
-    tableRow: {
-      flexDirection: "row",
-      justifyContent: "center",
-      alignItems: "stretch",
-      gap: spacing.md,
-      width: "100%",
-    },
-    tableCenter: {
-      justifyContent: "center",
-      alignItems: "center",
-      minWidth: Math.min(width * 0.32, 128),
-    },
-    tableVisual: {
-      width: Math.min(width * 0.32, 128),
-      backgroundColor: colors.surfaceMuted,
-      borderRadius: 28,
-      borderWidth: 1.5,
-      borderColor: colors.border,
-      justifyContent: "center",
-      alignItems: "center",
-      paddingHorizontal: spacing.sm,
-      position: "relative",
-      overflow: "hidden",
-      ...shadows.sm,
-    },
-    tableVisualLarge: {
-      minHeight: 280,
-    },
-    tableVisualMedium: {
-      minHeight: 220,
-    },
-    tableInnerSurface: {
-      position: "absolute",
-      top: 10,
-      bottom: 10,
-      left: 10,
-      right: 10,
-      borderRadius: 22,
-      backgroundColor: colors.surface,
-      opacity: 0.18,
-    },
-    tableInnerLine: {
-      position: "absolute",
-      top: 18,
-      bottom: 18,
-      width: 4,
-      borderRadius: 999,
-      backgroundColor: colors.border,
-      opacity: 0.75,
-    },
-    tableVisualText: {
-      fontSize: typography.sm,
-      fontWeight: typography.semibold,
-      color: colors.textSecondary,
-      textAlign: "center",
-      letterSpacing: 0.3,
-    },
-    seatBox: {
-      width: 60,
-      height: 54,
-      borderRadius: borderRadius.lg,
-      justifyContent: "center",
-      alignItems: "center",
-      borderWidth: 1.5,
-      borderColor: colors.surface,
-      ...shadows.sm,
-    },
-    seatLabel: {
-      color: colors.textOnPrimary,
-      fontSize: 12,
-      fontWeight: typography.bold,
-      marginTop: 2,
-    },
-    seatColumn: {
-      justifyContent: "space-between",
-      alignItems: "center",
-      gap: spacing.sm,
-      paddingVertical: 2,
-    },
-    endSeatContainer: {
-      marginTop: spacing.md,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    legend: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      justifyContent: "center",
-      alignItems: "center",
-      gap: spacing.md,
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.lg,
-      backgroundColor: colors.surface,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-    },
-    legendItem: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-      maxWidth: "48%",
-    },
-    legendDot: {
-      width: 12,
-      height: 12,
-      borderRadius: 6,
-    },
-    legendText: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      flexShrink: 1,
-    },
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: colors.overlay,
-      justifyContent: "center",
-      alignItems: "center",
-      padding: spacing.xl,
-    },
-    infoModalContent: {
-      width: Math.min(width * 0.88, 360),
-      padding: spacing.xl,
-      backgroundColor: colors.surface,
-    },
-    infoModalTitle: {
-      fontSize: typography.lg,
-      fontWeight: typography.semibold,
-      color: colors.text,
-      marginBottom: spacing.sm,
-    },
-    infoModalSubtitle: {
-      fontSize: typography.sm,
-      color: colors.textSecondary,
-      marginBottom: spacing.lg,
-      lineHeight: 20,
-    },
-    infoRow: {
-      marginBottom: spacing.md,
-    },
-    infoLabel: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      marginBottom: 2,
-    },
-    infoValue: {
-      fontSize: typography.base,
-      fontWeight: typography.medium,
-      color: colors.text,
-    },
-    modalButton: {
-      marginTop: spacing.lg,
-    },
-  });
-
   return (
     <View style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
-        <View style={styles.dateBlock}>
-          <Text style={styles.dateButtonText}>{prettyToday}</Text>
-          <View style={styles.todayBadge}>
-            <Text style={styles.todayBadgeText}>TODAY ONLY</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerDate}>{prettyToday}</Text>
+          <View style={styles.headerBadge}>
+            <Text style={styles.headerBadgeText}>TODAY ONLY</Text>
           </View>
-          <Text style={styles.todayRules}>
-            Tap an available seat to reserve it instantly. One desk per person per day.
-          </Text>
         </View>
 
         <TouchableOpacity
@@ -739,85 +746,72 @@ const DeskScreen = () => {
         >
           <Ionicons
             name="refresh"
-            size={22}
+            size={20}
             color={loading || refreshing ? colors.textMuted : colors.primary}
           />
         </TouchableOpacity>
       </View>
 
+      {/* Status card */}
       <Card
         style={[
           styles.statusCard,
-          hasMyReservation && !loadingMyReservation && styles.statusSuccess,
+          hasMyReservation && !loadingMyReservation && styles.statusCardBooked,
         ]}
       >
         {loadingMyReservation ? (
           <View style={styles.statusRow}>
-            <ActivityIndicator size="small" color={colors.primary} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.statusTitle}>Checking your booking…</Text>
-              <Text style={styles.statusBody}>
-                Looking up whether you already have a desk for today.
-              </Text>
+            <View style={styles.statusIconWrap}>
+              <ActivityIndicator size="small" color={colors.primary} />
             </View>
+            <Text style={styles.statusHint}>Checking your booking…</Text>
           </View>
         ) : hasMyReservation ? (
-          <>
-            <View style={styles.statusRow}>
-              <View style={styles.statusIconWrap}>
-                <Ionicons name="checkmark-circle" size={22} color={colors.success} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.statusTitle}>You&apos;re booked for today</Text>
-                <Text style={styles.statusBody}>
-                  Your desk is seat <Text style={{ fontWeight: "700" }}>{mySeatLabel}</Text>.
-                  You can cancel this reservation if needed.
-                </Text>
-              </View>
+          <View style={styles.statusRow}>
+            <View style={[styles.statusIconWrap, styles.statusIconSuccess]}>
+              <Ionicons name="checkmark" size={18} color={colors.success} />
             </View>
-
-            <View style={styles.statusActions}>
-              <Button
-                title="Cancel reservation"
-                variant="secondary"
-                onPress={handleCancelReservation}
-                loading={cancelling}
-                disabled={cancelling}
-              />
+            <View style={styles.statusTextWrap}>
+              <Text style={styles.statusTitle}>
+                Seat {mySeatLabel} reserved
+              </Text>
+              <Text style={styles.statusHint}>Today · confirmed</Text>
             </View>
-          </>
+            <Button
+              title="Release"
+              variant="danger-outline"
+              onPress={handleCancelReservation}
+              loading={cancelling}
+              disabled={cancelling}
+            />
+          </View>
         ) : (
           <View style={styles.statusRow}>
             <View style={styles.statusIconWrap}>
               <Ionicons
                 name="desktop-outline"
-                size={20}
+                size={18}
                 color={colors.primary}
               />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.statusTitle}>No desk yet today</Text>
-              <Text style={styles.statusBody}>
-                Tap any green available seat to reserve it instantly. Red seats are already taken.
-              </Text>
+            <View style={styles.statusTextWrap}>
+              <Text style={styles.statusTitle}>No desk booked</Text>
+              <Text style={styles.statusHint}>Tap a green seat to reserve</Text>
             </View>
           </View>
         )}
       </Card>
 
+      {/* Map */}
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading today&apos;s seat map…</Text>
-          <Text style={styles.loadingHint}>
-            This can take a moment on a slow connection.
-          </Text>
         </View>
       ) : (
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.mapContainer}
-          showsVerticalScrollIndicator
+          showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -832,12 +826,11 @@ const DeskScreen = () => {
             <View style={styles.emptyContainer}>
               <Ionicons
                 name="grid-outline"
-                size={48}
+                size={40}
                 color={colors.textMuted}
               />
-              <Text style={styles.emptyText}>No seats on the map</Text>
+              <Text style={styles.emptyText}>No seats available</Text>
               <Text style={styles.emptyHint}>
-                There may be no layout configured for today, or the list is empty.
                 Pull to refresh or try again later.
               </Text>
             </View>
@@ -845,28 +838,22 @@ const DeskScreen = () => {
         </ScrollView>
       )}
 
+      {/* Legend */}
       <View style={styles.legend}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.seatMine }]} />
-          <Text style={styles.legendText}>Your seat</Text>
-        </View>
-
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.seatAvailable }]} />
-          <Text style={styles.legendText}>Available</Text>
-        </View>
-
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.seatReserved }]} />
-          <Text style={styles.legendText}>Taken</Text>
-        </View>
-
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.border }]} />
-          <Text style={styles.legendText}>Unavailable</Text>
-        </View>
+        {[
+          { color: colors.seatMine, label: "Yours" },
+          { color: colors.seatAvailable, label: "Free" },
+          { color: colors.seatReserved, label: "Taken" },
+          { color: colors.border, label: "N/A" },
+        ].map(({ color, label }) => (
+          <View key={label} style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: color }]} />
+            <Text style={styles.legendText}>{label}</Text>
+          </View>
+        ))}
       </View>
 
+      {/* Reserved seat modal */}
       <Modal
         visible={showReservedModal}
         transparent
@@ -875,38 +862,26 @@ const DeskScreen = () => {
       >
         <View style={styles.modalOverlay}>
           <Card style={styles.infoModalContent}>
-            <Text style={styles.infoModalTitle}>Seat not available</Text>
-            <Text style={styles.infoModalSubtitle}>
-              Someone else has this seat for today. One person per seat per day.
-            </Text>
-
+            <Text style={styles.infoModalTitle}>Seat taken</Text>
             {reservedSeatInfo && (
               <>
+                <Text style={styles.infoModalSeat}>
+                  Seat {reservedSeatInfo.seatLabel}
+                </Text>
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Seat</Text>
-                  <Text style={styles.infoValue}>{reservedSeatInfo.seatLabel}</Text>
+                  <Text style={styles.infoLabel}>Reserved by</Text>
+                  <Text style={styles.infoValue}>
+                    {reservedSeatInfo.reservedBy.fullName}
+                  </Text>
                 </View>
-
-                {reservedSeatInfo.reservedBy && (
-                  <>
-                    <View style={styles.infoRow}>
-                      <Text style={styles.infoLabel}>Reserved by</Text>
-                      <Text style={styles.infoValue}>
-                        {reservedSeatInfo.reservedBy.fullName}
-                      </Text>
-                    </View>
-
-                    <View style={styles.infoRow}>
-                      <Text style={styles.infoLabel}>Department</Text>
-                      <Text style={styles.infoValue}>
-                        {reservedSeatInfo.reservedBy.departmentName}
-                      </Text>
-                    </View>
-                  </>
-                )}
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Department</Text>
+                  <Text style={styles.infoValue}>
+                    {reservedSeatInfo.reservedBy.departmentName}
+                  </Text>
+                </View>
               </>
             )}
-
             <Button
               title="OK"
               variant="secondary"
@@ -916,6 +891,27 @@ const DeskScreen = () => {
           </Card>
         </View>
       </Modal>
+
+      {/* Action panel */}
+      {selectedAvailableSeat && (
+        <View style={styles.actionPanel}>
+          <View style={styles.actionPanelLeft}>
+            <Text style={styles.actionPanelTitle}>
+              Seat {selectedAvailableSeat.label}
+            </Text>
+            <Text style={styles.actionPanelSubtitle}>
+              Tap confirm to book for today
+            </Text>
+          </View>
+          <Button
+            title="Confirm"
+            onPress={confirmSeatReservation}
+            loading={!!reservingSeatId}
+            disabled={!!reservingSeatId}
+            style={styles.actionPanelButton}
+          />
+        </View>
+      )}
     </View>
   );
 };

@@ -50,7 +50,6 @@ public class LeaveController : ControllerBase
     public async Task<IActionResult> GetPendingForReview()
     {
         var reviewerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-
         var requests = await _leaveService.GetPendingLeaveRequestsForReviewerAsync(reviewerId);
 
         return Ok(requests);
@@ -61,7 +60,6 @@ public class LeaveController : ControllerBase
     public async Task<IActionResult> Approve(int id, [FromBody] ApproveLeaveRequestDto dto)
     {
         var reviewerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-
         var result = await _leaveService.ApproveLeaveRequestAsync(id, reviewerId, dto);
 
         return Ok(result);
@@ -72,7 +70,6 @@ public class LeaveController : ControllerBase
     public async Task<IActionResult> Reject(int id, [FromBody] RejectLeaveRequestDto dto)
     {
         var reviewerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-
         var result = await _leaveService.RejectLeaveRequestAsync(id, reviewerId, dto);
 
         return Ok(result);

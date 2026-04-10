@@ -1,5 +1,12 @@
 import React from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import {
+  useFonts,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from "@expo-google-fonts/inter";
+import { NavigationContainer, useNavigation } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -30,26 +37,66 @@ import LeaveRequestScreen from "./src/screens/LeaveRequestScreen";
 import EventsScreen from "./src/screens/EventsScreen";
 import NotificationsScreen from "./src/screens/NotificationsScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
+import ManagerApprovalsScreen from "./src/screens/manager/ManagerApprovalsScreen";
+import PendingRoomReservationsScreen from "./src/screens/PendingRoomReservationsScreen";
+import PendingLeaveRequestsScreen from "./src/screens/PendingLeaveRequestScreen";
+import AdminUserApprovalsScreen from "./src/screens/admin/AdminUserApprovalsScreen";
+import ManageAnnouncementsScreen from "./src/screens/hr/ManageAnnouncementsScreen";
+import DepartmentChannelScreen from "./src/screens/DepartmentChannelScreen";
+
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-function HomeTabs() {
+function HeaderActions() {
+  const navigation = useNavigation();
   const { unreadCount } = useNotifications();
-  const { colors, darkMode, toggleTheme } = useTheme();
+  const { colors } = useTheme();
+
+  return (
+    <View style={styles.headerActions}>
+      <TouchableOpacity
+        style={styles.headerIconButton}
+        onPress={() => navigation.navigate("Notifications")}
+      >
+        <Ionicons
+          name={unreadCount > 0 ? "notifications" : "notifications-outline"}
+          size={22}
+          color={colors.textPrimary}
+        />
+        {unreadCount > 0 ? <View style={styles.headerBadge} /> : null}
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.headerIconButton}
+        onPress={() => navigation.navigate("Profile")}
+      >
+        <Ionicons
+          name="person-circle-outline"
+          size={26}
+          color={colors.textPrimary}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function HomeTabs() {
+  const { colors, darkMode } = useTheme();
+  const { user } = useAuth();
+
+  const canReviewRequests =
+    user?.role === "Manager" ||
+    user?.role === "Admin" ||
+    user?.role === "HR" ||
+    user?.role === 2 ||
+    user?.role === 4 ||
+    user?.role === 3;
 
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        headerRight: () => (
-          <TouchableOpacity onPress={toggleTheme} style={{ marginRight: 12 }}>
-            <Ionicons
-              name={darkMode ? "moon" : "moon-outline"}
-              size={22}
-              color={colors.textPrimary}
-            />
-          </TouchableOpacity>
-        ),
+        headerRight: () => <HeaderActions />,
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
 
@@ -57,23 +104,13 @@ function HomeTabs() {
             case "Home":
               iconName = focused ? "home" : "home-outline";
               break;
-            case "Events":
-              iconName = focused ? "calendar" : "calendar-outline";
-              break;
-            case "Notifications":
-              iconName = focused ? "notifications" : "notifications-outline";
-              break;
-            case "Profile":
-              iconName = focused ? "person" : "person-outline";
-              break;
-            case "Desk":
-              iconName = focused ? "desktop" : "desktop-outline";
-              break;
-            case "Rooms":
-              iconName = focused ? "business" : "business-outline";
-              break;
             case "Requests":
               iconName = focused ? "document-text" : "document-text-outline";
+              break;
+            case "Approvals":
+              iconName = focused
+                ? "checkmark-circle"
+                : "checkmark-circle-outline";
               break;
             default:
               iconName = "help-outline";
@@ -110,6 +147,22 @@ function HomeTabs() {
       />
 
       <Tab.Screen
+        name="Requests"
+        component={DepartmentChannelScreen}
+        options={{
+          title: "Channel",
+        }}
+      />
+
+      {canReviewRequests && (
+        <Tab.Screen
+          name="Approvals"
+          component={ManagerApprovalsScreen}
+          options={{ title: "Approvals" }}
+        />
+      )}
+
+      <Tab.Screen
         name="Desk"
         component={DeskScreen}
         options={{
@@ -128,33 +181,12 @@ function HomeTabs() {
       />
 
       <Tab.Screen
-        name="Requests"
-        component={LeaveRequestScreen}
-        options={{
-          title: "Leave Request",
-          tabBarButton: () => null,
-        }}
-      />
-
-      <Tab.Screen
         name="Events"
         component={EventsScreen}
-        options={{ title: "Events" }}
-      />
-
-      <Tab.Screen
-        name="Notifications"
-        component={NotificationsScreen}
         options={{
-          title: "Notifications",
-          tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
+          title: "Events",
+          tabBarButton: () => null,
         }}
-      />
-
-      <Tab.Screen
-        name="Profile"
-        component={ProfileScreen}
-        options={{ title: "Profile" }}
       />
     </Tab.Navigator>
   );
@@ -194,14 +226,45 @@ function AppNavigator() {
         },
       }}
     >
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Navigator>
         {!isAuthenticated ? (
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
           </>
         ) : (
-          <Stack.Screen name="HomeTabs" component={HomeTabs} />
+          <>
+            <Stack.Screen
+              name="HomeTabs"
+              component={HomeTabs}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Notifications"
+              component={NotificationsScreen}
+              options={{ title: "Notifications" }}
+            />
+            <Stack.Screen
+              name="Profile"
+              component={ProfileScreen}
+              options={{ title: "Profile" }}
+            />
+            <Stack.Screen
+              name="PendingRoomReservations"
+              component={PendingRoomReservationsScreen}
+              options={{ title: "Pending Room Requests" }}
+            />
+            <Stack.Screen
+              name="ManageAnnouncements"
+              component={ManageAnnouncementsScreen}
+              options={{ title: "Manage Announcements" }}
+            />
+            <Stack.Screen
+              name="PendingLeaveRequests"
+              component={PendingLeaveRequestsScreen}
+              options={{ title: "Pending Leave Requests" }}
+            />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>
@@ -227,6 +290,21 @@ function RootApp() {
 }
 
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: "#F4F6F8" }]}>
+        <ActivityIndicator size="large" color="#E11D48" />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <ThemeProvider>
@@ -245,5 +323,23 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: typography.sm,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 8,
+  },
+  headerIconButton: {
+    marginLeft: 14,
+    position: "relative",
+  },
+  headerBadge: {
+    position: "absolute",
+    top: 1,
+    right: 1,
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#ef4444",
   },
 });

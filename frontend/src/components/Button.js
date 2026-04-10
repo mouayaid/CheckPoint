@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useRef } from "react";
 import {
   TouchableOpacity,
   Text,
   ActivityIndicator,
   StyleSheet,
+  Animated,
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 
@@ -17,6 +18,26 @@ export function Button({
   textStyle,
 }) {
   const { colors, spacing, borderRadius, typography } = useTheme();
+  
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.96,
+      useNativeDriver: true,
+      speed: 20,
+      bounciness: 6,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 20,
+      bounciness: 6,
+    }).start();
+  };
 
   const getColors = () => {
     switch (variant) {
@@ -24,8 +45,8 @@ export function Button({
         return {
           bg: colors.surface,
           border: colors.border,
-          text: colors.text,
-          spinner: colors.text,
+          text: colors.textPrimary,
+          spinner: colors.textPrimary,
         };
       case "ghost":
         return {
@@ -46,8 +67,8 @@ export function Button({
         return {
           bg: colors.primary,
           border: "transparent",
-          text: colors.textOnPrimary,
-          spinner: colors.textOnPrimary,
+          text: colors.white, // assuming text on primary is white
+          spinner: colors.white,
         };
     }
   };
@@ -62,11 +83,12 @@ export function Button({
       justifyContent: "center",
       marginTop: spacing.sm,
       borderWidth: 1,
+      overflow: "hidden",
     },
 
     text: {
       fontSize: typography.base,
-      fontWeight: typography.semibold,
+      fontFamily: typography.fontFamily.semibold,
     },
 
     disabled: {
@@ -75,28 +97,32 @@ export function Button({
   });
 
   return (
-    <TouchableOpacity
-      onPress={onPress}
-      disabled={disabled || loading}
-      activeOpacity={0.85}
-      style={[
-        styles.button,
-        {
-          backgroundColor: palette.bg,
-          borderColor: palette.border,
-        },
-        disabled && styles.disabled,
-        style,
-      ]}
-    >
-      {loading ? (
-        <ActivityIndicator color={palette.spinner} />
-      ) : (
-        <Text style={[styles.text, { color: palette.text }, textStyle]}>
-          {title}
-        </Text>
-      )}
-    </TouchableOpacity>
+    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+      <TouchableOpacity
+        onPress={onPress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        disabled={disabled || loading}
+        activeOpacity={0.9}
+        style={[
+          styles.button,
+          {
+            backgroundColor: palette.bg,
+            borderColor: palette.border,
+          },
+          disabled && styles.disabled,
+          style,
+        ]}
+      >
+        {loading ? (
+          <ActivityIndicator color={palette.spinner} />
+        ) : (
+          <Text style={[styles.text, { color: palette.text }, textStyle]}>
+            {title}
+          </Text>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 

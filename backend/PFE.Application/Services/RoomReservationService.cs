@@ -14,8 +14,6 @@ public class RoomReservationService : IRoomReservationService
     private readonly IMapper _mapper;
     private readonly INotificationService _notificationService;
 
-    
-
     public RoomReservationService(
         IApplicationDbContext context,
         IMapper mapper,
@@ -27,39 +25,23 @@ public class RoomReservationService : IRoomReservationService
     }
 
     public async Task<List<RoomReservationForDayDto>> GetReservationsForDayAsync(int roomId, DateTime date)
-{
-    var tunisToday = GetTunisiaNow().Date;
-
-    if (date.Date != tunisToday)
-        throw new BadRequestException(
-            $"Reservations can only be viewed for today's date (Tunisia): {tunisToday:yyyy-MM-dd}.");
-
-    var startOfDay = tunisToday;
-    var endOfDay = tunisToday.AddDays(1);
-
-    var reservations = await _context.RoomReservations
-        .Include(r => r.User)
-            .ThenInclude(u => u.Department)
-        .Where(r => r.RoomId == roomId &&
-                    r.Status == ReservationStatus.Active &&
-                    r.StartDateTime >= startOfDay &&
-                    r.StartDateTime < endOfDay)
-        .OrderBy(r => r.StartDateTime)
-        .ToListAsync();
-
-    return reservations.Select(r => new RoomReservationForDayDto
     {
-        Id = r.Id,
-        StartDateTime = r.StartDateTime,
-        EndDateTime = r.EndDateTime,
-        ReservedBy = new ReservedByDto
-        {
-            UserId = r.User.Id,
-            FullName = r.User.FullName,
-            DepartmentName = r.User.Department.Name
-        }
-    }).ToList();
-}
+        var startOfDay = date.Date;
+        var endOfDay = startOfDay.AddDays(1);
+
+        var reservations = await _context.RoomReservations
+    .AsNoTracking()
+    .Include(r => r.User)
+        .ThenInclude(u => u.Department)
+    .Include(r => r.Room)
+    .Where(r => r.RoomId == roomId &&
+                r.StartDateTime < endOfDay &&
+                r.EndDateTime > startOfDay)
+    .OrderBy(r => r.StartDateTime)
+    .ToListAsync();
+
+        return _mapper.Map<List<RoomReservationForDayDto>>(reservations);
+    }
 
     public async Task<List<RoomReservationDto>> GetPendingReservationsAsync(int managerUserId)
     {
@@ -77,7 +59,9 @@ public class RoomReservationService : IRoomReservationService
             .Where(r => r.Status == ReservationStatus.Pending);
 
         if (manager.Role == Role.Manager)
+        {
             query = query.Where(r => r.User.DepartmentId == manager.DepartmentId);
+        }
 
         var pending = await query
             .OrderBy(r => r.StartDateTime)
@@ -86,38 +70,30 @@ public class RoomReservationService : IRoomReservationService
         return _mapper.Map<List<RoomReservationDto>>(pending);
     }
 
-
-
-    
-
     public async Task<RoomReservationDto?> CreateReservationAsync(int userId, CreateRoomReservationDto dto)
     {
-        // ✅ Tunisia timezone "today"
-        var tunisToday = GetTunisiaNow().Date;
-
-        // NOTE: If your DTO is StartDateTime/EndDateTime, replace dto.StartTime/dto.EndTime accordingly.
         var start = dto.StartDateTime;
         var end = dto.EndDateTime;
 
-        // ✅ Only today allowed (Tunisia) - both start & end must be on today's date in Tunisia
-        if (start.Date != tunisToday || end.Date != tunisToday)
-            throw new BadRequestException($"Room reservation is allowed only for today's date (Tunisia): {tunisToday:yyyy-MM-dd}.");
-
-        // Validation 1: Check if room exists and is active
         var room = await _context.Rooms.FindAsync(dto.RoomId);
         if (room == null || !room.IsActive)
             throw new NotFoundException($"Room with id {dto.RoomId} not found or inactive.");
 
-        // Validation 2: Ensure EndTime > StartTime
         if (end <= start)
-            throw new ArgumentException("EndTime must be after StartTime.");
+            throw new BadRequestException("End time must be after start time.");
 
-        // Validation 3: Check overlap with ACTIVE reservations
+        if (start.Date != end.Date)
+            throw new BadRequestException("Room reservation must start and end on the same day.");
+
+        if (start < DateTime.Now)
+            throw new BadRequestException("You cannot create a reservation in the past.");
+
         var overlapping = await _context.RoomReservations
-            .AnyAsync(r => r.RoomId == dto.RoomId &&
-                           r.Status == ReservationStatus.Active &&
-                           r.StartDateTime < end &&
-                           r.EndDateTime > start);
+            .AnyAsync(r =>
+                r.RoomId == dto.RoomId &&
+                r.Status == ReservationStatus.Active &&
+                r.StartDateTime < end &&
+                r.EndDateTime > start);
 
         if (overlapping)
             throw new ConflictException("This time slot overlaps with an existing reservation.");
@@ -151,8 +127,9 @@ public class RoomReservationService : IRoomReservationService
             throw new Exception("Reservation was created but could not be reloaded.");
 
         var managers = await _context.Users
-            .Where(u => (u.Role == Role.Manager || u.Role == Role.Admin) &&
-                        u.DepartmentId == user.DepartmentId)
+            .Where(u =>
+                (u.Role == Role.Manager || u.Role == Role.Admin) &&
+                u.DepartmentId == user.DepartmentId)
             .ToListAsync();
 
         if (!managers.Any())
@@ -175,42 +152,5 @@ public class RoomReservationService : IRoomReservationService
         }
 
         return _mapper.Map<RoomReservationDto>(savedReservation);
-    }
-
-    // ✅ Cross-platform Tunisia time helper
-    private static DateTime GetTunisiaNow()
-    {
-        TimeZoneInfo tz;
-
-        if (TryFindTimeZone("Africa/Tunis", out tz))
-            return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-
-        var windowsCandidates = new[]
-        {
-            "Tunisia Standard Time",
-            "W. Central Africa Standard Time"
-        };
-
-        foreach (var id in windowsCandidates)
-        {
-            if (TryFindTimeZone(id, out tz))
-                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-        }
-
-        return DateTime.Now;
-    }
-
-    private static bool TryFindTimeZone(string id, out TimeZoneInfo tz)
-    {
-        try
-        {
-            tz = TimeZoneInfo.FindSystemTimeZoneById(id);
-            return true;
-        }
-        catch
-        {
-            tz = null!;
-            return false;
-        }
     }
 }

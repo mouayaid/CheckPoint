@@ -11,11 +11,22 @@ import {
   Pressable,
   Platform,
   RefreshControl,
+  LayoutAnimation,
+  UIManager,
 } from "react-native";
+
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { useAuth } from "../context/AuthContext";
-import { axiosInstance, leaveService, profileService } from "../services/api";
+import { leaveService, profileService } from "../services/api";
 import {
   roleToString,
   requestStatusToString,
@@ -26,7 +37,6 @@ import { useTheme } from "../context/ThemeContext";
 
 const LEAVE_TYPES = ["Vacation", "Sick", "Personal"];
 const FILTERS_EMPLOYEE = ["All", "Pending", "Approved", "Rejected"];
-const FILTERS_MANAGER = ["All", "Pending", "Approved", "Rejected"];
 
 const formatDateValue = (date) => {
   if (!date) return "";
@@ -55,6 +65,12 @@ const normalizeStatus = (status) =>
     .trim()
     .toLowerCase();
 
+const normalizeDateOnly = (date) => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
 export default function LeaveRequestScreen() {
   const { colors, darkMode, spacing, borderRadius, typography, shadows } =
     useTheme();
@@ -73,6 +89,9 @@ export default function LeaveRequestScreen() {
   );
 
   const { user } = useAuth();
+  const navigation = useNavigation();
+  const route = useRoute();
+  const openCreateModal = route?.params?.openCreateModal === true;
 
   const [refreshing, setRefreshing] = useState(false);
   const [requests, setRequests] = useState([]);
@@ -107,6 +126,16 @@ export default function LeaveRequestScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  useEffect(() => {
+    if (!loadingBalance && openCreateModal) {
+      if (leaveBalance > 0) {
+        setModalVisible(true);
+      }
+
+      navigation.setParams({ openCreateModal: false });
+    }
+  }, [openCreateModal, loadingBalance, leaveBalance, navigation]);
+
   const resetCreateModal = () => {
     setModalVisible(false);
     setType("Vacation");
@@ -129,13 +158,30 @@ export default function LeaveRequestScreen() {
     setLoadingBalance(true);
     try {
       const res = await profileService.getProfile();
-      const userProfile = res?.data?.user || null;
-      const balance =
-        userProfile?.leaveBalance ?? userProfile?.LeaveBalance ?? 0;
 
-      setLeaveBalance(balance);
+      const payload = res?.data?.data || res?.data || null;
+
+      const userProfile =
+        payload?.user ??
+        payload?.User ??
+        payload?.userDto ??
+        payload?.UserDto ??
+        payload ??
+        null;
+
+      const rawBalance =
+        userProfile?.leaveBalance ??
+        userProfile?.LeaveBalance ??
+        payload?.leaveBalance ??
+        payload?.LeaveBalance ??
+        0;
+
+      const balance = Number(rawBalance);
+      setLeaveBalance(Number.isNaN(balance) ? 0 : balance);
     } catch (error) {
-      console.log("LOAD BALANCE error:", error);
+      console.log("LOAD BALANCE status:", error?.status);
+      console.log("LOAD BALANCE body:", error?.data);
+      console.log("LOAD BALANCE message:", error?.message);
       setLeaveBalance(0);
     } finally {
       setLoadingBalance(false);
@@ -150,17 +196,13 @@ export default function LeaveRequestScreen() {
       setRefreshing(false);
     }
   };
-  const isCreateDisabled =
-    creating || loadingBalance || !leaveBalance || leaveBalance <= 0;
 
   const loadRequests = async () => {
     setLoadingRequests(true);
     try {
-      const res = isManager
-        ? await leaveService.getPendingLeaveRequests()
-        : await leaveService.getMyLeaveRequests();
+      const res = await leaveService.getMyLeaveRequests();
 
-      if (res?.data?.success) {
+      if (res?.success) {
         const normalized = (res.data || []).map((request) => ({
           ...request,
           normalizedStatus: normalizeStatus(
@@ -175,32 +217,82 @@ export default function LeaveRequestScreen() {
         Alert.alert("Error", res?.message || "Failed to load requests");
       }
     } catch (error) {
-      console.log("LOAD LEAVES status:", error.response?.status);
-      console.log("LOAD LEAVES body:", error.response?.data);
-      Alert.alert(
-        "Error",
-        error.response?.data?.message || "Failed to load requests",
-      );
+      console.log("LOAD LEAVES status:", error?.status);
+      console.log("LOAD LEAVES body:", error?.data);
+      console.log("LOAD LEAVES message:", error?.message);
+      Alert.alert("Error", error?.message || "Failed to load requests");
     } finally {
       setLoadingRequests(false);
     }
   };
 
-  const validateLeaveRequest = () => {
-    if (!startDate || !endDate || !reason.trim()) {
+  const requestedDays = getDayCount(startDate, endDate);
+  const trimmedReason = reason.trim();
+
+  const formValidationMessage = useMemo(() => {
+    if (!startDate || !endDate || !trimmedReason) {
       return "Please fill in all fields";
     }
 
-    if (reason.trim().length < 5) {
+    if (trimmedReason.length < 5) {
       return "Reason must be at least 5 characters";
     }
 
-    if (endDate < startDate) {
+    if (trimmedReason.length > 300) {
+      return "Reason must be less than 300 characters";
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const normalizedStart = normalizeDateOnly(startDate);
+    const normalizedEnd = normalizeDateOnly(endDate);
+
+    if (normalizedStart < today) {
+      return "Start date cannot be in the past";
+    }
+
+    if (normalizedEnd < normalizedStart) {
       return "End date must be after start date";
     }
 
+    if (
+      leaveBalance !== null &&
+      requestedDays !== null &&
+      requestedDays > leaveBalance
+    ) {
+      return `You only have ${leaveBalance} leave day${
+        leaveBalance === 1 ? "" : "s"
+      } left`;
+    }
+
+    const hasOverlap = requests.some((request) => {
+      const status = normalizeStatus(request.statusLabel);
+      if (status === "rejected" || status === "cancelled") return false;
+
+      const requestStart = normalizeDateOnly(request.startDate);
+      const requestEnd = normalizeDateOnly(request.endDate);
+
+      return normalizedStart <= requestEnd && normalizedEnd >= requestStart;
+    });
+
+    if (hasOverlap) {
+      return "You already have a leave request overlapping these dates";
+    }
+
     return null;
+  }, [startDate, endDate, trimmedReason, leaveBalance, requestedDays, requests]);
+
+  const validateLeaveRequest = () => {
+    return formValidationMessage;
   };
+
+  const isCreateDisabled =
+    creating ||
+    loadingBalance ||
+    leaveBalance === null ||
+    leaveBalance <= 0 ||
+    !!formValidationMessage;
 
   const handleCreate = async () => {
     const validationError = validateLeaveRequest();
@@ -217,13 +309,13 @@ export default function LeaveRequestScreen() {
         type: leaveTypeToInt(type),
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
-        reason: reason.trim(),
+        reason: trimmedReason,
       });
 
-      if (res?.data?.success) {
+      if (res?.success) {
         Alert.alert("Success", "Leave request created");
         resetCreateModal();
-        await loadRequests();
+        await Promise.all([loadRequests(), loadLeaveBalance()]);
       } else {
         Alert.alert("Error", res?.message || "Failed to create request");
       }
@@ -258,7 +350,7 @@ export default function LeaveRequestScreen() {
         comment: reviewComment.trim(),
       });
 
-      const success = res?.data?.success ?? res?.success;
+      const success = res?.success;
 
       if (success) {
         Alert.alert("Success", `Request ${String(status).toLowerCase()}`);
@@ -330,6 +422,7 @@ export default function LeaveRequestScreen() {
       label: status || "Unknown",
     };
   };
+
   const filteredRequests = useMemo(() => {
     if (activeFilter === "All") return requests;
     return requests.filter(
@@ -348,7 +441,7 @@ export default function LeaveRequestScreen() {
     };
   }, [requests]);
 
-  const filterOptions = isManager ? FILTERS_MANAGER : FILTERS_EMPLOYEE;
+  const filterOptions = FILTERS_EMPLOYEE;
 
   if (!user) {
     return (
@@ -363,9 +456,7 @@ export default function LeaveRequestScreen() {
       <View style={styles.stickyHeader}>
         <Text style={styles.screenTitle}>Leave Requests</Text>
         <Text style={styles.screenSubtitle}>
-          {isManager
-            ? "Review and manage leave requests"
-            : "Create and track your leave requests"}
+          Create and track your leave requests
         </Text>
       </View>
 
@@ -380,53 +471,56 @@ export default function LeaveRequestScreen() {
           />
         }
       >
-        {!isManager && (
-          <>
-            <TouchableOpacity
-              style={[
-                styles.createButton,
-                isCreateDisabled && styles.createButtonDisabled,
-              ]}
-              activeOpacity={isCreateDisabled ? 1 : 0.9}
-              disabled={isCreateDisabled}
-              onPress={() => {
-                if (isCreateDisabled) {
-                  Alert.alert(
-                    "Leave unavailable",
-                    "You do not have enough leave balance to create a leave request.",
-                  );
-                  return;
-                }
-                setModalVisible(true);
-              }}
-            >
-              <Text
-                style={[
-                  styles.createButtonText,
-                  isCreateDisabled && styles.createButtonTextDisabled,
-                ]}
-              >
-                {loadingBalance
-                  ? "Checking balance..."
-                  : "+ Create Leave Request"}
-              </Text>
-            </TouchableOpacity>
+        <>
+          <TouchableOpacity
+            style={[
+              styles.createButton,
+              !loadingBalance && leaveBalance <= 0 && styles.createButtonDisabled,
+            ]}
+            activeOpacity={0.9}
+            onPress={() => {
+              if (loadingBalance) return;
 
-            {!loadingBalance && leaveBalance <= 0 && (
-              <View style={styles.balanceWarningCard}>
-                <Ionicons
-                  name="alert-circle-outline"
-                  size={18}
-                  color={colors.warning}
-                />
-                <Text style={styles.balanceWarningText}>
-                  Your leave balance is 0. You cannot create a new leave
-                  request.
-                </Text>
-              </View>
-            )}
-          </>
-        )}
+              if (leaveBalance > 0) {
+                setModalVisible(true);
+                return;
+              }
+
+              Alert.alert(
+                "No leave balance",
+                "You have no leave days left. You can still review your previous requests below.",
+              );
+            }}
+          >
+            <Text
+              style={[
+                styles.createButtonText,
+                !loadingBalance &&
+                  leaveBalance <= 0 &&
+                  styles.createButtonTextDisabled,
+              ]}
+            >
+              {loadingBalance
+                ? "Checking balance..."
+                : leaveBalance > 0
+                  ? "+ Create Leave Request"
+                  : "View Previous Requests"}
+            </Text>
+          </TouchableOpacity>
+
+          {!loadingBalance && leaveBalance <= 0 && (
+            <View style={styles.balanceWarningCard}>
+              <Ionicons
+                name="alert-circle-outline"
+                size={18}
+                color={colors.warning}
+              />
+              <Text style={styles.balanceWarningText}>
+                Your leave balance is 0. You cannot create a new leave request.
+              </Text>
+            </View>
+          )}
+        </>
 
         <ScrollView
           horizontal
@@ -442,7 +536,12 @@ export default function LeaveRequestScreen() {
                 key={filter}
                 style={[styles.filterChip, selected && styles.filterChipActive]}
                 activeOpacity={0.85}
-                onPress={() => setActiveFilter(filter)}
+                onPress={() => {
+                  LayoutAnimation.configureNext(
+                    LayoutAnimation.Presets.easeInEaseOut,
+                  );
+                  setActiveFilter(filter);
+                }}
               >
                 <Text
                   style={[
@@ -541,23 +640,7 @@ export default function LeaveRequestScreen() {
                   </View>
                 )}
 
-                {isManager && request.normalizedStatus === "pending" && (
-                  <View style={styles.reviewButtons}>
-                    <TouchableOpacity
-                      style={[styles.actionButton, styles.reviewOpenButton]}
-                      activeOpacity={0.9}
-                      onPress={() => {
-                        setSelectedRequest(request);
-                        setReviewComment(request.managerComment || "");
-                        setReviewModalVisible(true);
-                      }}
-                    >
-                      <Text style={styles.reviewOpenButtonText}>
-                        Review request
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+                {null}
               </View>
             );
           })
@@ -570,6 +653,7 @@ export default function LeaveRequestScreen() {
         transparent
         onRequestClose={resetCreateModal}
       >
+        <Pressable style={StyleSheet.absoluteFill} onPress={resetCreateModal} />
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
@@ -666,8 +750,7 @@ export default function LeaveRequestScreen() {
                   <View style={styles.helperCard}>
                     <Text style={styles.helperLabel}>Duration</Text>
                     <Text style={styles.helperText}>
-                      {getDayCount(startDate, endDate)}{" "}
-                      {getDayCount(startDate, endDate) === 1 ? "day" : "days"}
+                      {requestedDays} {requestedDays === 1 ? "day" : "days"}
                     </Text>
                   </View>
                 )}
@@ -677,6 +760,7 @@ export default function LeaveRequestScreen() {
                     value={startDate || new Date()}
                     mode="date"
                     display={Platform.OS === "ios" ? "spinner" : "default"}
+                    minimumDate={new Date()}
                     onChange={(event, date) => {
                       setShowStartPicker(false);
                       if (event.type === "dismissed") return;
@@ -693,7 +777,7 @@ export default function LeaveRequestScreen() {
                     value={endDate || startDate || new Date()}
                     mode="date"
                     display={Platform.OS === "ios" ? "spinner" : "default"}
-                    minimumDate={startDate || undefined}
+                    minimumDate={startDate || new Date()}
                     onChange={(event, date) => {
                       setShowEndPicker(false);
                       if (event.type === "dismissed") return;
@@ -712,11 +796,31 @@ export default function LeaveRequestScreen() {
                   value={reason}
                   onChangeText={setReason}
                   multiline
+                  maxLength={300}
                 />
                 <Text style={styles.fieldHelperText}>
-                  Please add a clear short explanation.
+                  Please add a clear short explanation ({trimmedReason.length}/300).
                 </Text>
               </View>
+
+              {!!formValidationMessage &&
+                !(
+                  formValidationMessage === "Please fill in all fields" &&
+                  !startDate &&
+                  !endDate &&
+                  !trimmedReason
+                ) && (
+                  <View style={styles.validationCard}>
+                    <Ionicons
+                      name="information-circle-outline"
+                      size={18}
+                      color={colors.warning}
+                    />
+                    <Text style={styles.validationText}>
+                      {formValidationMessage}
+                    </Text>
+                  </View>
+                )}
 
               <View style={styles.modalButtons}>
                 <TouchableOpacity
@@ -759,6 +863,7 @@ export default function LeaveRequestScreen() {
         transparent
         onRequestClose={resetReviewModal}
       >
+        <Pressable style={StyleSheet.absoluteFill} onPress={resetReviewModal} />
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
@@ -909,6 +1014,27 @@ const createStyles = (
       fontSize: typography.sm,
       color: colors.warning,
       fontWeight: typography.semibold,
+      lineHeight: 20,
+    },
+
+    validationCard: {
+      marginTop: spacing.sm,
+      marginBottom: spacing.sm,
+      backgroundColor: colors.warningLight,
+      borderWidth: 1,
+      borderColor: colors.warning,
+      borderRadius: borderRadius.md,
+      padding: spacing.md,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+
+    validationText: {
+      flex: 1,
+      fontSize: typography.sm,
+      color: colors.warning,
+      fontWeight: typography.medium,
       lineHeight: 20,
     },
 

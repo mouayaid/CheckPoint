@@ -1,40 +1,49 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
+  Animated,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { seatService, profileService, eventService } from "../services/api";
 import { Card, Button } from "../components";
 import { useTheme } from "../context/ThemeContext";
+import api from "../services/api/axiosInstance";
+import { useAuth } from "../context/AuthContext";
 
-/** Compact label for next event (backend may send date as ISO or display string). */
 function formatEventCompact(event) {
-  const raw = event?.date ?? event?.Date ?? event?.startDateTime ?? event?.StartDateTime;
+  const raw =
+    event?.date ?? event?.Date ?? event?.startDateTime ?? event?.StartDateTime;
+
   if (!raw) return "Date to be announced";
+
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return String(raw);
+
   const datePart = d.toLocaleDateString(undefined, {
     weekday: "short",
     month: "short",
     day: "numeric",
   });
+
   const timePart = d.toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
   });
+
   return `${datePart} · ${timePart}`;
 }
 
 const DashboardScreen = () => {
   const navigation = useNavigation();
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
+  const { user } = useAuth();
 
   const styles = useMemo(
     () => createStyles(colors, spacing, typography, borderRadius, shadows),
@@ -49,11 +58,49 @@ const DashboardScreen = () => {
 
   const [myReservation, setMyReservation] = useState(null);
   const [leaveBalance, setLeaveBalance] = useState(null);
-
   const [userName, setUserName] = useState("");
+
+  const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
+  const [pendingUserCount, setPendingUserCount] = useState(0);
+  const [loadingPendingLeave, setLoadingPendingLeave] = useState(true);
+  const [loadingPendingUsers, setLoadingPendingUsers] = useState(true);
+
+  const [announcements, setAnnouncements] = useState([]);
+  const [loadingAnnouncements, setLoadingAnnouncements] = useState(true);
+
+  const normalizeRole = (role) => {
+    if (typeof role === "string") return role.trim().toLowerCase();
+    if (typeof role === "number") return role;
+    return null;
+  };
+
+  const role = normalizeRole(user?.role);
+
+  const isAdmin = role === "admin" || role === 3;
+  const isHr = role === "hr" || role === 4;
+  const canReviewLeave =
+    role === "manager" || role === "admin" || role === 2 || role === 3;
+
+  const heroFadeAnim = useRef(new Animated.Value(0)).current;
+  const contentFadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadDashboardData();
+  }, []);
+
+  useEffect(() => {
+    Animated.stagger(150, [
+      Animated.timing(heroFadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentFadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start();
   }, []);
 
   const formatDateForApi = (date) => {
@@ -73,7 +120,6 @@ const DashboardScreen = () => {
 
         const formattedDate = formatDateForApi(checkDate);
         const response = await eventService.getEventsByDate(formattedDate);
-
         const events = response?.data || [];
 
         if (events.length > 0) {
@@ -91,40 +137,139 @@ const DashboardScreen = () => {
     }
   };
 
+  const fetchPendingLeaveApprovals = async () => {
+    if (!canReviewLeave) {
+      setLoadingPendingLeave(false);
+      setPendingLeaveCount(0);
+      return;
+    }
+
+    setLoadingPendingLeave(true);
+
+    try {
+      const res = await api.get("/Leave/requests/pending");
+      const data = Array.isArray(res.data) ? res.data : res.data?.data || [];
+      setPendingLeaveCount(data.length);
+    } catch (error) {
+      console.log("Pending leave approvals error", {
+        message: error?.message,
+        status: error?.response?.status,
+        data: error?.response?.data,
+        url: error?.config?.url,
+        baseURL: error?.config?.baseURL,
+      });
+      setPendingLeaveCount(0);
+    } finally {
+      setLoadingPendingLeave(false);
+    }
+  };
+
+  const fetchPendingUserApprovals = async () => {
+    if (!isAdmin) {
+      setLoadingPendingUsers(false);
+      setPendingUserCount(0);
+      return;
+    }
+
+    setLoadingPendingUsers(true);
+
+    try {
+      const res = await api.get("/admin/users/pending");
+      const data = Array.isArray(res.data) ? res.data : res.data?.data || [];
+      setPendingUserCount(data.length);
+    } catch (error) {
+      console.log("Pending user approvals error", {
+        message: error?.message,
+        status: error?.response?.status,
+        data: error?.response?.data,
+        url: error?.config?.url,
+        baseURL: error?.config?.baseURL,
+      });
+      setPendingUserCount(0);
+    } finally {
+      setLoadingPendingUsers(false);
+    }
+  };
+
   const fetchLeaveBalance = async () => {
     setLoadingBalance(true);
+
     try {
       const response = await profileService.getProfile();
 
-      const user = response?.data?.user || null;
+      const payload = response?.data?.data || response?.data || null;
 
-      const rawBalance = user?.leaveBalance ?? user?.LeaveBalance ?? 0;
+      const profileUser =
+        payload?.user ??
+        payload?.User ??
+        payload?.userDto ??
+        payload?.UserDto ??
+        payload ??
+        null;
+
+      const rawBalance =
+        profileUser?.leaveBalance ??
+        profileUser?.LeaveBalance ??
+        payload?.leaveBalance ??
+        payload?.LeaveBalance ??
+        0;
+
       const balance = Number(rawBalance);
-      const safe = Number.isNaN(balance) ? 0 : balance;
+      const safeBalance = Number.isNaN(balance) ? 0 : balance;
 
-      setLeaveBalance(safe);
-      const name = user?.fullName ?? user?.FullName ?? "";
+      setLeaveBalance(safeBalance);
+
+      const name =
+        profileUser?.fullName ??
+        profileUser?.FullName ??
+        payload?.fullName ??
+        payload?.FullName ??
+        "";
+
       setUserName(name);
     } catch (error) {
-      console.log("Leave balance error", error);
+      console.log("Leave balance error", {
+        message: error?.message,
+        status: error?.response?.status,
+        data: error?.response?.data,
+        url: error?.config?.url,
+        baseURL: error?.config?.baseURL,
+      });
+
       setLeaveBalance(null);
     } finally {
       setLoadingBalance(false);
     }
   };
 
+  const fetchAnnouncements = async () => {
+    setLoadingAnnouncements(true);
+
+    try {
+      const res = await api.get("/Announcement");
+      const data = Array.isArray(res.data) ? res.data : res.data?.data || [];
+      setAnnouncements(data);
+    } catch (error) {
+      console.log("Announcements error", {
+        message: error?.message,
+        status: error?.response?.status,
+        data: error?.response?.data,
+        url: error?.config?.url,
+        baseURL: error?.config?.baseURL,
+      });
+      setAnnouncements([]);
+    } finally {
+      setLoadingAnnouncements(false);
+    }
+  };
+
   const fetchMyReservation = async () => {
     setLoadingDesk(true);
+
     try {
       const response = await seatService.getMyTodayReservation();
-
       const reservation = response?.data?.data || response?.data || null;
-
-      if (reservation) {
-        setMyReservation(reservation);
-      } else {
-        setMyReservation(null);
-      }
+      setMyReservation(reservation || null);
     } catch (error) {
       console.log("Dashboard reservation error", error);
       setMyReservation(null);
@@ -138,6 +283,9 @@ const DashboardScreen = () => {
       fetchMyReservation(),
       fetchLeaveBalance(),
       fetchUpcomingEvent(),
+      fetchPendingLeaveApprovals(),
+      fetchPendingUserApprovals(),
+      fetchAnnouncements(),
     ]);
   };
 
@@ -170,19 +318,23 @@ const DashboardScreen = () => {
   const heroDeskLine = loadingDesk
     ? "Checking your desk…"
     : seatLabel
-      ? `Desk ${seatLabel} · reserved for today`
-      : "No desk reserved yet — reserve below when you need one";
+      ? `Desk ${seatLabel} reserved for today`
+      : "No desk reserved yet for today";
 
   const balanceKnown = leaveBalance !== null;
   const balanceNum = balanceKnown ? Number(leaveBalance) : NaN;
-  const canRequestLeave =
-    !loadingBalance && balanceKnown && !Number.isNaN(balanceNum) && balanceNum > 0;
   const noLeaveDaysLeft =
-    !loadingBalance && balanceKnown && !Number.isNaN(balanceNum) && balanceNum <= 0;
+    !loadingBalance &&
+    balanceKnown &&
+    !Number.isNaN(balanceNum) &&
+    balanceNum <= 0;
   const balanceLoadFailed = !loadingBalance && leaveBalance === null;
 
-  const showReserveDeskAction = !loadingDesk && !seatLabel;
-  const showViewDeskAction = !loadingDesk && !!seatLabel;
+  const showLeaveApprovalsCard =
+    canReviewLeave && !loadingPendingLeave && pendingLeaveCount > 0;
+
+  const showAdminApprovalsCard =
+    isAdmin && !loadingPendingUsers && pendingUserCount > 0;
 
   return (
     <ScrollView
@@ -197,281 +349,392 @@ const DashboardScreen = () => {
         />
       }
     >
-      <View style={styles.hero}>
-        <View style={styles.heroTopRow}>
-          <View style={styles.heroTextWrap}>
-            <Text style={styles.heroTitle}>
-              {greeting}
-              {userName ? `, ${userName.split(" ")[0]}` : ""}
-            </Text>
-            <Text style={styles.heroSubtitle}>{today}</Text>
-          </View>
-
-          <View style={styles.heroIconWrap}>
-            <Ionicons
-              name="sparkles-outline"
-              size={22}
-              color={colors.textOnPrimary}
-            />
-          </View>
-        </View>
-
-        <View style={styles.heroStatusCard}>
-          <Text style={styles.heroStatusLabel}>Today</Text>
-          <Text style={styles.heroStatusText}>{heroDeskLine}</Text>
-        </View>
-      </View>
-
-      <Text style={styles.sectionTitle}>Your desk today</Text>
-
-      <Card style={styles.summaryCard}>
-        <View style={styles.summaryTopRow}>
-          <Ionicons name="desktop-outline" size={20} color={colors.primary} />
-          <Text style={styles.summaryTitle}>Workspace</Text>
-        </View>
-
-        {loadingDesk ? (
-          <View style={styles.loadingInline}>
-            <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={styles.summaryMuted}>Loading reservation…</Text>
-          </View>
-        ) : seatLabel ? (
-          <>
-            <View style={styles.successPill}>
-              <Ionicons
-                name="checkmark-circle"
-                size={18}
-                color={colors.success}
-              />
-              <Text style={styles.successPillText}>
-                You&apos;re set — seat {seatLabel} for today
+      <Animated.View
+        style={{
+          opacity: heroFadeAnim,
+          transform: [
+            {
+              translateY: heroFadeAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [20, 0],
+              }),
+            },
+          ],
+        }}
+      >
+        <LinearGradient
+          colors={[colors.primary, colors.primaryDark]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.hero}
+        >
+          <View style={styles.heroTopRow}>
+            <View style={styles.heroTextWrap}>
+              <Text style={styles.heroTitle}>
+                {greeting}
+                {userName ? `, ${userName.split(" ")[0]}` : ""}
               </Text>
+              <Text style={styles.heroSubtitle}>{today}</Text>
             </View>
-            <Text style={styles.summarySubtitle}>
-              Tap below to open the desk map or change if your office allows it.
-            </Text>
-            <Button
-              title="Open desk map"
-              variant="secondary"
-              onPress={() => navigation.navigate("Desk")}
-              style={styles.summaryButton}
-            />
-          </>
-        ) : (
-          <>
-            <Text style={styles.summaryEmptyValue}>No reservation</Text>
-            <Text style={styles.summarySubtitle}>
-              Pick a seat on the map to work from the office today.
-            </Text>
-            <Button
-              title="Reserve a desk"
-              onPress={() => navigation.navigate("Desk")}
-              style={styles.summaryButton}
-            />
-          </>
-        )}
-      </Card>
 
-      <Text style={styles.sectionTitle}>Leave balance</Text>
-
-      <Card style={styles.infoCard}>
-        <View style={styles.infoCardRow}>
-          <View style={styles.infoIconWrap}>
-            <Ionicons name="wallet-outline" size={20} color={colors.primary} />
+            <View style={styles.heroIconWrap}>
+              <Ionicons
+                name="sparkles-outline"
+                size={22}
+                color={colors.textOnPrimary}
+              />
+            </View>
           </View>
 
-          <View style={styles.infoTextWrap}>
-            <Text style={styles.infoTitle}>Annual leave</Text>
+          <View style={styles.heroStatusCard}>
+            <Text style={styles.heroStatusLabel}>Today</Text>
+            <Text style={styles.heroStatusText}>{heroDeskLine}</Text>
+          </View>
+        </LinearGradient>
+      </Animated.View>
 
-            {loadingBalance ? (
-              <View style={styles.loadingInline}>
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.infoSubtitle}>Loading balance…</Text>
+      <Animated.View
+        style={{
+          opacity: contentFadeAnim,
+          transform: [
+            {
+              translateY: contentFadeAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [20, 0],
+              }),
+            },
+          ],
+        }}
+      >
+        <Text style={styles.sectionTitle}>Workspace</Text>
+
+        <Card style={styles.primaryCard}>
+          <View style={styles.summaryTopRow}>
+            <Ionicons name="desktop-outline" size={20} color={colors.primary} />
+            <Text style={styles.summaryTitle}>Your desk today</Text>
+          </View>
+
+          {loadingDesk ? (
+            <View style={styles.loadingInline}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.summaryMuted}>Loading reservation…</Text>
+            </View>
+          ) : seatLabel ? (
+            <>
+              <View style={styles.successPill}>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={18}
+                  color={colors.success}
+                />
+                <Text style={styles.successPillText}>
+                  Seat {seatLabel} is reserved for today
+                </Text>
               </View>
-            ) : balanceLoadFailed ? (
-              <>
-                <Text style={styles.infoSubtitle}>
-                  Couldn&apos;t load your balance. Pull to refresh or open
-                  leave requests to see your history.
-                </Text>
-              </>
-            ) : (
-              <>
-                <Text style={styles.balanceValue}>
-                  {balanceNum} {balanceNum === 1 ? "day" : "days"} left
-                </Text>
-                <Text style={styles.infoSubtitle}>
-                  {canRequestLeave
-                    ? "You can submit a new leave request."
-                    : noLeaveDaysLeft
-                      ? "No days left to book — you can still view past requests."
-                      : ""}
-                </Text>
-              </>
-            )}
-          </View>
-        </View>
 
-        {canRequestLeave && (
+              <Text style={styles.summarySubtitle}>
+                Open the desk map to view your reservation.
+              </Text>
+
+              <Button
+                title="Open desk map"
+                variant="secondary"
+                onPress={() => navigation.navigate("Desk")}
+                style={styles.summaryButton}
+              />
+            </>
+          ) : (
+            <>
+              <Text style={styles.summaryEmptyValue}>No reservation</Text>
+              <Text style={styles.summarySubtitle}>
+                Pick a seat on the map if you plan to work from the office
+                today.
+              </Text>
+
+              <Button
+                title="Reserve a desk"
+                onPress={() => navigation.navigate("Desk")}
+                style={styles.summaryButton}
+              />
+            </>
+          )}
+        </Card>
+
+        <Text style={styles.sectionTitle}>Leave balance</Text>
+
+        <Card style={styles.infoCard}>
+          <View style={styles.infoCardRow}>
+            <View style={styles.infoIconWrap}>
+              <Ionicons
+                name="wallet-outline"
+                size={20}
+                color={colors.primary}
+              />
+            </View>
+
+            <View style={styles.infoTextWrap}>
+              {loadingBalance ? (
+                <View style={styles.loadingInline}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={styles.infoSubtitle}>Loading balance…</Text>
+                </View>
+              ) : balanceLoadFailed ? (
+                <Text style={styles.infoSubtitle}>
+                  Couldn&apos;t load your leave balance right now. Pull to
+                  refresh.
+                </Text>
+              ) : (
+                <>
+                  <Text style={styles.balanceValue}>
+                    {balanceNum} {balanceNum === 1 ? "day" : "days"} left
+                  </Text>
+
+                  <Text style={styles.infoSubtitle}>
+                    {balanceNum > 0
+                      ? "You can submit a new leave request or review your previous requests."
+                      : "You have no leave days left. You can still review your previous requests."}
+                  </Text>
+
+                  {noLeaveDaysLeft && (
+                    <Text style={styles.balanceWarningTextSmall}>
+                      You currently have no remaining leave days.
+                    </Text>
+                  )}
+
+                  <Button
+                    title={
+                      balanceNum > 0
+                        ? "Create leave request"
+                        : "View previous requests"
+                    }
+                    variant={balanceNum > 0 ? "primary" : "secondary"}
+                    onPress={() =>
+                      navigation.navigate("Requests", {
+                        openCreateModal: balanceNum > 0,
+                      })
+                    }
+                    style={styles.infoButton}
+                  />
+                </>
+              )}
+            </View>
+          </View>
+        </Card>
+
+        <Text style={styles.sectionTitle}>Next event</Text>
+
+        <Card style={styles.infoCard}>
+          <View style={styles.infoCardRow}>
+            <View style={styles.infoIconWrap}>
+              <Ionicons
+                name="calendar-clear-outline"
+                size={20}
+                color={colors.primary}
+              />
+            </View>
+
+            <View style={styles.infoTextWrap}>
+              {loadingEvent ? (
+                <View style={styles.loadingInline}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={styles.infoSubtitle}>Loading calendar…</Text>
+                </View>
+              ) : upcomingEvent ? (
+                <>
+                  <Text style={styles.eventTitle} numberOfLines={2}>
+                    {upcomingEvent.title ??
+                      upcomingEvent.Title ??
+                      "Untitled event"}
+                  </Text>
+                  <Text style={styles.eventCompact}>
+                    {formatEventCompact(upcomingEvent)}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.infoTitle}>Nothing scheduled</Text>
+                  <Text style={styles.infoSubtitle}>
+                    No events in the next 7 days.
+                  </Text>
+                </>
+              )}
+            </View>
+          </View>
+
           <Button
-            title="Request leave"
-            onPress={() => navigation.navigate("Requests")}
+            title="Browse events"
+            variant={upcomingEvent ? "secondary" : "primary"}
+            onPress={() => navigation.navigate("Events")}
             style={styles.infoButton}
           />
-        )}
+        </Card>
 
-        {noLeaveDaysLeft && (
-          <>
-            <Text style={styles.balanceWarningTextSmall}>
-              You have no remaining leave days for new bookings.
-            </Text>
+        <Text style={styles.sectionTitle}>Announcements</Text>
+
+        <Card style={styles.infoCard}>
+          <View style={styles.infoCardRow}>
+            <View style={styles.infoIconWrap}>
+              <Ionicons
+                name="megaphone-outline"
+                size={20}
+                color={colors.primary}
+              />
+            </View>
+
+            <View style={styles.infoTextWrap}>
+              {loadingAnnouncements ? (
+                <View style={styles.loadingInline}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={styles.infoSubtitle}>
+                    Loading announcements…
+                  </Text>
+                </View>
+              ) : announcements.length > 0 ? (
+                <>
+                  <Text style={styles.infoTitle}>
+                    {announcements[0]?.title ??
+                      announcements[0]?.Title ??
+                      "Announcement"}
+                  </Text>
+
+                  <Text style={styles.infoSubtitle}>
+                    {(
+                      announcements[0]?.content ??
+                      announcements[0]?.Content ??
+                      ""
+                    ).length > 140
+                      ? `${(
+                          announcements[0]?.content ??
+                          announcements[0]?.Content ??
+                          ""
+                        ).slice(0, 140)}...`
+                      : (announcements[0]?.content ??
+                        announcements[0]?.Content ??
+                        "")}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.infoTitle}>Company news</Text>
+                  <Text style={styles.infoSubtitle}>
+                    No announcements available right now.
+                  </Text>
+                </>
+              )}
+            </View>
+          </View>
+
+          {isHr && (
             <Button
-              title="View leave history"
+              title="Manage announcements"
               variant="secondary"
-              onPress={() => navigation.navigate("Requests")}
+              onPress={() => navigation.navigate("ManageAnnouncements")}
               style={styles.infoButton}
             />
+          )}
+        </Card>
+
+        {(showLeaveApprovalsCard ||
+          showAdminApprovalsCard ||
+          loadingPendingLeave ||
+          loadingPendingUsers) && (
+          <>
+            <Text style={styles.sectionTitle}>Needs attention</Text>
+
+            {canReviewLeave && (
+              <Card style={styles.attentionCard}>
+                <View style={styles.infoCardRow}>
+                  <View style={styles.attentionIconWrap}>
+                    <Ionicons
+                      name="checkmark-done-outline"
+                      size={20}
+                      color={colors.warning}
+                    />
+                  </View>
+
+                  <View style={styles.infoTextWrap}>
+                    {loadingPendingLeave ? (
+                      <View style={styles.loadingInline}>
+                        <ActivityIndicator
+                          size="small"
+                          color={colors.primary}
+                        />
+                        <Text style={styles.infoSubtitle}>
+                          Loading leave approvals…
+                        </Text>
+                      </View>
+                    ) : pendingLeaveCount > 0 ? (
+                      <>
+                        <Text style={styles.infoTitle}>Leave approvals</Text>
+                        <Text style={styles.balanceValue}>
+                          {pendingLeaveCount}
+                        </Text>
+                        <Text style={styles.infoSubtitle}>
+                          Leave requests waiting for your review.
+                        </Text>
+                      </>
+                    ) : null}
+                  </View>
+                </View>
+
+                {!loadingPendingLeave && pendingLeaveCount > 0 && (
+                  <Button
+                    title="Review now"
+                    onPress={() => navigation.navigate("Approvals")}
+                    style={styles.infoButton}
+                  />
+                )}
+              </Card>
+            )}
+
+            {isAdmin && (
+              <Card style={styles.attentionCard}>
+                <View style={styles.infoCardRow}>
+                  <View style={styles.attentionIconWrap}>
+                    <Ionicons
+                      name="person-add-outline"
+                      size={20}
+                      color={colors.warning}
+                    />
+                  </View>
+
+                  <View style={styles.infoTextWrap}>
+                    {loadingPendingUsers ? (
+                      <View style={styles.loadingInline}>
+                        <ActivityIndicator
+                          size="small"
+                          color={colors.primary}
+                        />
+                        <Text style={styles.infoSubtitle}>
+                          Loading account approvals…
+                        </Text>
+                      </View>
+                    ) : pendingUserCount > 0 ? (
+                      <>
+                        <Text style={styles.infoTitle}>Account approvals</Text>
+                        <Text style={styles.balanceValue}>
+                          {pendingUserCount}
+                        </Text>
+                        <Text style={styles.infoSubtitle}>
+                          New user accounts waiting for admin approval.
+                        </Text>
+                      </>
+                    ) : null}
+                  </View>
+                </View>
+
+                {!loadingPendingUsers && pendingUserCount > 0 && (
+                  <Button
+                    title="Review now"
+                    onPress={() => navigation.navigate("AdminUserApprovals")}
+                    style={styles.infoButton}
+                  />
+                )}
+              </Card>
+            )}
           </>
         )}
-
-        {balanceLoadFailed && (
-          <Button
-            title="Open leave requests"
-            variant="secondary"
-            onPress={() => navigation.navigate("Requests")}
-            style={styles.infoButton}
-          />
-        )}
-      </Card>
-
-      <Text style={styles.sectionTitle}>Next event</Text>
-
-      <Card style={styles.infoCard}>
-        <View style={styles.infoCardRow}>
-          <View style={styles.infoIconWrap}>
-            <Ionicons
-              name="calendar-clear-outline"
-              size={20}
-              color={colors.primary}
-            />
-          </View>
-
-          <View style={styles.infoTextWrap}>
-            {loadingEvent ? (
-              <View style={styles.loadingInline}>
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.infoSubtitle}>Loading calendar…</Text>
-              </View>
-            ) : upcomingEvent ? (
-              <>
-                <Text style={styles.eventTitle} numberOfLines={2}>
-                  {upcomingEvent.title ??
-                    upcomingEvent.Title ??
-                    "Untitled event"}
-                </Text>
-                <Text style={styles.eventCompact}>
-                  {formatEventCompact(upcomingEvent)}
-                </Text>
-              </>
-            ) : (
-              <>
-                <Text style={styles.infoTitle}>Nothing scheduled</Text>
-                <Text style={styles.infoSubtitle}>
-                  No events in the next 7 days. Check the Events tab for more.
-                </Text>
-              </>
-            )}
-          </View>
-        </View>
-
-        <Button
-          title={upcomingEvent ? "All events" : "Browse events"}
-          variant={upcomingEvent ? "secondary" : "primary"}
-          onPress={() => navigation.navigate("Events")}
-          style={styles.infoButton}
-        />
-      </Card>
-
-      <Text style={styles.sectionTitle}>Quick actions</Text>
-      <Text style={styles.sectionHint}>
-        Shortcuts based on what you can do right now.
-      </Text>
-
-      <View style={styles.actionsGrid}>
-        {showReserveDeskAction && (
-          <TouchableOpacity
-            style={styles.actionCard}
-            activeOpacity={0.88}
-            onPress={() => navigation.navigate("Desk")}
-          >
-            <View style={styles.actionIconWrap}>
-              <Ionicons
-                name="desktop-outline"
-                size={24}
-                color={colors.primary}
-              />
-            </View>
-            <Text style={styles.actionText}>Reserve desk</Text>
-            <Text style={styles.actionSubtext}>
-              Choose a seat for today
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {showViewDeskAction && (
-          <TouchableOpacity
-            style={styles.actionCard}
-            activeOpacity={0.88}
-            onPress={() => navigation.navigate("Desk")}
-          >
-            <View style={styles.actionIconWrap}>
-              <Ionicons name="map-outline" size={24} color={colors.primary} />
-            </View>
-            <Text style={styles.actionText}>View desk</Text>
-            <Text style={styles.actionSubtext}>
-              Seat {seatLabel} · open map
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
-          style={styles.actionCard}
-          activeOpacity={0.88}
-          onPress={() => navigation.navigate("Rooms")}
-        >
-          <View style={styles.actionIconWrap}>
-            <Ionicons
-              name="business-outline"
-              size={24}
-              color={colors.primary}
-            />
-          </View>
-          <Text style={styles.actionText}>Book room</Text>
-          <Text style={styles.actionSubtext}>
-            Reserve a meeting room
-          </Text>
-        </TouchableOpacity>
-
-        {canRequestLeave && (
-          <TouchableOpacity
-            style={styles.actionCard}
-            activeOpacity={0.88}
-            onPress={() => navigation.navigate("Requests")}
-          >
-            <View style={styles.actionIconWrap}>
-              <Ionicons
-                name="calendar-outline"
-                size={24}
-                color={colors.primary}
-              />
-            </View>
-            <Text style={styles.actionText}>Request leave</Text>
-            <Text style={styles.actionSubtext}>
-              {balanceNum} {balanceNum === 1 ? "day" : "days"} available
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      </Animated.View>
     </ScrollView>
   );
 };
@@ -496,13 +759,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       ...shadows.sm,
     },
 
-    balanceWarningTextSmall: {
-      marginTop: spacing.sm,
-      fontSize: typography.xs,
-      color: colors.warning,
-      fontWeight: typography.semibold,
-    },
-
     heroTopRow: {
       flexDirection: "row",
       alignItems: "flex-start",
@@ -517,13 +773,14 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     heroTitle: {
       fontSize: typography.xxl,
-      fontWeight: typography.bold,
+      fontFamily: typography.fontFamily?.bold,
       color: colors.textOnPrimary,
     },
 
     heroSubtitle: {
       marginTop: 4,
       fontSize: typography.sm,
+      fontFamily: typography.fontFamily?.regular,
       color: colors.textOnPrimary,
       opacity: 0.88,
     },
@@ -545,7 +802,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     heroStatusLabel: {
       fontSize: typography.xs,
-      fontWeight: typography.semibold,
+      fontFamily: typography.fontFamily?.semibold,
       color: colors.textOnPrimary,
       opacity: 0.85,
       marginBottom: 4,
@@ -553,7 +810,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     heroStatusText: {
       fontSize: typography.sm,
-      fontWeight: typography.medium,
+      fontFamily: typography.fontFamily?.medium,
       color: colors.textOnPrimary,
       lineHeight: 20,
     },
@@ -561,17 +818,11 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     sectionTitle: {
       marginBottom: spacing.xs,
       fontSize: typography.base,
-      fontWeight: typography.semibold,
+      fontFamily: typography.fontFamily?.bold,
       color: colors.text,
     },
 
-    sectionHint: {
-      marginBottom: spacing.md,
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-    },
-
-    summaryCard: {
+    primaryCard: {
       backgroundColor: colors.surface,
       padding: spacing.lg,
       marginBottom: spacing.xl,
@@ -585,26 +836,21 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     },
 
     summaryTitle: {
-      fontSize: typography.base,
-      fontWeight: typography.semibold,
+      fontSize: typography.lg,
+      fontFamily: typography.fontFamily?.bold,
       color: colors.text,
-    },
-
-    summaryValue: {
-      fontSize: 32,
-      fontWeight: typography.bold,
-      color: colors.primary,
     },
 
     summaryEmptyValue: {
       fontSize: typography.lg,
-      fontWeight: typography.bold,
+      fontFamily: typography.fontFamily?.bold,
       color: colors.text,
     },
 
     summarySubtitle: {
       marginTop: spacing.sm,
       fontSize: typography.sm,
+      fontFamily: typography.fontFamily?.regular,
       color: colors.textSecondary,
       lineHeight: 20,
     },
@@ -631,7 +877,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     successPillText: {
       fontSize: typography.sm,
-      fontWeight: typography.semibold,
+      fontFamily: typography.fontFamily?.semibold,
       color: colors.success,
       flex: 1,
     },
@@ -646,6 +892,14 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       backgroundColor: colors.surface,
       padding: spacing.lg,
       marginBottom: spacing.xl,
+    },
+
+    attentionCard: {
+      backgroundColor: colors.surface,
+      padding: spacing.lg,
+      marginBottom: spacing.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
 
     infoCardRow: {
@@ -663,28 +917,45 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       justifyContent: "center",
     },
 
+    attentionIconWrap: {
+      width: 42,
+      height: 42,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
     infoTextWrap: {
       flex: 1,
     },
 
     infoTitle: {
-      fontSize: typography.base,
-      fontWeight: typography.semibold,
+      fontSize: typography.lg,
+      fontFamily: typography.fontFamily?.semibold,
       color: colors.text,
       marginBottom: 4,
     },
 
     balanceValue: {
-      fontSize: 28,
-      fontWeight: typography.bold,
+      fontSize: 32,
+      fontFamily: typography.fontFamily?.bold,
       color: colors.primary,
       marginTop: 2,
     },
 
     infoSubtitle: {
       fontSize: typography.sm,
+      fontFamily: typography.fontFamily?.regular,
       color: colors.textSecondary,
       lineHeight: 20,
+    },
+
+    balanceWarningTextSmall: {
+      marginTop: spacing.sm,
+      fontSize: typography.xs,
+      color: colors.warning,
+      fontWeight: typography.semibold,
     },
 
     eventTitle: {
@@ -702,50 +973,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     infoButton: {
       marginTop: spacing.md,
-    },
-
-    actionsGrid: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: spacing.md,
-    },
-
-    actionCard: {
-      width: "47%",
-      paddingVertical: spacing.lg,
-      paddingHorizontal: spacing.md,
-      backgroundColor: colors.surface,
-      borderRadius: borderRadius.lg,
-      alignItems: "center",
-      justifyContent: "center",
-      borderWidth: 1,
-      borderColor: colors.border,
-      ...shadows.sm,
-    },
-
-    actionIconWrap: {
-      width: 48,
-      height: 48,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.surfaceMuted,
-      alignItems: "center",
-      justifyContent: "center",
-      marginBottom: spacing.sm,
-    },
-
-    actionText: {
-      fontSize: typography.sm,
-      fontWeight: typography.semibold,
-      color: colors.text,
-      textAlign: "center",
-    },
-
-    actionSubtext: {
-      marginTop: 4,
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      textAlign: "center",
-      lineHeight: 18,
     },
   });
 

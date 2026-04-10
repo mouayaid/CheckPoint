@@ -8,8 +8,7 @@ public interface IApplicationDbContext
     DbSet<User> Users { get; }
     DbSet<Department> Departments { get; }
 
-DbSet<InternalRequest> InternalRequests { get; }
-
+    DbSet<InternalRequest> InternalRequests { get; }
 
     DbSet<OfficeTable> OfficeTables { get; }
     DbSet<Seat> Seats { get; }
@@ -26,6 +25,12 @@ DbSet<InternalRequest> InternalRequests { get; }
     DbSet<EventParticipant> EventParticipants { get; }
 
     DbSet<Notification> Notifications { get; }
+
+    DbSet<DepartmentChannelMessage> DepartmentChannelMessages { get; }
+    DbSet<DepartmentPoll> DepartmentPolls { get; }
+    DbSet<DepartmentPollOption> DepartmentPollOptions { get; }
+    DbSet<DepartmentPollVote> DepartmentPollVotes { get; }
+    DbSet<Announcement>Announcements{get;}
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

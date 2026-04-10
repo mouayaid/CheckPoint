@@ -19,10 +19,6 @@ public class AdminUsersController : ControllerBase
         _adminUserService = adminUserService;
     }
 
-    /// <summary>
-    /// Get all users pending approval
-    /// </summary>
-    /// <returns>List of pending users</returns>
     [HttpGet("pending")]
     public async Task<ActionResult<ApiResponse<List<PendingUserDto>>>> GetPendingUsers()
     {
@@ -30,12 +26,6 @@ public class AdminUsersController : ControllerBase
         return Ok(ApiResponse<List<PendingUserDto>>.SuccessResponse(users));
     }
 
-    /// <summary>
-    /// Approve a user and set their leave balance and optionally role/department
-    /// </summary>
-    /// <param name="id">User ID to approve</param>
-    /// <param name="dto">Approval details (leaveBalance, role?, departmentId?)</param>
-    /// <returns>Approved user</returns>
     [HttpPut("{id}/approve")]
     public async Task<ActionResult<ApiResponse<UserDto>>> ApproveUser(int id, [FromBody] ApproveUserDto dto)
     {
@@ -50,12 +40,20 @@ public class AdminUsersController : ControllerBase
         return Ok(ApiResponse<UserDto>.SuccessResponse(result, "User approved successfully"));
     }
 
-    /// <summary>
-    /// Change a user's role (without re-approving)
-    /// </summary>
-    /// <param name="id">User ID</param>
-    /// <param name="dto">New role</param>
-    /// <returns>Updated user</returns>
+    [HttpPut("{id}/reject")]
+    public async Task<ActionResult<ApiResponse<UserDto>>> RejectUser(int id, [FromBody] RejectUserDto dto)
+    {
+        var adminId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _adminUserService.RejectUserAsync(id, adminId, dto);
+
+        if (result == null)
+        {
+            return NotFound(ApiResponse<UserDto>.ErrorResponse("User not found"));
+        }
+
+        return Ok(ApiResponse<UserDto>.SuccessResponse(result, "User rejected successfully"));
+    }
+
     [HttpPut("{id}/role")]
     public async Task<ActionResult<ApiResponse<UserDto>>> ChangeUserRole(int id, [FromBody] ChangeUserRoleDto dto)
     {

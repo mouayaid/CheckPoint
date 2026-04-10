@@ -2,7 +2,6 @@ using AutoMapper;
 using Microsoft.EntityFrameworkCore;
 using PFE.Application.Abstractions;
 using PFE.Application.DTOs.User;
-using PFE.Domain.Enums;
 
 namespace PFE.Application.Services;
 
@@ -21,7 +20,7 @@ public class AdminUserService : IAdminUserService
     {
         var users = await _context.Users
             .Include(u => u.Department)
-            .Where(u => !u.IsActive)
+            .Where(u => !u.IsActive && u.RejectedAt == null)
             .OrderBy(u => u.CreatedAt)
             .ToListAsync();
 
@@ -48,19 +47,16 @@ public class AdminUserService : IAdminUserService
             return null;
         }
 
-        // Activate user
         user.IsActive = true;
         user.LeaveBalance = dto.LeaveBalance;
         user.ApprovedAt = DateTime.UtcNow;
         user.ApprovedByUserId = adminId;
 
-        // Update role if provided
         if (dto.Role.HasValue)
         {
             user.Role = dto.Role.Value;
         }
 
-        // Update department if provided
         if (dto.DepartmentId.HasValue)
         {
             user.DepartmentId = dto.DepartmentId.Value;
@@ -68,12 +64,32 @@ public class AdminUserService : IAdminUserService
 
         await _context.SaveChangesAsync();
 
-        // Reload with department to ensure mapping works
         var updatedUser = await _context.Users
             .Include(u => u.Department)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         return _mapper.Map<UserDto>(updatedUser);
+    }
+
+    public async Task<UserDto?> RejectUserAsync(int id, int adminId, RejectUserDto dto)
+    {
+        var user = await _context.Users
+            .Include(u => u.Department)
+            .FirstOrDefaultAsync(u => u.Id == id);
+
+        if (user == null)
+        {
+            return null;
+        }
+
+        user.IsActive = false;
+        user.RejectedAt = DateTime.UtcNow;
+        user.RejectedById = adminId;
+        user.RejectionReason = dto.Reason;
+
+        await _context.SaveChangesAsync();
+
+        return _mapper.Map<UserDto>(user);
     }
 
     public async Task<UserDto?> ChangeUserRoleAsync(int userId, ChangeUserRoleDto dto)

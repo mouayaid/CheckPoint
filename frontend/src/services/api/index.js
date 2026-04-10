@@ -7,4 +7,6 @@ export { eventService } from './eventService';
 export { notificationService } from './notificationService';
 export { profileService } from './profileService';
 export { default as axiosInstance } from './axiosInstance';
+export { leaveService } from './leaveService';
+export { departmentChannelService } from './departmentChannelService';
 

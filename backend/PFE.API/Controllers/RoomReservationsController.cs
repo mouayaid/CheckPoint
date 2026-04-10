@@ -4,7 +4,6 @@ using PFE.Application.Common;
 using PFE.Application.DTOs.RoomReservation;
 using PFE.Application.Abstractions;
 using System.Security.Claims;
-using PFE.Application.Services;
 
 namespace PFE.API.Controllers;
 
@@ -14,31 +13,52 @@ namespace PFE.API.Controllers;
 public class RoomReservationsController : ControllerBase
 {
     private readonly IRoomReservationService _roomReservationService;
-    private readonly IApprovalService _approvalService;
 
-    public RoomReservationsController(IRoomReservationService roomReservationService,
-        IApprovalService approvalService)
+    public RoomReservationsController(IRoomReservationService roomReservationService)
     {
         _roomReservationService = roomReservationService;
-        _approvalService = approvalService;
     }
 
     [HttpGet("for-day")]
     public async Task<ActionResult<ApiResponse<List<RoomReservationForDayDto>>>> GetReservationsForDay(
-    [FromQuery] int roomId,
-    [FromQuery] DateTime? date)
+        [FromQuery] int roomId,
+        [FromQuery] DateTime? date)
     {
-        var tz = TimeZoneInfo.FindSystemTimeZoneById("W. Central Africa Standard Time"); // Tunisia
-        var tunisToday = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz).Date;
+        try
+        {
+            Console.WriteLine($"[for-day] START roomId={roomId}, date={date}");
 
-        var requestedDate = (date?.Date) ?? tunisToday;
+            if (roomId <= 0)
+            {
+                Console.WriteLine("[for-day] invalid roomId");
+                return BadRequest(
+                    ApiResponse<List<RoomReservationForDayDto>>.ErrorResponse("Invalid roomId.")
+                );
+            }
 
-        var reservations = await _roomReservationService.GetReservationsForDayAsync(roomId, requestedDate);
-        return Ok(ApiResponse<List<RoomReservationForDayDto>>.SuccessResponse(reservations));
+            var requestedDate = (date ?? DateTime.Today).Date;
+            Console.WriteLine($"[for-day] requestedDate={requestedDate:yyyy-MM-dd}");
+
+            var reservations = await _roomReservationService.GetReservationsForDayAsync(roomId, requestedDate);
+
+            Console.WriteLine($"[for-day] SUCCESS roomId={roomId}, count={reservations.Count}");
+
+            return Ok(ApiResponse<List<RoomReservationForDayDto>>.SuccessResponse(reservations));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("[for-day] ERROR:");
+            Console.WriteLine(ex.ToString());
+
+            return StatusCode(500,
+                ApiResponse<List<RoomReservationForDayDto>>.ErrorResponse($"DEBUG: {ex.Message}")
+            );
+        }
     }
 
     [HttpPost]
-    public async Task<ActionResult<ApiResponse<RoomReservationDto>>> CreateReservation([FromBody] CreateRoomReservationDto dto)
+    public async Task<ActionResult<ApiResponse<RoomReservationDto>>> CreateReservation(
+        [FromBody] CreateRoomReservationDto dto)
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
@@ -49,6 +69,7 @@ public class RoomReservationsController : ControllerBase
             "Room reservation created successfully. Pending approval."
         ));
     }
+
     [HttpGet("pending")]
     [Authorize(Policy = "ManagerOrAdmin")]
     public async Task<ActionResult<ApiResponse<List<RoomReservationDto>>>> GetPending()
@@ -58,38 +79,4 @@ public class RoomReservationsController : ControllerBase
 
         return Ok(ApiResponse<List<RoomReservationDto>>.SuccessResponse(pending));
     }
-
-    public class ReviewCommentDto
-    {
-        public string? Comment { get; set; }
-    }
-
-    [HttpPut("{id}/approve")]
-    [Authorize(Policy = "ManagerOrAdmin")]
-    public async Task<ActionResult<ApiResponse<object>>> Approve(int id, [FromBody] ReviewCommentDto? dto)
-    {
-        var managerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-
-        var ok = await _approvalService.ApproveRoomReservationAsync(id, managerId, dto?.Comment);
-
-        if (!ok)
-            return BadRequest(ApiResponse<object>.ErrorResponse("Could not approve reservation."));
-
-        return Ok(ApiResponse<object>.SuccessResponse("Approved", "Reservation approved."));
-    }
-
-    [HttpPut("{id}/reject")]
-    [Authorize(Policy = "ManagerOrAdmin")]
-    public async Task<ActionResult<ApiResponse<object>>> Reject(int id, [FromBody] RejectRoomReservationDto dto)
-    {
-        var managerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-
-        var ok = await _approvalService.RejectRoomReservationAsync(id, managerId, dto.Reason);
-
-        if (!ok)
-            return BadRequest(ApiResponse<object>.ErrorResponse("Could not reject reservation."));
-
-        return Ok(ApiResponse<object>.SuccessResponse("Rejected", "Reservation rejected."));
-    }
 }
-

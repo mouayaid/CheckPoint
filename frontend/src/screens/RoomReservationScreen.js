@@ -11,7 +11,16 @@ import {
   Pressable,
   Platform,
   RefreshControl,
+  LayoutAnimation,
+  UIManager,
 } from "react-native";
+
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import roomService from "../services/api/roomService";
@@ -39,7 +48,7 @@ const parseDateKey = (dateStr) => {
 
 const startOfWeekMonday = (date) => {
   const cloned = new Date(date);
-  const day = cloned.getDay(); // 0 Sun, 1 Mon ... 6 Sat
+  const day = cloned.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   cloned.setDate(cloned.getDate() + diff);
   cloned.setHours(0, 0, 0, 0);
@@ -88,7 +97,7 @@ const formatReservationDate = (start, end) => {
 };
 
 const combineDateAndTime = (dateStr, timeDateObj) => {
-  const [y, m, d] = dateStr.split("-").map((x) => Number(x));
+  const [y, m, d] = dateStr.split("-").map(Number);
   const hh = timeDateObj.getHours();
   const mm = timeDateObj.getMinutes();
   return new Date(y, m - 1, d, hh, mm, 0, 0);
@@ -150,7 +159,6 @@ const formatDuration = (minutes) => {
   return `${mins}m`;
 };
 
-/** Axios / API error shape from interceptor */
 function getErrorMessage(error, fallback) {
   if (!error) return fallback;
   if (typeof error === "string") return error;
@@ -162,7 +170,6 @@ function getErrorMessage(error, fallback) {
   );
 }
 
-/** Backend ReservationStatus: Pending=0, Active=1, Cancelled=2, Completed=3, Rejected=4 */
 function normalizeStatusKey(status) {
   if (typeof status === "number" && Number.isFinite(status)) {
     const map = {
@@ -210,7 +217,6 @@ export default function RoomReservationScreen() {
 
   const [roomDayStatusMap, setRoomDayStatusMap] = useState({});
   const [loadingRoomStatuses, setLoadingRoomStatuses] = useState(false);
-  /** Set when /for-day fails (e.g. not server "today") — avoids showing false "free all day" */
   const [roomDayLoadError, setRoomDayLoadError] = useState(null);
   const [modalScheduleError, setModalScheduleError] = useState(null);
 
@@ -222,22 +228,19 @@ export default function RoomReservationScreen() {
 
   useEffect(() => {
     loadInitialData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (rooms.length > 0) {
       loadRoomStatusesForSelectedDate();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rooms, selectedDate]);
 
   useEffect(() => {
     if (modalVisible && selectedRoom?.id) {
       loadReservationsForSelected();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate]);
+  }, [selectedDate, modalVisible, selectedRoom]);
 
   const loadInitialData = async () => {
     await Promise.all([loadRooms(), loadMyReservations()]);
@@ -268,13 +271,13 @@ export default function RoomReservationScreen() {
       } else {
         Alert.alert(
           "Couldn’t load rooms",
-          response?.message || "Pull down to refresh and try again.",
+          response?.message || "Pull down to refresh and try again."
         );
       }
     } catch (error) {
       Alert.alert(
         "Couldn’t load rooms",
-        getErrorMessage(error, "Check your connection and try again."),
+        getErrorMessage(error, "Check your connection and try again.")
       );
     }
   };
@@ -288,7 +291,7 @@ export default function RoomReservationScreen() {
       } else {
         setMyReservations([]);
       }
-    } catch (error) {
+    } catch {
       setMyReservations([]);
     } finally {
       setLoadingMyReservations(false);
@@ -297,23 +300,38 @@ export default function RoomReservationScreen() {
 
   const fetchReservationsForRoomAndDate = async (roomId, date) => {
     try {
+      console.log("[RoomReservation] getReservationsForDay request", {
+        roomId,
+        date,
+      });
+
       const res = await roomService.getReservationsForDay(roomId, date);
+
+      console.log("[RoomReservation] getReservationsForDay response", res);
+
       if (res?.success) {
         return { ok: true, data: res.data || [], message: null };
       }
+
       return {
         ok: false,
         data: [],
         message: res?.message || "Could not load bookings for this day.",
       };
     } catch (error) {
+      console.log("[RoomReservation] getReservationsForDay error", {
+        roomId,
+        date,
+        status: error?.status || error?.response?.status,
+        message: error?.message,
+        responseData: error?.response?.data,
+        url: error?.config?.url,
+      });
+
       return {
         ok: false,
         data: [],
-        message: getErrorMessage(
-          error,
-          "Could not load bookings for this day.",
-        ),
+        message: getErrorMessage(error, "Could not load bookings for this day."),
       };
     }
   };
@@ -321,6 +339,7 @@ export default function RoomReservationScreen() {
   const loadRoomStatusesForSelectedDate = async () => {
     setLoadingRoomStatuses(true);
     setRoomDayLoadError(null);
+
     try {
       if (rooms.length === 0) {
         setRoomDayStatusMap({});
@@ -329,19 +348,16 @@ export default function RoomReservationScreen() {
 
       const results = await Promise.all(
         rooms.map(async (room) => {
-          const out = await fetchReservationsForRoomAndDate(
-            room.id,
-            selectedDate
-          );
+          const out = await fetchReservationsForRoomAndDate(room.id, selectedDate);
           return { roomId: room.id, ...out };
         })
       );
 
       const failed = results.find((r) => !r.ok);
+
       if (failed) {
         setRoomDayLoadError(
-          failed.message ||
-            "Availability can only be loaded for the server’s current day.",
+          failed.message || "Could not load availability for the selected day."
         );
         setRoomDayStatusMap({});
         return;
@@ -360,20 +376,18 @@ export default function RoomReservationScreen() {
 
   const loadReservationsForSelected = async () => {
     if (!selectedRoom?.id) return;
+
     setLoadingReservations(true);
     setModalScheduleError(null);
+
     try {
       const { ok, data: reservations, message } =
-        await fetchReservationsForRoomAndDate(
-          selectedRoom.id,
-          selectedDate
-        );
+        await fetchReservationsForRoomAndDate(selectedRoom.id, selectedDate);
 
       if (!ok) {
         setDayReservations([]);
         setModalScheduleError(
-          message ||
-            "This day’s schedule isn’t available. Try today’s date on the calendar.",
+          message || "Could not load this room’s schedule for the selected day."
         );
         return;
       }
@@ -416,20 +430,12 @@ export default function RoomReservationScreen() {
   };
 
   const handleOpenModal = async (room) => {
-    if (roomDayLoadError) {
-      Alert.alert(
-        "Schedule unavailable",
-        roomDayLoadError,
-        [{ text: "OK" }],
-      );
-      return;
-    }
-
     setSelectedRoom(room);
     setModalVisible(true);
     setModalScheduleError(null);
 
     const selected = parseDateKey(selectedDate);
+
     setStartTime(
       new Date(
         selected.getFullYear(),
@@ -439,6 +445,7 @@ export default function RoomReservationScreen() {
         0
       )
     );
+
     setEndTime(
       new Date(
         selected.getFullYear(),
@@ -450,6 +457,7 @@ export default function RoomReservationScreen() {
     );
 
     setLoadingReservations(true);
+
     try {
       const { ok, data: reservations, message } =
         await fetchReservationsForRoomAndDate(room.id, selectedDate);
@@ -457,8 +465,7 @@ export default function RoomReservationScreen() {
       if (!ok) {
         setDayReservations([]);
         setModalScheduleError(
-          message ||
-            "Could not load this room’s schedule for the selected day.",
+          message || "Could not load this room’s schedule for the selected day."
         );
         return;
       }
@@ -473,7 +480,7 @@ export default function RoomReservationScreen() {
     } catch (error) {
       setDayReservations([]);
       setModalScheduleError(
-        getErrorMessage(error, "Could not load schedule for this room."),
+        getErrorMessage(error, "Could not load schedule for this room.")
       );
     } finally {
       setLoadingReservations(false);
@@ -496,7 +503,7 @@ export default function RoomReservationScreen() {
     if (!startTime || !endTime) {
       Alert.alert(
         "Pick a time range",
-        "Select a start and end time for your request.",
+        "Select a start and end time for your request."
       );
       return;
     }
@@ -504,7 +511,7 @@ export default function RoomReservationScreen() {
     if (!purpose.trim()) {
       Alert.alert(
         "Add a purpose",
-        "Briefly describe the meeting so your manager can approve the request.",
+        "Briefly describe the meeting so your manager can approve the request."
       );
       return;
     }
@@ -515,7 +522,7 @@ export default function RoomReservationScreen() {
     if (endDateTime <= startDateTime) {
       Alert.alert(
         "Invalid time range",
-        "End time must be after start time on the same day.",
+        "End time must be after start time on the same day."
       );
       return;
     }
@@ -523,47 +530,63 @@ export default function RoomReservationScreen() {
     if (hasOverlap(startDateTime, endDateTime)) {
       Alert.alert(
         "Time conflict",
-        "This range overlaps a confirmed booking for this room. Only approved reservations block the calendar — pick another slot.",
+        "This range overlaps a confirmed booking for this room. Pick another slot."
       );
       return;
     }
 
     setReserving(true);
+
     try {
-      const response = await roomService.createReservation({
-        roomId: selectedRoom.id,
+      const payload = {
+        roomId: Number(selectedRoom.id),
         startDateTime: startDateTime.toISOString(),
         endDateTime: endDateTime.toISOString(),
         purpose: purpose.trim(),
-      });
+      };
+
+      console.log("[RoomReservation] createReservation payload", payload);
+
+      const response = await roomService.createReservation(payload);
+
+      console.log("[RoomReservation] createReservation response", response);
 
       if (response?.success) {
         Alert.alert(
           "Request sent",
           response.message ||
-            "Your room request was submitted. It stays pending until a manager approves it.",
-          [{ text: "OK" }],
+            "Your room request was submitted and is waiting for approval.",
+          [{ text: "OK" }]
         );
+
         await Promise.all([
           loadReservationsForSelected(),
           loadMyReservations(),
           loadRoomStatusesForSelectedDate(),
         ]);
+
         resetModal();
       } else {
         Alert.alert(
           "Request not sent",
-          response?.message || "Something went wrong. Try again.",
+          response?.message || "Something went wrong. Try again."
         );
       }
     } catch (error) {
-      const status = error?.status;
+      console.log("[RoomReservation] createReservation error", {
+        status: error?.status || error?.response?.status,
+        message: error?.message,
+        responseData: error?.response?.data,
+        url: error?.config?.url,
+      });
+
+      const status = error?.status || error?.response?.status;
       const msg = getErrorMessage(error, "Could not submit your request.");
+
       if (status === 409) {
         Alert.alert(
           "Slot no longer available",
-          msg ||
-            "Another approved booking overlaps this time. Refresh and choose a different range.",
+          msg || "Another approved booking overlaps this time."
         );
       } else if (status === 400) {
         Alert.alert("Can’t submit this request", msg);
@@ -699,6 +722,7 @@ export default function RoomReservationScreen() {
 
   const selectedDayRoomSummary = useMemo(() => {
     if (roomDayLoadError) return null;
+
     let freeAllDay = 0;
     let partial = 0;
 
@@ -761,6 +785,7 @@ export default function RoomReservationScreen() {
     startTime && selectedDate
       ? combineDateAndTime(selectedDate, startTime)
       : null;
+
   const combinedEnd =
     endTime && selectedDate
       ? combineDateAndTime(selectedDate, endTime)
@@ -774,7 +799,8 @@ export default function RoomReservationScreen() {
     !overlapWarning &&
     !!combinedStart &&
     !!combinedEnd &&
-    combinedEnd > combinedStart;
+    combinedEnd > combinedStart &&
+    !modalScheduleError;
 
   return (
     <View style={styles.container}>
@@ -800,8 +826,7 @@ export default function RoomReservationScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.blockTitle}>Select a workday</Text>
             <Text style={styles.blockSubtitle}>
-              Monday–Friday • Availability loads for the server’s current day
-              only (same rule as submitting a request)
+              Monday–Friday • View confirmed room availability for the selected day
             </Text>
           </View>
 
@@ -818,11 +843,7 @@ export default function RoomReservationScreen() {
                 setSelectedDate(formatDateKey(prevDays[0]));
               }}
             >
-              <Ionicons
-                name="chevron-back"
-                size={18}
-                color={colors.text}
-              />
+              <Ionicons name="chevron-back" size={18} color={colors.text} />
             </TouchableOpacity>
 
             <Text style={styles.weekHeaderText}>
@@ -849,11 +870,7 @@ export default function RoomReservationScreen() {
                 setSelectedDate(formatDateKey(nextDays[0]));
               }}
             >
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={colors.text}
-              />
+              <Ionicons name="chevron-forward" size={18} color={colors.text} />
             </TouchableOpacity>
           </View>
 
@@ -917,7 +934,7 @@ export default function RoomReservationScreen() {
                 <Text style={styles.dayErrorTitle}>Can’t load day view</Text>
                 <Text style={styles.dayErrorText}>{roomDayLoadError}</Text>
                 <Text style={styles.dayErrorHint}>
-                  Switch to today’s date in the calendar, or pull to refresh.
+                  Pull to refresh, then check backend logs for the failing endpoint.
                 </Text>
               </View>
             </View>
@@ -937,8 +954,7 @@ export default function RoomReservationScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.blockTitle}>My requests</Text>
             <Text style={styles.blockSubtitle}>
-              Pending items need approval; approved ones block the room on the
-              map
+              Pending items need approval; approved ones block the room
             </Text>
           </View>
 
@@ -957,7 +973,10 @@ export default function RoomReservationScreen() {
                     selected && styles.filterChipActive,
                   ]}
                   activeOpacity={0.85}
-                  onPress={() => setReservationFilter(filter)}
+                  onPress={() => {
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setReservationFilter(filter);
+                  }}
                 >
                   <Text
                     style={[
@@ -978,8 +997,7 @@ export default function RoomReservationScreen() {
             <View style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>No requests yet</Text>
               <Text style={styles.emptyText}>
-                After you submit a room request, it will appear here with
-                pending or approved status.
+                After you submit a room request, it will appear here.
               </Text>
             </View>
           ) : (
@@ -1130,6 +1148,7 @@ export default function RoomReservationScreen() {
         transparent
         onRequestClose={resetModal}
       >
+        <Pressable style={StyleSheet.absoluteFill} onPress={resetModal} />
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
@@ -1141,6 +1160,7 @@ export default function RoomReservationScreen() {
               <Text style={styles.modalTitle}>
                 Request {selectedRoom?.name}
               </Text>
+
               <Text style={styles.modalSubtitle}>
                 {selectedDateReadable}
                 {"\n"}
@@ -1161,17 +1181,15 @@ export default function RoomReservationScreen() {
                   Confirmed bookings (approved only)
                 </Text>
                 <Text style={styles.sectionCaption}>
-                  Pending requests from anyone are not listed here — they only
-                  appear after approval.
+                  Pending requests are not listed here.
                 </Text>
 
                 {loadingReservations ? (
-                  <Text style={styles.muted}>Loading today’s schedule…</Text>
+                  <Text style={styles.muted}>Loading room schedule…</Text>
                 ) : dayReservations.length === 0 ? (
                   <View style={styles.emptyInlineCard}>
                     <Text style={styles.emptyInlineText}>
-                      No confirmed blocks — the room looks free on the calendar
-                      for this day.
+                      No confirmed blocks for this day.
                     </Text>
                   </View>
                 ) : (
@@ -1188,6 +1206,7 @@ export default function RoomReservationScreen() {
                           r.reservedBy?.fullName ||
                           r.reservedBy?.FullName ||
                           r.reservedBy?.userName;
+
                         return (
                           <View key={r.id} style={styles.resItem}>
                             <Text style={styles.resTime}>
@@ -1196,6 +1215,7 @@ export default function RoomReservationScreen() {
                                 r.endDateTime || r.endDate || r.end
                               )}
                             </Text>
+
                             {!!who && (
                               <Text style={styles.resPurpose} numberOfLines={2}>
                                 {who}
@@ -1277,11 +1297,12 @@ export default function RoomReservationScreen() {
 
                 {overlapWarning && (
                   <View style={styles.warningCard}>
-                    <Text style={styles.warningLabel}>Conflicts with a confirmed slot</Text>
+                    <Text style={styles.warningLabel}>
+                      Conflicts with a confirmed slot
+                    </Text>
                     <Text style={styles.warningText}>
                       Adjust your start or end time so it doesn’t overlap the
-                      bookings listed above. The server will also reject overlaps
-                      with approved reservations.
+                      bookings listed above.
                     </Text>
                   </View>
                 )}
@@ -1295,6 +1316,7 @@ export default function RoomReservationScreen() {
                     onChange={(event, date) => {
                       setShowStartPicker(false);
                       if (event.type === "dismissed") return;
+
                       setStartTime(date);
 
                       if (date && endTime) {
@@ -1355,12 +1377,12 @@ export default function RoomReservationScreen() {
                   style={[
                     styles.button,
                     styles.reserveButton,
-                    (!canSubmitRequest || reserving || !!modalScheduleError) &&
+                    (!canSubmitRequest || reserving) &&
                       styles.reserveButtonDisabled,
                   ]}
                   activeOpacity={0.9}
                   onPress={handleReserve}
-                  disabled={!canSubmitRequest || reserving || !!modalScheduleError}
+                  disabled={!canSubmitRequest || reserving}
                 >
                   <Text style={styles.buttonText}>
                     {reserving ? "Sending…" : "Submit request"}
@@ -1382,8 +1404,8 @@ export default function RoomReservationScreen() {
                 ) : null)}
 
               <Text style={styles.tip}>
-                If the slot was taken by another approved booking, you’ll get a
-                clear error — refresh and pick a new range.
+                If the slot was taken by another approved booking, refresh and pick
+                a new range.
               </Text>
             </ScrollView>
           </View>
@@ -1399,7 +1421,6 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       flex: 1,
       backgroundColor: colors.background,
     },
-
     stickyHeader: {
       paddingTop: spacing.xl,
       paddingHorizontal: spacing.lg,
@@ -1408,44 +1429,36 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
-
     screenTitle: {
       fontSize: typography.xxl,
       fontWeight: typography.bold,
       color: colors.text,
     },
-
     screenSubtitle: {
       marginTop: spacing.xs,
       fontSize: typography.sm,
       color: colors.textSecondary,
     },
-
     contentContainer: {
       paddingBottom: spacing.xxxl,
     },
-
     sectionBlock: {
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.xl,
     },
-
     sectionHeader: {
       marginBottom: spacing.md,
     },
-
     blockTitle: {
       fontSize: typography.lg,
       fontWeight: typography.bold,
       color: colors.text,
       marginBottom: spacing.xs,
     },
-
     blockSubtitle: {
       fontSize: typography.sm,
       color: colors.textSecondary,
     },
-
     calendarCard: {
       marginHorizontal: spacing.lg,
       marginTop: spacing.lg,
@@ -1456,14 +1469,12 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderColor: colors.border,
       ...shadows.md,
     },
-
     weekHeaderRow: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       marginBottom: spacing.md,
     },
-
     weekNavButton: {
       width: 36,
       height: 36,
@@ -1472,19 +1483,16 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       alignItems: "center",
       justifyContent: "center",
     },
-
     weekHeaderText: {
       fontSize: typography.base,
       fontWeight: typography.semibold,
       color: colors.text,
     },
-
     workWeekRow: {
       flexDirection: "row",
       justifyContent: "space-between",
       gap: spacing.sm,
     },
-
     workDayCard: {
       flex: 1,
       backgroundColor: colors.background,
@@ -1495,43 +1503,35 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       alignItems: "center",
       position: "relative",
     },
-
     workDayCardSelected: {
       backgroundColor: colors.primary,
       borderColor: colors.primary,
     },
-
     workDayName: {
       fontSize: typography.xs,
       color: colors.textSecondary,
       fontWeight: typography.semibold,
       marginBottom: 2,
     },
-
     workDayNameSelected: {
       color: colors.textOnPrimary,
     },
-
     workDayNumber: {
       fontSize: typography.lg,
       color: colors.text,
       fontWeight: typography.bold,
     },
-
     workDayNumberSelected: {
       color: colors.textOnPrimary,
     },
-
     workDayMonth: {
       fontSize: typography.xs,
       color: colors.textSecondary,
       marginTop: 2,
     },
-
     workDayMonthSelected: {
       color: colors.textOnPrimary,
     },
-
     todayDot: {
       position: "absolute",
       top: 8,
@@ -1541,7 +1541,6 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderRadius: 999,
       backgroundColor: colors.success,
     },
-
     daySummaryCard: {
       marginTop: spacing.md,
       backgroundColor: colors.background,
@@ -1550,19 +1549,16 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderRadius: borderRadius.lg,
       padding: spacing.md,
     },
-
     daySummaryTitle: {
       fontSize: typography.sm,
       fontWeight: typography.bold,
       color: colors.text,
       marginBottom: spacing.xs,
     },
-
     daySummaryText: {
       fontSize: typography.sm,
       color: colors.textSecondary,
     },
-
     dayErrorCard: {
       marginTop: spacing.md,
       flexDirection: "row",
@@ -1573,32 +1569,27 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderRadius: borderRadius.lg,
       padding: spacing.md,
     },
-
     dayErrorTitle: {
       fontSize: typography.sm,
       fontWeight: typography.bold,
       color: colors.text,
       marginBottom: spacing.xs,
     },
-
     dayErrorText: {
       fontSize: typography.sm,
       color: colors.text,
       lineHeight: 20,
       marginBottom: spacing.xs,
     },
-
     dayErrorHint: {
       fontSize: typography.xs,
       color: colors.textSecondary,
       lineHeight: 18,
     },
-
     filterRow: {
       paddingBottom: spacing.lg,
       gap: spacing.sm,
     },
-
     filterChip: {
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
@@ -1607,26 +1598,21 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderWidth: 1,
       borderColor: colors.border,
     },
-
     filterChipActive: {
       backgroundColor: colors.primary,
       borderColor: colors.primary,
     },
-
     filterChipText: {
       fontSize: typography.sm,
       color: colors.text,
       fontWeight: typography.semibold,
     },
-
     filterChipTextActive: {
       color: colors.textOnPrimary,
     },
-
     roomsList: {
       paddingBottom: spacing.sm,
     },
-
     roomItem: {
       backgroundColor: colors.surface,
       borderRadius: borderRadius.lg,
@@ -1637,47 +1623,38 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderLeftWidth: 5,
       ...shadows.sm,
     },
-
     roomBorderAvailable: {
       borderLeftColor: colors.success,
     },
-
     roomBorderBusy: {
       borderLeftColor: colors.error,
     },
-
     roomBorderBooked: {
       borderLeftColor: colors.warning,
     },
-
     roomBorderMuted: {
       borderLeftColor: colors.textSecondary,
     },
-
     roomTopRow: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
       marginBottom: spacing.sm,
     },
-
     roomTitleWrap: {
       flex: 1,
       paddingRight: spacing.sm,
     },
-
     roomName: {
       fontSize: typography.lg,
       fontWeight: typography.bold,
       color: colors.text,
       marginBottom: spacing.xs,
     },
-
     roomDetails: {
       fontSize: typography.sm,
       color: colors.textSecondary,
     },
-
     roomArrowWrap: {
       width: 34,
       height: 34,
@@ -1686,7 +1663,6 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       alignItems: "center",
       justifyContent: "center",
     },
-
     roomMetaRow: {
       flexDirection: "row",
       justifyContent: "space-between",
@@ -1694,64 +1670,51 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       marginBottom: spacing.sm,
       gap: spacing.sm,
     },
-
     roomStatusBadge: {
       alignSelf: "flex-start",
       paddingHorizontal: spacing.sm + 2,
       paddingVertical: spacing.xs + 1,
       borderRadius: borderRadius.full,
     },
-
     roomStatusText: {
       fontSize: typography.xs,
       fontWeight: typography.bold,
     },
-
     roomStatusAvailable: {
       backgroundColor: colors.successLight,
     },
-
     roomStatusAvailableText: {
       color: colors.success,
     },
-
     roomStatusBusy: {
       backgroundColor: colors.errorLight,
     },
-
     roomStatusBusyText: {
       color: colors.error,
     },
-
     roomStatusBooked: {
       backgroundColor: colors.warningLight,
     },
-
     roomStatusBookedText: {
       color: colors.warning,
     },
-
     roomStatusMuted: {
       backgroundColor: colors.surfaceMuted,
     },
-
     roomStatusMutedText: {
       color: colors.textSecondary,
     },
-
     roomBookingCount: {
       fontSize: typography.xs,
       color: colors.textSecondary,
       fontWeight: typography.medium,
     },
-
     roomFeatures: {
       flexDirection: "row",
       flexWrap: "wrap",
       gap: spacing.sm,
       marginTop: spacing.xs,
     },
-
     featureChip: {
       flexDirection: "row",
       alignItems: "center",
@@ -1761,13 +1724,11 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       paddingVertical: spacing.xs + 1,
       borderRadius: borderRadius.sm,
     },
-
     featureText: {
       fontSize: typography.xs,
       color: colors.primary,
       fontWeight: typography.semibold,
     },
-
     featureMuted: {
       fontSize: typography.xs,
       color: colors.textSecondary,
@@ -1778,7 +1739,6 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       overflow: "hidden",
       fontWeight: typography.medium,
     },
-
     emptyCard: {
       backgroundColor: colors.surface,
       borderRadius: borderRadius.lg,
@@ -1787,20 +1747,17 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       padding: spacing.lg,
       ...shadows.sm,
     },
-
     emptyTitle: {
       fontSize: typography.base,
       fontWeight: typography.semibold,
       color: colors.text,
       marginBottom: spacing.xs,
     },
-
     emptyText: {
       fontSize: typography.sm,
       color: colors.textSecondary,
       lineHeight: 20,
     },
-
     myReservationCard: {
       backgroundColor: colors.surface,
       borderRadius: borderRadius.lg,
@@ -1810,37 +1767,31 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderColor: colors.border,
       ...shadows.sm,
     },
-
     myReservationHeader: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "flex-start",
       gap: spacing.sm,
     },
-
     myReservationMain: {
       flex: 1,
     },
-
     myReservationRoom: {
       fontSize: typography.base,
       fontWeight: typography.bold,
       color: colors.text,
       marginBottom: spacing.xs,
     },
-
     myReservationDate: {
       fontSize: typography.sm,
       color: colors.textSecondary,
     },
-
     statusHint: {
       marginTop: spacing.sm,
       fontSize: typography.xs,
       color: colors.textSecondary,
       lineHeight: 18,
     },
-
     infoPill: {
       marginTop: spacing.md,
       backgroundColor: colors.infoLight,
@@ -1849,71 +1800,57 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderWidth: 1,
       borderColor: colors.info,
     },
-
     infoPillLabel: {
       fontSize: typography.xs,
       fontWeight: typography.bold,
       color: colors.info,
       marginBottom: spacing.xs,
     },
-
     infoPillText: {
       fontSize: typography.sm,
       color: colors.text,
     },
-
     statusBadge: {
       paddingHorizontal: spacing.sm + 2,
       paddingVertical: spacing.xs + 1,
       borderRadius: borderRadius.full,
       alignSelf: "flex-start",
     },
-
     statusText: {
       fontSize: typography.xs,
       fontWeight: typography.bold,
     },
-
     statusPending: {
       backgroundColor: colors.warningLight,
     },
-
     statusPendingText: {
       color: colors.warning,
     },
-
     statusApproved: {
       backgroundColor: colors.successLight,
     },
-
     statusApprovedText: {
       color: colors.success,
     },
-
     statusRejected: {
       backgroundColor: colors.errorLight,
     },
-
     statusRejectedText: {
       color: colors.error,
     },
-
     statusCancelled: {
       backgroundColor: colors.surfaceMuted,
+      color: colors.textSecondary,
     },
-
     statusCancelledText: {
       color: colors.textSecondary,
     },
-
     statusDefault: {
       backgroundColor: colors.errorLight,
     },
-
     statusDefaultText: {
       color: colors.primary,
     },
-
     commentBox: {
       marginTop: spacing.md,
       backgroundColor: colors.warningLight,
@@ -1922,31 +1859,26 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderWidth: 1,
       borderColor: colors.warning,
     },
-
     commentLabel: {
       fontSize: typography.xs,
       fontWeight: typography.bold,
       color: colors.warning,
       marginBottom: spacing.xs,
     },
-
     commentText: {
       fontSize: typography.sm,
       color: colors.text,
       lineHeight: 19,
     },
-
     muted: {
       color: colors.textSecondary,
       fontSize: typography.sm,
     },
-
     modalContainer: {
       flex: 1,
       justifyContent: "flex-end",
       backgroundColor: colors.overlay,
     },
-
     modalContent: {
       backgroundColor: colors.surface,
       borderTopLeftRadius: 24,
@@ -1954,13 +1886,11 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       maxHeight: "92%",
       ...shadows.lg,
     },
-
     modalScrollContent: {
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.sm,
       paddingBottom: spacing.xl,
     },
-
     modalHandle: {
       alignSelf: "center",
       width: 44,
@@ -1970,14 +1900,12 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       marginTop: spacing.sm,
       marginBottom: spacing.md,
     },
-
     modalTitle: {
       fontSize: typography.xl,
       fontWeight: typography.bold,
       color: colors.text,
       textAlign: "center",
     },
-
     modalSubtitle: {
       fontSize: typography.sm,
       color: colors.textSecondary,
@@ -1986,52 +1914,26 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       marginBottom: spacing.lg,
       lineHeight: 20,
     },
-
     modalSubtitleEmphasis: {
       fontSize: typography.xs,
       fontWeight: typography.semibold,
       color: colors.text,
     },
-
-    suggestionCard: {
-      backgroundColor: colors.successLight,
-      borderRadius: borderRadius.md,
-      borderWidth: 1,
-      borderColor: colors.success,
-      padding: spacing.md,
-      marginBottom: spacing.lg,
-    },
-
-    suggestionLabel: {
-      fontSize: typography.xs,
-      fontWeight: typography.bold,
-      color: colors.success,
-      marginBottom: spacing.xs,
-    },
-
-    suggestionText: {
-      fontSize: typography.sm,
-      color: colors.text,
-    },
-
     section: {
       marginBottom: spacing.lg,
     },
-
     sectionTitle: {
       fontSize: typography.sm,
       fontWeight: typography.bold,
       marginBottom: spacing.xs,
       color: colors.text,
     },
-
     sectionCaption: {
       fontSize: typography.xs,
       color: colors.textSecondary,
       lineHeight: 18,
       marginBottom: spacing.sm,
     },
-
     emptyInlineCard: {
       backgroundColor: colors.background,
       borderRadius: borderRadius.md,
@@ -2039,16 +1941,13 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderColor: colors.border,
       padding: spacing.md,
     },
-
     emptyInlineText: {
       fontSize: typography.sm,
       color: colors.textSecondary,
     },
-
     resList: {
       gap: spacing.sm,
     },
-
     resItem: {
       borderWidth: 1,
       borderColor: colors.border,
@@ -2056,24 +1955,20 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       padding: spacing.md,
       backgroundColor: colors.background,
     },
-
     resTime: {
       fontSize: typography.sm,
       fontWeight: typography.bold,
       color: colors.text,
     },
-
     resPurpose: {
       marginTop: spacing.xs,
       fontSize: typography.sm,
       color: colors.textSecondary,
     },
-
     timeRow: {
       flexDirection: "row",
       gap: spacing.sm,
     },
-
     timeField: {
       flex: 1,
       borderWidth: 1,
@@ -2082,19 +1977,16 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       padding: spacing.lg,
       backgroundColor: colors.background,
     },
-
     timeText: {
       fontSize: typography.xl,
       fontWeight: typography.bold,
       color: colors.text,
     },
-
     timeLabel: {
       marginTop: spacing.xs,
       fontSize: typography.xs,
       color: colors.textSecondary,
     },
-
     timeRangeCard: {
       marginTop: spacing.md,
       padding: spacing.md,
@@ -2103,41 +1995,35 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderWidth: 1,
       borderColor: colors.border,
     },
-
     timeRangeLabel: {
       fontSize: typography.xs,
       fontWeight: typography.bold,
       color: colors.textSecondary,
       marginBottom: 4,
     },
-
     timeRangeValue: {
       fontSize: typography.xl,
       fontWeight: typography.bold,
       color: colors.text,
       letterSpacing: 0.3,
     },
-
     timeRangeDate: {
       marginTop: spacing.xs,
       fontSize: typography.sm,
       color: colors.textSecondary,
     },
-
     timeRangeDuration: {
       marginTop: spacing.sm,
       fontSize: typography.sm,
       fontWeight: typography.semibold,
       color: colors.primary,
     },
-
     quickDurationRow: {
       flexDirection: "row",
       flexWrap: "wrap",
       gap: spacing.sm,
       marginTop: spacing.md,
     },
-
     quickDurationChip: {
       backgroundColor: colors.surfaceMuted,
       borderWidth: 1,
@@ -2146,13 +2032,11 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
     },
-
     quickDurationChipText: {
       fontSize: typography.xs,
       color: colors.text,
       fontWeight: typography.semibold,
     },
-
     helperInfoCard: {
       marginTop: spacing.md,
       backgroundColor: colors.infoLight,
@@ -2161,19 +2045,16 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderRadius: borderRadius.md,
       padding: spacing.md,
     },
-
     helperInfoLabel: {
       fontSize: typography.xs,
       fontWeight: typography.bold,
       color: colors.info,
       marginBottom: spacing.xs,
     },
-
     helperInfoText: {
       fontSize: typography.sm,
       color: colors.text,
     },
-
     warningCard: {
       marginTop: spacing.md,
       backgroundColor: colors.errorLight,
@@ -2182,19 +2063,16 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderRadius: borderRadius.md,
       padding: spacing.md,
     },
-
     warningLabel: {
       fontSize: typography.xs,
       fontWeight: typography.bold,
       color: colors.error,
       marginBottom: spacing.xs,
     },
-
     warningText: {
       fontSize: typography.sm,
       color: colors.text,
     },
-
     input: {
       minHeight: 90,
       textAlignVertical: "top",
@@ -2206,13 +2084,11 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       color: colors.text,
       backgroundColor: colors.background,
     },
-
     modalButtons: {
       flexDirection: "row",
       justifyContent: "space-between",
       marginTop: spacing.xs,
     },
-
     button: {
       flex: 1,
       paddingVertical: spacing.md + 2,
@@ -2220,34 +2096,28 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       alignItems: "center",
       justifyContent: "center",
     },
-
     cancelButton: {
       backgroundColor: colors.surfaceMuted,
       marginRight: spacing.sm,
     },
-
     reserveButton: {
       backgroundColor: colors.primary,
       marginLeft: spacing.sm,
       ...shadows.sm,
     },
-
     reserveButtonDisabled: {
       opacity: 0.45,
     },
-
     buttonText: {
       color: colors.textOnPrimary,
       fontSize: typography.base,
       fontWeight: typography.bold,
     },
-
     cancelButtonText: {
       color: colors.text,
       fontSize: typography.base,
       fontWeight: typography.bold,
     },
-
     tip: {
       marginTop: spacing.md,
       fontSize: typography.xs,

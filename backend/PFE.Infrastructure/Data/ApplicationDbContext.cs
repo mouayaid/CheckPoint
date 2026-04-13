@@ -17,6 +17,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<OfficeTable> OfficeTables { get; set; }
 
     public DbSet<InternalRequest> InternalRequests { get; set; }
+    
 
     public DbSet<Seat> Seats { get; set; }
     public DbSet<SeatReservation> SeatReservations { get; set; }
@@ -29,6 +30,8 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<EventParticipant> EventParticipants { get; set; }
     public DbSet<Notification> Notifications { get; set; }
     public DbSet<Announcement> Announcements => Set<Announcement>();
+
+    public DbSet<DepartmentChannelReadState> DepartmentChannelReadStates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

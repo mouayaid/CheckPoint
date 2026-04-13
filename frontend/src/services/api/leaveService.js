@@ -2,21 +2,21 @@ import axiosInstance from "./axiosInstance";
 
 export const leaveService = {
   createLeaveRequest: (payload) =>
-    axiosInstance.post("/LeaveRequests", payload),
+    axiosInstance.post("/Leave/requests", payload),
 
   getMyLeaveRequests: () =>
-    axiosInstance.get("/LeaveRequests/my"),
+    axiosInstance.get("/Leave/requests/my"),
 
   getPendingLeaveRequests: () =>
-    axiosInstance.get("/LeaveRequests/pending"),
+    axiosInstance.get("/Leave/pending-review"),
 
   approveLeaveRequest: (id, payload = {}) =>
-    axiosInstance.put(`/LeaveRequests/${id}/approve`, {
+    axiosInstance.put(`/Leave/requests/${id}/approve`, {
       comment: payload?.comment ?? "",
     }),
 
   rejectLeaveRequest: (id, payload = {}) =>
-    axiosInstance.put(`/LeaveRequests/${id}/reject`, {
+    axiosInstance.put(`/Leave/requests/${id}/reject`, {
       comment: payload?.comment ?? "",
     }),
 
@@ -24,7 +24,7 @@ export const leaveService = {
     const isApprove = payload?.decision === "approve";
 
     return axiosInstance.put(
-      `/LeaveRequests/${id}/${isApprove ? "approve" : "reject"}`,
+      `/Leave/requests/${id}/${isApprove ? "approve" : "reject"}`,
       {
         comment: payload?.comment ?? "",
       }

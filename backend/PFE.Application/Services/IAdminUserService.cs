@@ -5,7 +5,7 @@ namespace PFE.Application.Services;
 public interface IAdminUserService
 {
     Task<List<PendingUserDto>> GetPendingUsersAsync();
-    Task<UserDto?> ApproveUserAsync(int userId, int adminId, ApproveUserDto dto);
+    Task<UserDto?> ApproveUserAsync(int userId, int reviewerId, ApproveUserDto dto);
     Task<UserDto?> ChangeUserRoleAsync(int userId, ChangeUserRoleDto dto);
-    Task<UserDto?> RejectUserAsync(int id, int adminId, RejectUserDto dto);
+    Task<UserDto?> RejectUserAsync(int userId, int reviewerId, RejectUserDto dto);
 }

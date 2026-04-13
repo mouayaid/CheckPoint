@@ -59,17 +59,7 @@ public class DepartmentChannelService : IDepartmentChannelService
             .Where(u => u.DepartmentId == dto.DepartmentId && u.Role == Role.Employee)
             .ToListAsync();
 
-        foreach (var employee in employees)
-        {
-            await _notificationService.CreateNotificationAsync(
-                employee.Id,
-                "New manager message",
-                "Your manager posted a new message.",
-                "DepartmentMessage",
-                "DepartmentChannelMessage",
-                message.Id
-            );
-        }
+
 
         return new DepartmentChannelMessageDto
         {
@@ -157,17 +147,6 @@ public class DepartmentChannelService : IDepartmentChannelService
             .Where(u => u.DepartmentId == dto.DepartmentId && u.Role == Role.Employee)
             .ToListAsync();
 
-        foreach (var employee in employees)
-        {
-            await _notificationService.CreateNotificationAsync(
-                employee.Id,
-                "New poll",
-                "Your manager created a new poll.",
-                "DepartmentPoll",
-                "DepartmentPoll",
-                poll.Id
-            );
-        }
 
         return await GetMessageByIdAsync(message.Id, userId);
     }
@@ -237,6 +216,71 @@ public class DepartmentChannelService : IDepartmentChannelService
         return result;
     }
 
+    public async Task MarkDepartmentChannelAsReadAsync(int userId)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+            throw new Exception("User not found.");
+
+        var readState = await _context.DepartmentChannelReadStates
+            .FirstOrDefaultAsync(r => r.UserId == userId && r.DepartmentId == user.DepartmentId);
+
+        if (readState == null)
+        {
+            readState = new DepartmentChannelReadState
+            {
+                UserId = userId,
+                DepartmentId = user.DepartmentId,
+                LastReadAt = DateTime.UtcNow
+            };
+
+            _context.DepartmentChannelReadStates.Add(readState);
+        }
+        else
+        {
+            readState.LastReadAt = DateTime.UtcNow;
+        }
+
+        await _context.SaveChangesAsync();
+    }
+    public async Task<MyDepartmentChannelDto> GetMyDepartmentChannelAsync(int userId)
+    {
+        var user = await _context.Users
+            .Include(u => u.Department)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+            throw new Exception("User not found.");
+
+        var readState = await _context.DepartmentChannelReadStates
+            .FirstOrDefaultAsync(r => r.UserId == userId && r.DepartmentId == user.DepartmentId);
+
+        var lastReadAt = readState?.LastReadAt;
+
+        var messages = _context.DepartmentChannelMessages
+            .Where(m => m.DepartmentId == user.DepartmentId);
+
+        var unreadCount = await messages.CountAsync(m =>
+            lastReadAt == null || m.CreatedAt > lastReadAt);
+
+        var lastMessage = await messages
+            .OrderByDescending(m => m.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        return new MyDepartmentChannelDto
+        {
+            DepartmentId = user.DepartmentId,
+            DepartmentName = user.Department.Name,
+            UnreadCount = unreadCount,
+            LastMessagePreview = lastMessage == null
+                ? null
+                : lastMessage.MessageType == "Poll"
+                    ? "New poll"
+                    : lastMessage.Content,
+            LastActivityAt = lastMessage?.CreatedAt
+        };
+    }
     public async Task VotePollAsync(int userId, int pollId, VoteDepartmentPollDto dto)
     {
         var user = await _context.Users
@@ -339,4 +383,4 @@ public class DepartmentChannelService : IDepartmentChannelService
             Poll = pollDto
         };
     }
-}   
+}

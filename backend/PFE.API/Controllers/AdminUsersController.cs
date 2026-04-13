@@ -9,7 +9,7 @@ namespace PFE.API.Controllers;
 
 [ApiController]
 [Route("api/admin/users")]
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = "Admin,HR")]
 public class AdminUsersController : ControllerBase
 {
     private readonly IAdminUserService _adminUserService;
@@ -29,8 +29,8 @@ public class AdminUsersController : ControllerBase
     [HttpPut("{id}/approve")]
     public async Task<ActionResult<ApiResponse<UserDto>>> ApproveUser(int id, [FromBody] ApproveUserDto dto)
     {
-        var adminId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        var result = await _adminUserService.ApproveUserAsync(id, adminId, dto);
+        var reviewerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _adminUserService.ApproveUserAsync(id, reviewerId, dto);
 
         if (result == null)
         {
@@ -43,8 +43,8 @@ public class AdminUsersController : ControllerBase
     [HttpPut("{id}/reject")]
     public async Task<ActionResult<ApiResponse<UserDto>>> RejectUser(int id, [FromBody] RejectUserDto dto)
     {
-        var adminId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        var result = await _adminUserService.RejectUserAsync(id, adminId, dto);
+        var reviewerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _adminUserService.RejectUserAsync(id, reviewerId, dto);
 
         if (result == null)
         {

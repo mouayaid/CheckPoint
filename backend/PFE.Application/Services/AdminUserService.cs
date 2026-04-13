@@ -2,6 +2,7 @@ using AutoMapper;
 using Microsoft.EntityFrameworkCore;
 using PFE.Application.Abstractions;
 using PFE.Application.DTOs.User;
+using PFE.Domain.Enums;
 
 namespace PFE.Application.Services;
 
@@ -36,7 +37,7 @@ public class AdminUserService : IAdminUserService
         }).ToList();
     }
 
-    public async Task<UserDto?> ApproveUserAsync(int userId, int adminId, ApproveUserDto dto)
+    public async Task<UserDto?> ApproveUserAsync(int userId, int reviewerId, ApproveUserDto dto)
     {
         var user = await _context.Users
             .Include(u => u.Department)
@@ -50,7 +51,7 @@ public class AdminUserService : IAdminUserService
         user.IsActive = true;
         user.LeaveBalance = dto.LeaveBalance;
         user.ApprovedAt = DateTime.UtcNow;
-        user.ApprovedByUserId = adminId;
+        user.ApprovedByUserId = reviewerId;
 
         if (dto.Role.HasValue)
         {
@@ -71,27 +72,6 @@ public class AdminUserService : IAdminUserService
         return _mapper.Map<UserDto>(updatedUser);
     }
 
-    public async Task<UserDto?> RejectUserAsync(int id, int adminId, RejectUserDto dto)
-    {
-        var user = await _context.Users
-            .Include(u => u.Department)
-            .FirstOrDefaultAsync(u => u.Id == id);
-
-        if (user == null)
-        {
-            return null;
-        }
-
-        user.IsActive = false;
-        user.RejectedAt = DateTime.UtcNow;
-        user.RejectedById = adminId;
-        user.RejectionReason = dto.Reason;
-
-        await _context.SaveChangesAsync();
-
-        return _mapper.Map<UserDto>(user);
-    }
-
     public async Task<UserDto?> ChangeUserRoleAsync(int userId, ChangeUserRoleDto dto)
     {
         var user = await _context.Users
@@ -104,6 +84,36 @@ public class AdminUserService : IAdminUserService
         }
 
         user.Role = dto.Role;
+        await _context.SaveChangesAsync();
+
+        return _mapper.Map<UserDto>(user);
+    }
+
+    public async Task<UserDto?> RejectUserAsync(int userId, int reviewerId, RejectUserDto dto)
+    {
+        var user = await _context.Users
+            .Include(u => u.Department)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+        {
+            return null;
+        }
+
+        if (user.IsActive)
+        {
+            throw new InvalidOperationException("Approved users cannot be rejected from the pending approvals screen.");
+        }
+
+        if (user.RejectedAt != null)
+        {
+            return _mapper.Map<UserDto>(user);
+        }
+
+        user.IsActive = false;
+        user.RejectedAt = DateTime.UtcNow;
+        user.RejectedById = reviewerId;
+
         await _context.SaveChangesAsync();
 
         return _mapper.Map<UserDto>(user);

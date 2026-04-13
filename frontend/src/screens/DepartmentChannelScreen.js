@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+  useRef,
+} from "react";
 import {
   View,
   Text,
@@ -16,9 +22,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
-import { departmentChannelService } from "../services/api";
+import { departmentChannelService } from "../services/api/departmentChannelService";
 import { Card, Button } from "../components";
 import { roleToString } from "../utils/helpers";
+import { useFocusEffect } from "@react-navigation/native";
+import { useDepartmentChannel } from "../context/DepartmentChannelContext";
 
 const MIN_OPTIONS = 2;
 
@@ -52,7 +60,10 @@ const PollItem = React.memo(({ poll, roleName, votingId, onVote }) => {
   const closed = isPollClosed(poll);
   const canVote = !closed && !poll.hasVoted && roleName === "Employee";
   const isVoting = votingId === poll.id;
-  const totalVotes = poll.options.reduce((sum, o) => sum + (o.voteCount || 0), 0);
+  const totalVotes = poll.options.reduce(
+    (sum, o) => sum + (o.voteCount || 0),
+    0,
+  );
 
   return (
     <View style={styles.pollContainer}>
@@ -109,10 +120,10 @@ const PollItem = React.memo(({ poll, roleName, votingId, onVote }) => {
             {poll.hasVoted
               ? "You voted"
               : closed
-              ? "Poll closed"
-              : canVote
-              ? "Tap to vote"
-              : null}
+                ? "Poll closed"
+                : canVote
+                  ? "Tap to vote"
+                  : null}
           </Text>
         )}
         <Text style={styles.pollTotalVotes}>{totalVotes} total</Text>
@@ -123,61 +134,68 @@ const PollItem = React.memo(({ poll, roleName, votingId, onVote }) => {
 
 // ─── Feed item ───────────────────────────────────────────────────────────────
 
-const FeedItem = React.memo(({ item, roleName, votingId, onVote, styles, colors }) => {
-  const isPoll = item.messageType === "Poll";
+const FeedItem = React.memo(
+  ({ item, roleName, votingId, onVote, styles, colors }) => {
+    const isPoll = item.messageType === "Poll";
 
-  return (
-    <Card style={styles.messageCard}>
-      <View style={styles.messageHeader}>
-        <View style={styles.senderRow}>
-          <View style={styles.senderAvatar}>
-            <Text style={styles.senderAvatarText}>
-              {(item.senderName || "?")[0].toUpperCase()}
-            </Text>
-          </View>
-          <View style={styles.senderMeta}>
-            <Text style={styles.senderName}>{item.senderName}</Text>
-            <Text style={styles.messageMeta}>{formatDate(item.createdAt)}</Text>
-          </View>
-        </View>
-
-        <View style={styles.badgeRow}>
-          {item.isPinned && (
-            <View style={[styles.pill, styles.pillPinned]}>
-              <Ionicons name="pin" size={10} color={colors.warning} />
-              <Text style={[styles.pillText, { color: colors.warning }]}>
-                Pinned
+    return (
+      <Card style={styles.messageCard}>
+        <View style={styles.messageHeader}>
+          <View style={styles.senderRow}>
+            <View style={styles.senderAvatar}>
+              <Text style={styles.senderAvatarText}>
+                {(item.senderName || "?")[0].toUpperCase()}
               </Text>
             </View>
-          )}
-          <View
-            style={[styles.pill, isPoll ? styles.pillPoll : styles.pillMessage]}
-          >
-            <Text
+            <View style={styles.senderMeta}>
+              <Text style={styles.senderName}>{item.senderName}</Text>
+              <Text style={styles.messageMeta}>
+                {formatDate(item.createdAt)}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.badgeRow}>
+            {item.isPinned && (
+              <View style={[styles.pill, styles.pillPinned]}>
+                <Ionicons name="pin" size={10} color={colors.warning} />
+                <Text style={[styles.pillText, { color: colors.warning }]}>
+                  Pinned
+                </Text>
+              </View>
+            )}
+            <View
               style={[
-                styles.pillText,
-                isPoll ? styles.pillTextPoll : styles.pillTextMessage,
+                styles.pill,
+                isPoll ? styles.pillPoll : styles.pillMessage,
               ]}
             >
-              {isPoll ? "Poll" : "Post"}
-            </Text>
+              <Text
+                style={[
+                  styles.pillText,
+                  isPoll ? styles.pillTextPoll : styles.pillTextMessage,
+                ]}
+              >
+                {isPoll ? "Poll" : "Post"}
+              </Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      {isPoll ? (
-        <PollItem
-          poll={item.poll}
-          roleName={roleName}
-          votingId={votingId}
-          onVote={onVote}
-        />
-      ) : (
-        <Text style={styles.messageContent}>{item.content}</Text>
-      )}
-    </Card>
-  );
-});
+        {isPoll ? (
+          <PollItem
+            poll={item.poll}
+            roleName={roleName}
+            votingId={votingId}
+            onVote={onVote}
+          />
+        ) : (
+          <Text style={styles.messageContent}>{item.content}</Text>
+        )}
+      </Card>
+    );
+  },
+);
 
 // ─── Main screen ─────────────────────────────────────────────────────────────
 
@@ -206,6 +224,15 @@ export default function DepartmentChannelScreen() {
   const [pollOptions, setPollOptions] = useState(["", ""]);
   const [submitting, setSubmitting] = useState(false);
   const [votingId, setVotingId] = useState(null);
+  const { refreshChannelInfo } = useDepartmentChannel();
+
+  const markAsRead = async () => {
+    try {
+      await departmentChannelService.markRead();
+    } catch (error) {
+      console.log("Failed to mark channel as read", error);
+    }
+  };
 
   const loadFeed = useCallback(
     async (asRefresh = false) => {
@@ -220,7 +247,7 @@ export default function DepartmentChannelScreen() {
         else setLoading(true);
 
         const res = await departmentChannelService.getFeed(departmentId);
-        setItems(Array.isArray(res) ? res : res?.data ?? []);
+        setItems(Array.isArray(res) ? res : (res?.data ?? []));
       } catch (error) {
         Alert.alert("Error", error?.message || "Could not load channel.");
       } finally {
@@ -231,9 +258,17 @@ export default function DepartmentChannelScreen() {
     [departmentId],
   );
 
-  useEffect(() => {
-    loadFeed(false);
-  }, [loadFeed]);
+  useFocusEffect(
+    useCallback(() => {
+      const init = async () => {
+        await loadFeed(false);
+        await markAsRead();
+        await refreshChannelInfo(); // 🔥 THIS updates the navbar badge
+      };
+
+      init();
+    }, [loadFeed, refreshChannelInfo]),
+  );
 
   const resetComposer = () => {
     setMessageContent("");
@@ -263,6 +298,7 @@ export default function DepartmentChannelScreen() {
       });
       resetComposer();
       await loadFeed(false);
+      await refreshChannelInfo();
     } catch (error) {
       Alert.alert("Error", error?.message || "Could not post message.");
     } finally {
@@ -292,6 +328,7 @@ export default function DepartmentChannelScreen() {
       });
       resetComposer();
       await loadFeed(false);
+      await refreshChannelInfo();
     } catch (error) {
       Alert.alert("Error", error?.message || "Could not create poll.");
     } finally {
@@ -305,6 +342,7 @@ export default function DepartmentChannelScreen() {
       try {
         await departmentChannelService.votePoll({ pollId, optionId });
         await loadFeed(false);
+        await refreshChannelInfo(); 
       } catch (error) {
         Alert.alert("Error", error?.message || "Could not submit vote.");
       } finally {

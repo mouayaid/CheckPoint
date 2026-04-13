@@ -34,12 +34,30 @@ public class DepartmentChannelController : ControllerBase
         return Ok(result);
     }
 
-    [HttpGet("{departmentId}")]
+    [HttpGet("feed/{departmentId:int}")]
     public async Task<IActionResult> GetFeed(int departmentId)
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         var result = await _departmentChannelService.GetDepartmentFeedAsync(userId, departmentId);
         return Ok(result);
+    }
+
+    [HttpGet("my-channel")]
+    public async Task<IActionResult> GetMyChannel()
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _departmentChannelService.GetMyDepartmentChannelAsync(userId);
+        return Ok(result);
+    }
+
+    
+
+    [HttpPost("mark-read")]
+    public async Task<IActionResult> MarkRead()
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        await _departmentChannelService.MarkDepartmentChannelAsReadAsync(userId);
+        return Ok(new { message = "Channel marked as read." });
     }
 
     [HttpPost("polls/{pollId}/vote")]

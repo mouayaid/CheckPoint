@@ -8,7 +8,21 @@ export const departmentChannelService = {
     if (!departmentId) {
       throw new Error("departmentId is required to load channel feed.");
     }
-    return await axiosInstance.get(`/DepartmentChannel/${departmentId}`);
+    return await axiosInstance.get(`/DepartmentChannel/feed/${departmentId}`);
+  },
+
+  /**
+   * Get current user's department channel info with unread count.
+   */
+  getMyChannel: async () => {
+    return await axiosInstance.get("/DepartmentChannel/my-channel");
+  },
+
+  /**
+   * Mark current user's department channel as read.
+   */
+  markRead: async () => {
+    return await axiosInstance.post("/DepartmentChannel/mark-read");
   },
 
   /**
@@ -47,10 +61,8 @@ export const departmentChannelService = {
    * Employee: vote on a poll option.
    */
   votePoll: async ({ pollId, optionId }) => {
-    return await axiosInstance.post(
-      `/DepartmentChannel/polls/${pollId}/vote`,
-      { optionId },
-    );
+    return await axiosInstance.post(`/DepartmentChannel/polls/${pollId}/vote`, {
+      optionId,
+    });
   },
 };
-

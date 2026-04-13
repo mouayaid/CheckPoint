@@ -9,5 +9,6 @@ public class Department
     public ICollection<User> Users { get; set; } = new List<User>();
 
     public ICollection<DepartmentChannelMessage> ChannelMessages { get; set; } = new List<DepartmentChannelMessage>();
+    public ICollection<DepartmentChannelReadState> ChannelReadStates { get; set; } = new List<DepartmentChannelReadState>();
 }
 

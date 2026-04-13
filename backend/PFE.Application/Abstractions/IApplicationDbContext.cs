@@ -29,8 +29,10 @@ public interface IApplicationDbContext
     DbSet<DepartmentChannelMessage> DepartmentChannelMessages { get; }
     DbSet<DepartmentPoll> DepartmentPolls { get; }
     DbSet<DepartmentPollOption> DepartmentPollOptions { get; }
+
+    DbSet<DepartmentChannelReadState> DepartmentChannelReadStates { get; }
     DbSet<DepartmentPollVote> DepartmentPollVotes { get; }
-    DbSet<Announcement>Announcements{get;}
+    DbSet<Announcement> Announcements { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

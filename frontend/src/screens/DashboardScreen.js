@@ -79,8 +79,7 @@ const DashboardScreen = () => {
   const isAdmin = role === "admin" || role === 3;
   const isHr = role === "hr" || role === 4;
   const canReviewLeave =
-    role === "manager" || role === "admin" || role === 2 || role === 3;
-
+    role === "hr" || role === "admin" || role === 4 || role === 3;
   const heroFadeAnim = useRef(new Animated.Value(0)).current;
   const contentFadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -147,7 +146,7 @@ const DashboardScreen = () => {
     setLoadingPendingLeave(true);
 
     try {
-      const res = await api.get("/Leave/requests/pending");
+      const res = await api.get("/Leave/pending-review");
       const data = Array.isArray(res.data) ? res.data : res.data?.data || [];
       setPendingLeaveCount(data.length);
     } catch (error) {
@@ -155,8 +154,6 @@ const DashboardScreen = () => {
         message: error?.message,
         status: error?.response?.status,
         data: error?.response?.data,
-        url: error?.config?.url,
-        baseURL: error?.config?.baseURL,
       });
       setPendingLeaveCount(0);
     } finally {
@@ -509,7 +506,7 @@ const DashboardScreen = () => {
                     }
                     variant={balanceNum > 0 ? "primary" : "secondary"}
                     onPress={() =>
-                      navigation.navigate("Requests", {
+                      navigation.navigate("LeaveRequest", {
                         openCreateModal: balanceNum > 0,
                       })
                     }
@@ -624,116 +621,16 @@ const DashboardScreen = () => {
             </View>
           </View>
 
-          {isHr && (
+          {(isHr || isAdmin) && (
             <Button
               title="Manage announcements"
-              variant="secondary"
+              icon="megaphone-outline"
+              variant="primary"
               onPress={() => navigation.navigate("ManageAnnouncements")}
               style={styles.infoButton}
             />
           )}
         </Card>
-
-        {(showLeaveApprovalsCard ||
-          showAdminApprovalsCard ||
-          loadingPendingLeave ||
-          loadingPendingUsers) && (
-          <>
-            <Text style={styles.sectionTitle}>Needs attention</Text>
-
-            {canReviewLeave && (
-              <Card style={styles.attentionCard}>
-                <View style={styles.infoCardRow}>
-                  <View style={styles.attentionIconWrap}>
-                    <Ionicons
-                      name="checkmark-done-outline"
-                      size={20}
-                      color={colors.warning}
-                    />
-                  </View>
-
-                  <View style={styles.infoTextWrap}>
-                    {loadingPendingLeave ? (
-                      <View style={styles.loadingInline}>
-                        <ActivityIndicator
-                          size="small"
-                          color={colors.primary}
-                        />
-                        <Text style={styles.infoSubtitle}>
-                          Loading leave approvals…
-                        </Text>
-                      </View>
-                    ) : pendingLeaveCount > 0 ? (
-                      <>
-                        <Text style={styles.infoTitle}>Leave approvals</Text>
-                        <Text style={styles.balanceValue}>
-                          {pendingLeaveCount}
-                        </Text>
-                        <Text style={styles.infoSubtitle}>
-                          Leave requests waiting for your review.
-                        </Text>
-                      </>
-                    ) : null}
-                  </View>
-                </View>
-
-                {!loadingPendingLeave && pendingLeaveCount > 0 && (
-                  <Button
-                    title="Review now"
-                    onPress={() => navigation.navigate("Approvals")}
-                    style={styles.infoButton}
-                  />
-                )}
-              </Card>
-            )}
-
-            {isAdmin && (
-              <Card style={styles.attentionCard}>
-                <View style={styles.infoCardRow}>
-                  <View style={styles.attentionIconWrap}>
-                    <Ionicons
-                      name="person-add-outline"
-                      size={20}
-                      color={colors.warning}
-                    />
-                  </View>
-
-                  <View style={styles.infoTextWrap}>
-                    {loadingPendingUsers ? (
-                      <View style={styles.loadingInline}>
-                        <ActivityIndicator
-                          size="small"
-                          color={colors.primary}
-                        />
-                        <Text style={styles.infoSubtitle}>
-                          Loading account approvals…
-                        </Text>
-                      </View>
-                    ) : pendingUserCount > 0 ? (
-                      <>
-                        <Text style={styles.infoTitle}>Account approvals</Text>
-                        <Text style={styles.balanceValue}>
-                          {pendingUserCount}
-                        </Text>
-                        <Text style={styles.infoSubtitle}>
-                          New user accounts waiting for admin approval.
-                        </Text>
-                      </>
-                    ) : null}
-                  </View>
-                </View>
-
-                {!loadingPendingUsers && pendingUserCount > 0 && (
-                  <Button
-                    title="Review now"
-                    onPress={() => navigation.navigate("AdminUserApprovals")}
-                    style={styles.infoButton}
-                  />
-                )}
-              </Card>
-            )}
-          </>
-        )}
       </Animated.View>
     </ScrollView>
   );

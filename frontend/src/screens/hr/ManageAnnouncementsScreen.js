@@ -10,9 +10,9 @@ import {
   RefreshControl,
   Alert,
   Switch,
-  ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useTheme } from "../../context/ThemeContext";
 import { Card, Button } from "../../components";
 import { announcementService } from "../../services/api/announcementService";
@@ -20,8 +20,10 @@ import { announcementService } from "../../services/api/announcementService";
 const emptyForm = {
   title: "",
   content: "",
-  publishAt: "",
-  expiresAt: "",
+  publishDate: "",
+  publishTime: "",
+  expiryDate: "",
+  expiryTime: "",
 };
 
 const ManageAnnouncementsScreen = () => {
@@ -97,8 +99,10 @@ const ManageAnnouncementsScreen = () => {
     setForm({
       title: item.title ?? item.Title ?? "",
       content: item.content ?? item.Content ?? "",
-      publishAt: publishAt ? formatForInput(publishAt) : "",
-      expiresAt: expiresAt ? formatForInput(expiresAt) : "",
+      publishDate: publishAt ? formatDatePart(publishAt) : "",
+      publishTime: publishAt ? formatTimePart(publishAt) : "",
+      expiryDate: expiresAt ? formatDatePart(expiresAt) : "",
+      expiryTime: expiresAt ? formatTimePart(expiresAt) : "",
     });
 
     setSchedulePublish(!!publishAt);
@@ -124,30 +128,42 @@ const ManageAnnouncementsScreen = () => {
       return false;
     }
 
-    const publishAtValue = schedulePublish ? parseInputDate(form.publishAt) : null;
-    const expiresAtValue = autoExpire ? parseInputDate(form.expiresAt) : null;
+    const publishAtValue = schedulePublish
+      ? combineDateTime(form.publishDate, form.publishTime)
+      : null;
 
-    if (schedulePublish && !publishAtValue) {
+    const expiresAtValue = autoExpire
+      ? combineDateTime(form.expiryDate, form.expiryTime)
+      : null;
+
+    if (schedulePublish && (!form.publishDate || !form.publishTime)) {
       Alert.alert(
         "Validation",
-        "Publish time is invalid. Use format YYYY-MM-DD HH:mm",
+        "Please enter both publish date and publish time.",
       );
+      return false;
+    }
+
+    if (autoExpire && (!form.expiryDate || !form.expiryTime)) {
+      Alert.alert(
+        "Validation",
+        "Please enter both expiry date and expiry time.",
+      );
+      return false;
+    }
+
+    if (schedulePublish && !publishAtValue) {
+      Alert.alert("Validation", "Publish date/time is invalid.");
       return false;
     }
 
     if (autoExpire && !expiresAtValue) {
-      Alert.alert(
-        "Validation",
-        "Expiry time is invalid. Use format YYYY-MM-DD HH:mm",
-      );
+      Alert.alert("Validation", "Expiry date/time is invalid.");
       return false;
     }
 
     if (publishAtValue && expiresAtValue && expiresAtValue <= publishAtValue) {
-      Alert.alert(
-        "Validation",
-        "Expiry time must be after publish time.",
-      );
+      Alert.alert("Validation", "Expiry time must be after publish time.");
       return false;
     }
 
@@ -164,12 +180,12 @@ const ManageAnnouncementsScreen = () => {
         title: form.title.trim(),
         content: form.content.trim(),
         publishAt:
-          schedulePublish && form.publishAt.trim()
-            ? toIsoString(form.publishAt.trim())
+          schedulePublish && form.publishDate && form.publishTime
+            ? toIsoFromParts(form.publishDate, form.publishTime)
             : null,
         expiresAt:
-          autoExpire && form.expiresAt.trim()
-            ? toIsoString(form.expiresAt.trim())
+          autoExpire && form.expiryDate && form.expiryTime
+            ? toIsoFromParts(form.expiryDate, form.expiryTime)
             : null,
       };
 
@@ -235,6 +251,36 @@ const ManageAnnouncementsScreen = () => {
     }
   };
 
+  const renderStatusBadge = (publishAt, expiresAt) => {
+    const now = new Date();
+    const publishDate = publishAt ? new Date(publishAt) : null;
+    const expiryDate = expiresAt ? new Date(expiresAt) : null;
+
+    let label = "Published";
+    let badgeStyle = styles.badgePublished;
+    let textStyle = styles.badgePublishedText;
+    let icon = "checkmark-circle-outline";
+
+    if (publishDate && publishDate > now) {
+      label = "Scheduled";
+      badgeStyle = styles.badgeScheduled;
+      textStyle = styles.badgeScheduledText;
+      icon = "time-outline";
+    } else if (expiryDate && expiryDate <= now) {
+      label = "Expired";
+      badgeStyle = styles.badgeExpired;
+      textStyle = styles.badgeExpiredText;
+      icon = "close-circle-outline";
+    }
+
+    return (
+      <View style={[styles.statusBadge, badgeStyle]}>
+        <Ionicons name={icon} size={14} style={textStyle} />
+        <Text style={textStyle}>{label}</Text>
+      </View>
+    );
+  };
+
   const renderAnnouncement = ({ item }) => {
     const id = item.id ?? item.Id;
     const title = item.title ?? item.Title ?? "Untitled";
@@ -246,59 +292,89 @@ const ManageAnnouncementsScreen = () => {
 
     return (
       <Card style={styles.itemCard}>
-        <View style={styles.itemTopRow}>
-          <View style={styles.itemTitleWrap}>
+        <View style={styles.itemHeader}>
+          <View style={styles.itemHeaderLeft}>
             <Text style={styles.itemTitle}>{title}</Text>
-            <Text style={styles.itemContent} numberOfLines={3}>
-              {content}
-            </Text>
+            {renderStatusBadge(publishAt, expiresAt)}
           </View>
         </View>
 
-        <View style={styles.metaBlock}>
-          <Text style={styles.metaText}>
-            Created: {createdAt ? formatDisplayDate(createdAt) : "—"}
-          </Text>
+        <Text style={styles.itemContent} numberOfLines={4}>
+          {content}
+        </Text>
+
+        <View style={styles.metaGrid}>
+          <View style={styles.metaChip}>
+            <Ionicons
+              name="calendar-outline"
+              size={14}
+              color={colors.textSecondary}
+            />
+            <Text style={styles.metaChipText}>
+              {publishAt
+                ? `Publish: ${formatDisplayDate(publishAt)}`
+                : "Publish: immediately"}
+            </Text>
+          </View>
+
+          <View style={styles.metaChip}>
+            <Ionicons
+              name="hourglass-outline"
+              size={14}
+              color={colors.textSecondary}
+            />
+            <Text style={styles.metaChipText}>
+              {expiresAt
+                ? `Expiry: ${formatDisplayDate(expiresAt)}`
+                : "Expiry: none"}
+            </Text>
+          </View>
+
+          <View style={styles.metaChip}>
+            <Ionicons
+              name="add-circle-outline"
+              size={14}
+              color={colors.textSecondary}
+            />
+            <Text style={styles.metaChipText}>
+              {createdAt
+                ? `Created: ${formatDisplayDate(createdAt)}`
+                : "Created: —"}
+            </Text>
+          </View>
 
           {updatedAt ? (
-            <Text style={styles.metaText}>
-              Updated: {formatDisplayDate(updatedAt)}
-            </Text>
+            <View style={styles.metaChip}>
+              <Ionicons
+                name="create-outline"
+                size={14}
+                color={colors.textSecondary}
+              />
+              <Text style={styles.metaChipText}>
+                Updated: {formatDisplayDate(updatedAt)}
+              </Text>
+            </View>
           ) : null}
-
-          {publishAt ? (
-            <Text style={styles.metaText}>
-              Publish at: {formatDisplayDate(publishAt)}
-            </Text>
-          ) : (
-            <Text style={styles.metaText}>Publish: immediately</Text>
-          )}
-
-          {expiresAt ? (
-            <Text style={styles.metaText}>
-              Expires at: {formatDisplayDate(expiresAt)}
-            </Text>
-          ) : (
-            <Text style={styles.metaText}>Expiry: none</Text>
-          )}
         </View>
 
         <View style={styles.actionsRow}>
           <TouchableOpacity
-            style={[styles.actionButton, styles.editButton]}
+            style={styles.ghostAction}
             onPress={() => openEditForm(item)}
+            activeOpacity={0.85}
           >
-            <Ionicons name="create-outline" size={16} color="#fff" />
-            <Text style={styles.actionButtonText}>Edit</Text>
+            <Ionicons name="create-outline" size={16} color={colors.primary} />
+            <Text style={styles.ghostActionText}>Edit</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.actionButton, styles.deleteButton]}
+            style={styles.dangerAction}
             onPress={() => confirmDelete(item)}
             disabled={deletingId === id}
+            activeOpacity={0.85}
           >
             <Ionicons name="trash-outline" size={16} color="#fff" />
-            <Text style={styles.actionButtonText}>
+            <Text style={styles.dangerActionText}>
               {deletingId === id ? "Deleting..." : "Delete"}
             </Text>
           </TouchableOpacity>
@@ -331,20 +407,25 @@ const ManageAnnouncementsScreen = () => {
       }
       ListHeaderComponent={
         <View>
-          <Card style={styles.headerCard}>
-            <View style={styles.headerTopRow}>
-              <View style={styles.headerIconWrap}>
+          <LinearGradient
+            colors={[colors.primary, colors.primaryDark || colors.primary]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.hero}
+          >
+            <View style={styles.heroTopRow}>
+              <View style={styles.heroIconWrap}>
                 <Ionicons
                   name="megaphone-outline"
                   size={22}
-                  color={colors.primary}
+                  color={colors.textOnPrimary || "#fff"}
                 />
               </View>
 
-              <View style={styles.headerTextWrap}>
-                <Text style={styles.headerTitle}>Manage announcements</Text>
-                <Text style={styles.headerSubtitle}>
-                  Create, edit, schedule, and expire company announcements.
+              <View style={styles.heroTextWrap}>
+                <Text style={styles.heroTitle}>Manage announcements</Text>
+                <Text style={styles.heroSubtitle}>
+                  Create, schedule, update, and control what employees see.
                 </Text>
               </View>
             </View>
@@ -353,16 +434,28 @@ const ManageAnnouncementsScreen = () => {
               <Button
                 title="Create announcement"
                 onPress={openCreateForm}
-                style={styles.topButton}
+                style={styles.heroButton}
               />
             ) : null}
-          </Card>
+          </LinearGradient>
 
           {showForm && (
             <Card style={styles.formCard}>
-              <Text style={styles.formTitle}>
-                {editingId ? "Edit announcement" : "Create announcement"}
-              </Text>
+              <View style={styles.formHeader}>
+                <View style={styles.formHeaderTextWrap}>
+                  <Text style={styles.formTitle}>
+                    {editingId ? "Edit announcement" : "Create announcement"}
+                  </Text>
+                  <Text style={styles.formSubtitle}>
+                    Fill in the details below and choose whether to schedule or
+                    expire it.
+                  </Text>
+                </View>
+
+                <TouchableOpacity onPress={resetForm} style={styles.closeButton}>
+                  <Ionicons name="close-outline" size={20} color={colors.text} />
+                </TouchableOpacity>
+              </View>
 
               <Text style={styles.inputLabel}>Title</Text>
               <TextInput
@@ -384,65 +477,117 @@ const ManageAnnouncementsScreen = () => {
                 textAlignVertical="top"
               />
 
-              <View style={styles.switchRow}>
-                <View style={styles.switchTextWrap}>
-                  <Text style={styles.switchTitle}>Schedule publish</Text>
-                  <Text style={styles.switchSubtitle}>
-                    Set when this announcement becomes visible
-                  </Text>
+              <View style={styles.optionCard}>
+                <View style={styles.switchRow}>
+                  <View style={styles.switchTextWrap}>
+                    <Text style={styles.switchTitle}>Schedule publish</Text>
+                    <Text style={styles.switchSubtitle}>
+                      Make it visible later instead of immediately
+                    </Text>
+                  </View>
+                  <Switch
+                    value={schedulePublish}
+                    onValueChange={setSchedulePublish}
+                    trackColor={{ false: colors.border, true: colors.primary }}
+                    thumbColor="#fff"
+                  />
                 </View>
-                <Switch
-                  value={schedulePublish}
-                  onValueChange={setSchedulePublish}
-                  trackColor={{ false: colors.border, true: colors.primary }}
-                  thumbColor="#fff"
-                />
+
+                {schedulePublish && (
+                  <>
+                    <Text style={styles.inputLabel}>Publish date</Text>
+                    <TextInput
+                      value={form.publishDate}
+                      onChangeText={(text) => handleChange("publishDate", text)}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={colors.textSecondary}
+                      style={styles.input}
+                    />
+
+                    <Text style={styles.inputLabel}>Publish time</Text>
+                    <TextInput
+                      value={form.publishTime}
+                      onChangeText={(text) => handleChange("publishTime", text)}
+                      placeholder="HH:mm"
+                      placeholderTextColor={colors.textSecondary}
+                      style={styles.input}
+                    />
+
+                    <View style={styles.previewBox}>
+                      <Ionicons
+                        name="time-outline"
+                        size={16}
+                        color={colors.primary}
+                      />
+                      <Text style={styles.previewText}>
+                        Will publish on {formatPrettyDate(form.publishDate)} at{" "}
+                        {formatPrettyTime(form.publishTime)}
+                      </Text>
+                    </View>
+                  </>
+                )}
               </View>
 
-              {schedulePublish && (
-                <>
-                  <Text style={styles.inputLabel}>Publish time</Text>
-                  <TextInput
-                    value={form.publishAt}
-                    onChangeText={(text) => handleChange("publishAt", text)}
-                    placeholder="YYYY-MM-DD HH:mm"
-                    placeholderTextColor={colors.textSecondary}
-                    style={styles.input}
+              <View style={styles.optionCard}>
+                <View style={styles.switchRow}>
+                  <View style={styles.switchTextWrap}>
+                    <Text style={styles.switchTitle}>Auto remove</Text>
+                    <Text style={styles.switchSubtitle}>
+                      Expire this announcement automatically
+                    </Text>
+                  </View>
+                  <Switch
+                    value={autoExpire}
+                    onValueChange={setAutoExpire}
+                    trackColor={{ false: colors.border, true: colors.primary }}
+                    thumbColor="#fff"
                   />
-                </>
-              )}
-
-              <View style={styles.switchRow}>
-                <View style={styles.switchTextWrap}>
-                  <Text style={styles.switchTitle}>Auto remove</Text>
-                  <Text style={styles.switchSubtitle}>
-                    Set when this announcement should expire
-                  </Text>
                 </View>
-                <Switch
-                  value={autoExpire}
-                  onValueChange={setAutoExpire}
-                  trackColor={{ false: colors.border, true: colors.primary }}
-                  thumbColor="#fff"
-                />
-              </View>
 
-              {autoExpire && (
-                <>
-                  <Text style={styles.inputLabel}>Expiry time</Text>
-                  <TextInput
-                    value={form.expiresAt}
-                    onChangeText={(text) => handleChange("expiresAt", text)}
-                    placeholder="YYYY-MM-DD HH:mm"
-                    placeholderTextColor={colors.textSecondary}
-                    style={styles.input}
-                  />
-                </>
-              )}
+                {autoExpire && (
+                  <>
+                    <Text style={styles.inputLabel}>Expiry date</Text>
+                    <TextInput
+                      value={form.expiryDate}
+                      onChangeText={(text) => handleChange("expiryDate", text)}
+                      placeholder="YYYY-MM-DD"
+                      placeholderTextColor={colors.textSecondary}
+                      style={styles.input}
+                    />
+
+                    <Text style={styles.inputLabel}>Expiry time</Text>
+                    <TextInput
+                      value={form.expiryTime}
+                      onChangeText={(text) => handleChange("expiryTime", text)}
+                      placeholder="HH:mm"
+                      placeholderTextColor={colors.textSecondary}
+                      style={styles.input}
+                    />
+
+                    <View style={styles.previewBox}>
+                      <Ionicons
+                        name="hourglass-outline"
+                        size={16}
+                        color={colors.primary}
+                      />
+                      <Text style={styles.previewText}>
+                        Will expire on {formatPrettyDate(form.expiryDate)} at{" "}
+                        {formatPrettyTime(form.expiryTime)}
+                      </Text>
+                    </View>
+                  </>
+                )}
+              </View>
 
               <View style={styles.formActions}>
                 <Button
-                  title={saving ? "Saving..." : editingId ? "Update" : "Create"}
+                  title={
+                    saving
+                      ? "Saving..."
+                      : editingId
+                        ? "Update announcement"
+                        : "Create announcement"
+                  }
                   onPress={saveAnnouncement}
                   style={styles.formButton}
                   disabled={saving}
@@ -459,37 +604,51 @@ const ManageAnnouncementsScreen = () => {
             </Card>
           )}
 
-          <Text style={styles.sectionTitle}>Published and scheduled</Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Published and scheduled</Text>
+            <View style={styles.counterPill}>
+              <Text style={styles.counterText}>{announcements.length}</Text>
+            </View>
+          </View>
         </View>
       }
       ListEmptyComponent={
-        <View style={styles.centerState}>
-          <Ionicons
-            name="document-text-outline"
-            size={48}
-            color={colors.textSecondary}
-          />
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIconWrap}>
+            <Ionicons
+              name="megaphone-outline"
+              size={34}
+              color={colors.textSecondary}
+            />
+          </View>
           <Text style={styles.emptyTitle}>No announcements yet</Text>
           <Text style={styles.stateText}>
             Create your first announcement to share updates with the team.
           </Text>
+          {!showForm ? (
+            <Button
+              title="Create first announcement"
+              onPress={openCreateForm}
+              style={styles.emptyButton}
+            />
+          ) : null}
         </View>
       }
     />
   );
 };
 
-function parseInputDate(value) {
-  if (!value) return null;
+function combineDateTime(dateValue, timeValue) {
+  if (!dateValue || !timeValue) return null;
 
-  const normalized = value.trim().replace(" ", "T");
-  const parsed = new Date(normalized);
+  const combined = `${dateValue}T${timeValue}`;
+  const parsed = new Date(combined);
 
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function toIsoString(value) {
-  const parsed = parseInputDate(value);
+function toIsoFromParts(dateValue, timeValue) {
+  const parsed = combineDateTime(dateValue, timeValue);
   return parsed ? parsed.toISOString() : null;
 }
 
@@ -503,17 +662,57 @@ function formatDisplayDate(value) {
   })}`;
 }
 
-function formatForInput(value) {
+function formatPrettyDate(dateValue) {
+  if (!dateValue) return "Select date";
+
+  const d = new Date(dateValue);
+  if (Number.isNaN(d.getTime())) {
+    const [year, month, day] = dateValue.split("-");
+    if (!year || !month || !day) return "Select date";
+    return `${day}/${month}/${year}`;
+  }
+
+  return d.toLocaleDateString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatPrettyTime(timeValue) {
+  if (!timeValue) return "Select time";
+
+  const [hours, minutes] = timeValue.split(":");
+  if (!hours || !minutes) return "Select time";
+
+  const d = new Date();
+  d.setHours(Number(hours), Number(minutes), 0, 0);
+
+  return d.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDatePart(value) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "";
 
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatTimePart(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+
   const hours = String(d.getHours()).padStart(2, "0");
   const minutes = String(d.getMinutes()).padStart(2, "0");
 
-  return `${year}-${month}-${day} ${hours}:${minutes}`;
+  return `${hours}:${minutes}`;
 }
 
 const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
@@ -525,46 +724,48 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       flexGrow: 1,
     },
 
-    headerCard: {
-      padding: spacing.lg,
+    hero: {
+      borderRadius: borderRadius.xl,
+      padding: spacing.xl,
       marginBottom: spacing.lg,
-      backgroundColor: colors.surface,
+      ...shadows.sm,
     },
 
-    headerTopRow: {
+    heroTopRow: {
       flexDirection: "row",
       alignItems: "flex-start",
       gap: spacing.md,
       marginBottom: spacing.md,
     },
 
-    headerIconWrap: {
-      width: 44,
-      height: 44,
+    heroIconWrap: {
+      width: 48,
+      height: 48,
       borderRadius: borderRadius.full,
-      backgroundColor: colors.surfaceMuted,
+      backgroundColor: "rgba(255,255,255,0.14)",
       alignItems: "center",
       justifyContent: "center",
     },
 
-    headerTextWrap: {
+    heroTextWrap: {
       flex: 1,
     },
 
-    headerTitle: {
-      fontSize: typography.lg,
+    heroTitle: {
+      fontSize: typography.xl,
       fontWeight: typography.bold,
-      color: colors.text,
+      color: colors.textOnPrimary || "#fff",
       marginBottom: 4,
     },
 
-    headerSubtitle: {
+    heroSubtitle: {
       fontSize: typography.sm,
-      color: colors.textSecondary,
+      color: colors.textOnPrimary || "#fff",
+      opacity: 0.9,
       lineHeight: 20,
     },
 
-    topButton: {
+    heroButton: {
       marginTop: spacing.sm,
     },
 
@@ -574,11 +775,38 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       backgroundColor: colors.surface,
     },
 
+    formHeader: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: spacing.md,
+      marginBottom: spacing.md,
+    },
+
+    formHeaderTextWrap: {
+      flex: 1,
+    },
+
+    closeButton: {
+      width: 36,
+      height: 36,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
     formTitle: {
       fontSize: typography.base,
-      fontWeight: typography.semibold,
+      fontWeight: typography.bold,
       color: colors.text,
-      marginBottom: spacing.md,
+      marginBottom: 4,
+    },
+
+    formSubtitle: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+      lineHeight: 20,
     },
 
     inputLabel: {
@@ -592,17 +820,26 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     input: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: borderRadius.md,
+      borderRadius: borderRadius.lg,
       backgroundColor: colors.background,
       color: colors.text,
       paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
+      paddingVertical: spacing.sm + 2,
       fontSize: typography.sm,
     },
 
     textArea: {
-      minHeight: 110,
+      minHeight: 120,
       paddingTop: spacing.md,
+    },
+
+    optionCard: {
+      marginTop: spacing.md,
+      padding: spacing.md,
+      borderRadius: borderRadius.lg,
+      backgroundColor: colors.background,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
 
     switchRow: {
@@ -610,7 +847,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       alignItems: "center",
       justifyContent: "space-between",
       gap: spacing.md,
-      marginTop: spacing.md,
     },
 
     switchTextWrap: {
@@ -627,6 +863,25 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       fontSize: typography.xs,
       color: colors.textSecondary,
       marginTop: 2,
+      lineHeight: 18,
+    },
+
+    previewBox: {
+      marginTop: spacing.sm,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      backgroundColor: colors.surfaceMuted,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.md,
+    },
+
+    previewText: {
+      flex: 1,
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      lineHeight: 18,
     },
 
     formActions: {
@@ -639,11 +894,33 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       flex: 1,
     },
 
+    sectionHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: spacing.md,
+    },
+
     sectionTitle: {
       fontSize: typography.base,
       fontWeight: typography.semibold,
       color: colors.text,
-      marginBottom: spacing.md,
+    },
+
+    counterPill: {
+      minWidth: 28,
+      height: 28,
+      paddingHorizontal: 8,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    counterText: {
+      fontSize: typography.sm,
+      fontWeight: typography.bold,
+      color: colors.text,
     },
 
     itemCard: {
@@ -652,90 +929,179 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       backgroundColor: colors.surface,
     },
 
-    itemTopRow: {
+    itemHeader: {
       flexDirection: "row",
-      alignItems: "flex-start",
       justifyContent: "space-between",
+      alignItems: "flex-start",
       marginBottom: spacing.sm,
     },
 
-    itemTitleWrap: {
+    itemHeaderLeft: {
       flex: 1,
+      gap: spacing.xs,
     },
 
     itemTitle: {
       fontSize: typography.base,
       fontWeight: typography.bold,
       color: colors.text,
-      marginBottom: 6,
+      lineHeight: 22,
     },
 
     itemContent: {
       fontSize: typography.sm,
       color: colors.textSecondary,
-      lineHeight: 20,
-    },
-
-    metaBlock: {
-      marginTop: spacing.sm,
+      lineHeight: 21,
       marginBottom: spacing.md,
-      gap: 4,
     },
 
-    metaText: {
+    statusBadge: {
+      alignSelf: "flex-start",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: borderRadius.full,
+    },
+
+    badgePublished: {
+      backgroundColor: colors.successLight,
+    },
+
+    badgePublishedText: {
+      color: colors.success,
+      fontSize: typography.xs,
+      fontWeight: typography.semibold,
+    },
+
+    badgeScheduled: {
+      backgroundColor: colors.surfaceMuted,
+    },
+
+    badgeScheduledText: {
+      color: colors.primary,
+      fontSize: typography.xs,
+      fontWeight: typography.semibold,
+    },
+
+    badgeExpired: {
+      backgroundColor: colors.errorLight || "#FDECEC",
+    },
+
+    badgeExpiredText: {
+      color: colors.error,
+      fontSize: typography.xs,
+      fontWeight: typography.semibold,
+    },
+
+    metaGrid: {
+      gap: spacing.sm,
+      marginBottom: spacing.md,
+    },
+
+    metaChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      backgroundColor: colors.background,
+      borderRadius: borderRadius.md,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+    },
+
+    metaChipText: {
+      flex: 1,
       fontSize: typography.xs,
       color: colors.textSecondary,
+      lineHeight: 18,
     },
 
     actionsRow: {
       flexDirection: "row",
       gap: spacing.md,
+      marginTop: spacing.xs,
     },
 
-    actionButton: {
+    ghostAction: {
+      flex: 1,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
       gap: 6,
-      flex: 1,
-      paddingVertical: spacing.sm,
+      paddingVertical: spacing.sm + 2,
       borderRadius: borderRadius.md,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: colors.surface,
     },
 
-    editButton: {
-      backgroundColor: colors.primary,
+    ghostActionText: {
+      color: colors.primary,
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
     },
 
-    deleteButton: {
+    dangerAction: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingVertical: spacing.sm + 2,
+      borderRadius: borderRadius.md,
       backgroundColor: colors.error,
     },
 
-    actionButtonText: {
+    dangerActionText: {
       color: "#fff",
       fontSize: typography.sm,
       fontWeight: typography.semibold,
     },
 
     centerState: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.lg,
+      backgroundColor: colors.background,
+    },
+
+    emptyState: {
       alignItems: "center",
       justifyContent: "center",
       paddingVertical: spacing.xxl,
       paddingHorizontal: spacing.lg,
     },
 
-    stateText: {
-      fontSize: typography.sm,
-      color: colors.textSecondary,
-      textAlign: "center",
-      marginTop: spacing.sm,
-      lineHeight: 20,
+    emptyIconWrap: {
+      width: 72,
+      height: 72,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: spacing.md,
     },
 
     emptyTitle: {
       fontSize: typography.base,
       fontWeight: typography.semibold,
       color: colors.text,
-      marginTop: spacing.md,
+      marginBottom: spacing.xs,
+    },
+
+    stateText: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+      textAlign: "center",
+      lineHeight: 20,
+      marginTop: spacing.xs,
+    },
+
+    emptyButton: {
+      marginTop: spacing.lg,
+      minWidth: 220,
     },
   });
 

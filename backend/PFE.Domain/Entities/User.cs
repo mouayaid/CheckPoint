@@ -36,4 +36,6 @@ public class User
 
     public ICollection<DepartmentChannelMessage> SentDepartmentMessages { get; set; } = new List<DepartmentChannelMessage>();
     public ICollection<DepartmentPollVote> DepartmentPollVotes { get; set; } = new List<DepartmentPollVote>();
+
+    public ICollection<DepartmentChannelReadState> DepartmentChannelReadStates { get; set; } = new List<DepartmentChannelReadState>();
 }

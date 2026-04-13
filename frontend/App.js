@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import {
   useFonts,
   Inter_400Regular,
@@ -6,7 +6,11 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from "@expo-google-fonts/inter";
-import { NavigationContainer, useNavigation } from "@react-navigation/native";
+import {
+  NavigationContainer,
+  useNavigation,
+  useFocusEffect,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -37,13 +41,13 @@ import LeaveRequestScreen from "./src/screens/LeaveRequestScreen";
 import EventsScreen from "./src/screens/EventsScreen";
 import NotificationsScreen from "./src/screens/NotificationsScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
-import ManagerApprovalsScreen from "./src/screens/manager/ManagerApprovalsScreen";
 import PendingRoomReservationsScreen from "./src/screens/PendingRoomReservationsScreen";
 import PendingLeaveRequestsScreen from "./src/screens/PendingLeaveRequestScreen";
-import AdminUserApprovalsScreen from "./src/screens/admin/AdminUserApprovalsScreen";
 import ManageAnnouncementsScreen from "./src/screens/hr/ManageAnnouncementsScreen";
 import DepartmentChannelScreen from "./src/screens/DepartmentChannelScreen";
-
+import ApprovalsScreen from "./src/screens/approvals/ApprovalsScreen";
+import { DepartmentChannelProvider } from "./src/context/DepartmentChannelContext";
+import { useDepartmentChannel } from "./src/context/DepartmentChannelContext";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -82,16 +86,20 @@ function HeaderActions() {
 }
 
 function HomeTabs() {
-  const { colors, darkMode } = useTheme();
+  const { colors } = useTheme();
   const { user } = useAuth();
+  const { channelUnreadCount, refreshChannelInfo } = useDepartmentChannel();
 
-  const canReviewRequests =
-    user?.role === "Manager" ||
-    user?.role === "Admin" ||
-    user?.role === "HR" ||
-    user?.role === 2 ||
-    user?.role === 4 ||
-    user?.role === 3;
+  useFocusEffect(
+    useCallback(() => {
+      refreshChannelInfo();
+    }, [refreshChannelInfo]),
+  );
+
+  const isAdmin = user?.role === "Admin" || user?.role === 3;
+  const isHR = user?.role === "HR" || user?.role === 4;
+
+  const canReviewRequests = isAdmin || isHR;
 
   return (
     <Tab.Navigator
@@ -104,8 +112,8 @@ function HomeTabs() {
             case "Home":
               iconName = focused ? "home" : "home-outline";
               break;
-            case "Requests":
-              iconName = focused ? "document-text" : "document-text-outline";
+            case "Channel":
+              iconName = focused ? "chatbubbles" : "chatbubbles-outline";
               break;
             case "Approvals":
               iconName = focused
@@ -116,7 +124,18 @@ function HomeTabs() {
               iconName = "help-outline";
           }
 
-          return <Ionicons name={iconName} size={size} color={color} />;
+          return (
+            <View style={styles.tabIconWrapper}>
+              <Ionicons name={iconName} size={size} color={color} />
+              {route.name === "Channel" && channelUnreadCount > 0 ? (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>
+                    {channelUnreadCount > 99 ? "99+" : channelUnreadCount}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          );
         },
         tabBarActiveTintColor: colors.tabActive,
         tabBarInactiveTintColor: colors.tabInactive,
@@ -147,7 +166,7 @@ function HomeTabs() {
       />
 
       <Tab.Screen
-        name="Requests"
+        name="Channel"
         component={DepartmentChannelScreen}
         options={{
           title: "Channel",
@@ -157,7 +176,7 @@ function HomeTabs() {
       {canReviewRequests && (
         <Tab.Screen
           name="Approvals"
-          component={ManagerApprovalsScreen}
+          component={ApprovalsScreen}
           options={{ title: "Approvals" }}
         />
       )}
@@ -240,6 +259,11 @@ function AppNavigator() {
               options={{ headerShown: false }}
             />
             <Stack.Screen
+              name="LeaveRequest"
+              component={LeaveRequestScreen}
+              options={{ title: "Leave Requests" }}
+            />
+            <Stack.Screen
               name="Notifications"
               component={NotificationsScreen}
               options={{ title: "Notifications" }}
@@ -282,7 +306,9 @@ function RootApp() {
       />
       <AuthProvider>
         <NotificationsProvider>
-          <AppNavigator />
+          <DepartmentChannelProvider>
+            <AppNavigator />
+          </DepartmentChannelProvider>
         </NotificationsProvider>
       </AuthProvider>
     </>
@@ -341,5 +367,28 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 999,
     backgroundColor: "#ef4444",
+  },
+  tabIconWrapper: {
+    position: "relative",
+    width: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tabBadge: {
+    position: "absolute",
+    top: -6,
+    right: -12,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 999,
+    backgroundColor: "#ef4444",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 4,
+  },
+  tabBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "700",
   },
 });

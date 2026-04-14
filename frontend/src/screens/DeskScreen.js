@@ -435,14 +435,17 @@ const DeskScreen = () => {
         setSeats(normalizedSeats);
       } else {
         Alert.alert(
-          "Couldn't load map",
-          response.message || "Pull down to try again.",
+          "Impossible de charger le plan",
+          response.message || "Faites glisser vers le bas pour réessayer.",
         );
       }
     } catch (error) {
       Alert.alert(
-        "Couldn't load map",
-        getErrorMessage(error, "Check your connection and pull to refresh."),
+        "Impossible de charger le plan",
+        getErrorMessage(
+          error,
+          "Vérifiez votre connexion et faites glisser pour actualiser.",
+        ),
       );
     } finally {
       setLoading(false);
@@ -459,7 +462,7 @@ const DeskScreen = () => {
 
   const prettyToday = useMemo(
     () =>
-      new Date().toLocaleDateString("en-US", {
+      new Date().toLocaleDateString("fr-FR", {
         weekday: "long",
         month: "short",
         day: "numeric",
@@ -497,7 +500,7 @@ const DeskScreen = () => {
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
 
     if (isMySeat) {
-      Alert.alert("Your seat", `You have seat ${seat.label} for today.`);
+      Alert.alert("Votre poste", `Vous avez le poste ${seat.label} pour aujourd'hui.`);
       return;
     }
 
@@ -506,7 +509,7 @@ const DeskScreen = () => {
       setReservedSeatInfo({
         seatLabel: seat.label,
         reservedBy: {
-          fullName: reservedBy.fullName || reservedBy.FullName || "Unknown",
+          fullName: reservedBy.fullName || reservedBy.FullName || "Inconnu",
           departmentName:
             reservedBy.departmentName || reservedBy.DepartmentName || "—",
         },
@@ -517,8 +520,8 @@ const DeskScreen = () => {
 
     if (hasMyReservation) {
       Alert.alert(
-        "Already booked",
-        `You have seat ${mySeatLabel}. Cancel it first.`,
+        "Déjà réservé",
+        `Vous avez le poste ${mySeatLabel}. Annulez d'abord cette réservation.`,
       );
       return;
     }
@@ -540,19 +543,19 @@ const DeskScreen = () => {
         await Promise.all([fetchSeatMap(), fetchMyReservation()]);
         setSelectedAvailableSeat(null);
         Alert.alert(
-          "Reserved!",
-          `Seat ${selectedAvailableSeat.label} is yours today.`,
+          "Réservé !",
+          `Le poste ${selectedAvailableSeat.label} est à vous aujourd'hui.`,
         );
       } else {
         Alert.alert(
-          "Couldn't reserve",
-          response.message || "That seat may have just been taken.",
+          "Impossible de réserver",
+          response.message || "Ce poste vient peut-être d'être pris.",
         );
       }
     } catch (error) {
       Alert.alert(
-        "Couldn't reserve",
-        getErrorMessage(error, "Please try again."),
+        "Impossible de réserver",
+        getErrorMessage(error, "Veuillez réessayer."),
       );
     } finally {
       setReservingSeatId(null);
@@ -562,12 +565,12 @@ const DeskScreen = () => {
   const handleCancelReservation = () => {
     if (!hasMyReservation) return;
     Alert.alert(
-      "Cancel reservation?",
-      `Release seat ${mySeatLabel} for today?`,
+      "Annuler la réservation ?",
+      `Libérer le poste ${mySeatLabel} pour aujourd'hui ?`,
       [
-        { text: "Keep it", style: "cancel" },
+        { text: "Garder", style: "cancel" },
         {
-          text: "Cancel",
+          text: "Annuler",
           style: "destructive",
           onPress: confirmCancelReservation,
         },
@@ -582,12 +585,12 @@ const DeskScreen = () => {
       if (response?.success) {
         await Promise.all([fetchSeatMap(), fetchMyReservation()]);
       } else {
-        Alert.alert("Couldn't cancel", response?.message || "Try again.");
+        Alert.alert("Impossible d'annuler", response?.message || "Réessayez.");
       }
     } catch (error) {
       Alert.alert(
-        "Couldn't cancel",
-        getErrorMessage(error, "Something went wrong."),
+        "Impossible d'annuler",
+        getErrorMessage(error, "Une erreur s'est produite."),
       );
     } finally {
       setCancelling(false);
@@ -657,7 +660,7 @@ const DeskScreen = () => {
         disabled={isDisabled && !seat.isReserved && !isMySeat}
         activeOpacity={0.8}
         accessibilityRole="button"
-        accessibilityLabel={`Seat ${seat.label}${seat.isReserved ? ", taken" : isMySeat ? ", your seat" : ", available"}`}
+        accessibilityLabel={`Poste ${seat.label}${seat.isReserved ? ", occupé" : isMySeat ? ", votre poste" : ", disponible"}`}
       >
         {isLoadingThisSeat ? (
           <ActivityIndicator size="small" color={colors.textOnPrimary} />
@@ -695,7 +698,7 @@ const DeskScreen = () => {
       <Card key={table.tableId} style={styles.tableCard}>
         <View style={styles.tableHeaderRow}>
           <Text style={styles.tableTitle}>{table.tableName}</Text>
-          <Text style={styles.tableSubtitle}>{table.seats.length} seats</Text>
+          <Text style={styles.tableSubtitle}>{table.seats.length} postes</Text>
         </View>
 
         <View style={styles.tableWrap}>
@@ -734,7 +737,7 @@ const DeskScreen = () => {
         <View style={styles.headerLeft}>
           <Text style={styles.headerDate}>{prettyToday}</Text>
           <View style={styles.headerBadge}>
-            <Text style={styles.headerBadgeText}>TODAY ONLY</Text>
+            <Text style={styles.headerBadgeText}>AUJOURD'HUI SEULEMENT</Text>
           </View>
         </View>
 
@@ -742,7 +745,7 @@ const DeskScreen = () => {
           style={styles.refreshBtn}
           onPress={handleRefresh}
           disabled={loading || refreshing}
-          accessibilityLabel="Refresh seat map"
+          accessibilityLabel="Actualiser le plan des postes"
         >
           <Ionicons
             name="refresh"
@@ -764,7 +767,7 @@ const DeskScreen = () => {
             <View style={styles.statusIconWrap}>
               <ActivityIndicator size="small" color={colors.primary} />
             </View>
-            <Text style={styles.statusHint}>Checking your booking…</Text>
+            <Text style={styles.statusHint}>Vérification de votre réservation…</Text>
           </View>
         ) : hasMyReservation ? (
           <View style={styles.statusRow}>
@@ -773,12 +776,12 @@ const DeskScreen = () => {
             </View>
             <View style={styles.statusTextWrap}>
               <Text style={styles.statusTitle}>
-                Seat {mySeatLabel} reserved
+                Poste {mySeatLabel} réservé
               </Text>
-              <Text style={styles.statusHint}>Today · confirmed</Text>
+              <Text style={styles.statusHint}>Aujourd&apos;hui · confirmé</Text>
             </View>
             <Button
-              title="Release"
+              title="Libérer"
               variant="danger-outline"
               onPress={handleCancelReservation}
               loading={cancelling}
@@ -795,8 +798,10 @@ const DeskScreen = () => {
               />
             </View>
             <View style={styles.statusTextWrap}>
-              <Text style={styles.statusTitle}>No desk booked</Text>
-              <Text style={styles.statusHint}>Tap a green seat to reserve</Text>
+              <Text style={styles.statusTitle}>Aucun poste réservé</Text>
+              <Text style={styles.statusHint}>
+                Appuyez sur un poste vert pour réserver
+              </Text>
             </View>
           </View>
         )}
@@ -829,9 +834,9 @@ const DeskScreen = () => {
                 size={40}
                 color={colors.textMuted}
               />
-              <Text style={styles.emptyText}>No seats available</Text>
+              <Text style={styles.emptyText}>Aucun poste disponible</Text>
               <Text style={styles.emptyHint}>
-                Pull to refresh or try again later.
+                Faites glisser pour actualiser ou réessayez plus tard.
               </Text>
             </View>
           )}
@@ -841,10 +846,10 @@ const DeskScreen = () => {
       {/* Legend */}
       <View style={styles.legend}>
         {[
-          { color: colors.seatMine, label: "Yours" },
-          { color: colors.seatAvailable, label: "Free" },
-          { color: colors.seatReserved, label: "Taken" },
-          { color: colors.border, label: "N/A" },
+          { color: colors.seatMine, label: "Le vôtre" },
+          { color: colors.seatAvailable, label: "Libre" },
+          { color: colors.seatReserved, label: "Occupé" },
+          { color: colors.border, label: "N/D" },
         ].map(({ color, label }) => (
           <View key={label} style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: color }]} />
@@ -862,20 +867,20 @@ const DeskScreen = () => {
       >
         <View style={styles.modalOverlay}>
           <Card style={styles.infoModalContent}>
-            <Text style={styles.infoModalTitle}>Seat taken</Text>
+            <Text style={styles.infoModalTitle}>Poste occupé</Text>
             {reservedSeatInfo && (
               <>
                 <Text style={styles.infoModalSeat}>
-                  Seat {reservedSeatInfo.seatLabel}
+                  Poste {reservedSeatInfo.seatLabel}
                 </Text>
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Reserved by</Text>
+                  <Text style={styles.infoLabel}>Réservé par</Text>
                   <Text style={styles.infoValue}>
                     {reservedSeatInfo.reservedBy.fullName}
                   </Text>
                 </View>
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoLabel}>Department</Text>
+                  <Text style={styles.infoLabel}>Département</Text>
                   <Text style={styles.infoValue}>
                     {reservedSeatInfo.reservedBy.departmentName}
                   </Text>
@@ -897,14 +902,14 @@ const DeskScreen = () => {
         <View style={styles.actionPanel}>
           <View style={styles.actionPanelLeft}>
             <Text style={styles.actionPanelTitle}>
-              Seat {selectedAvailableSeat.label}
+              Poste {selectedAvailableSeat.label}
             </Text>
             <Text style={styles.actionPanelSubtitle}>
-              Tap confirm to book for today
+              Appuyez sur confirmer pour réserver pour aujourd&apos;hui
             </Text>
           </View>
           <Button
-            title="Confirm"
+            title="Confirmer"
             onPress={confirmSeatReservation}
             loading={!!reservingSeatId}
             disabled={!!reservingSeatId}

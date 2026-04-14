@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -6,13 +6,61 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
+  TouchableOpacity,
 } from "react-native";
-import { axiosInstance } from "../services/api";
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { eventService } from "../services/api";
 import { EmptyState } from "../components";
 import { useTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
+
+const EVENT_TYPE_LABEL_FR = {
+  1: "Réunion",
+  2: "Formation",
+  3: "Atelier",
+  4: "Conférence",
+  5: "Social",
+  6: "Annonce",
+  7: "Autre",
+};
+
+const normalizeRole = (role) => {
+  if (typeof role === "string") return role.trim().toLowerCase();
+  if (typeof role === "number") return role;
+  return null;
+};
+
+const normalizeEvent = (item) => {
+  const id = item?.id ?? item?.Id;
+  const title = item?.title ?? item?.Title ?? "Événement";
+  const description = item?.description ?? item?.Description ?? "";
+  const type = item?.type ?? item?.Type ?? null;
+  const roomName = item?.roomName ?? item?.RoomName ?? null;
+
+  const start =
+    item?.startDateTime ??
+    item?.StartDateTime ??
+    item?.date ??
+    item?.Date ??
+    null;
+  const end = item?.endDateTime ?? item?.EndDateTime ?? null;
+
+  return {
+    id,
+    title,
+    description,
+    type,
+    roomName,
+    startDateTime: start,
+    endDateTime: end,
+  };
+};
 
 const EventsScreen = () => {
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
+  const navigation = useNavigation();
+  const { user } = useAuth();
   const styles = useMemo(
     () => createStyles(colors, spacing, borderRadius, typography, shadows),
     [colors, spacing, borderRadius, typography, shadows],
@@ -22,42 +70,85 @@ const EventsScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    loadEvents();
-  }, []);
+  const role = normalizeRole(user?.role);
+  const canManageEvents = role === "admin" || role === "hr" || role === 3 || role === 4;
 
-  const loadEvents = async () => {
+  const formatDateForApi = (date) => date.toISOString().split("T")[0];
+
+  const loadEvents = useCallback(async (showLoader = true) => {
     try {
-      // Backend currently exposes EventsController for date-based queries.
-      // For "upcoming" UX we can request events from "today" onwards.
+      if (showLoader) setLoading(true);
+
+      // Backend: GET /api/Events?date=YYYY-MM-DD returns events for that day only.
+      // To show "upcoming", we load the next N days and merge.
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const res = await axiosInstance.get("/Events", {
-        params: { date: today.toISOString() },
-      });
-      if (res?.success) {
-        setEvents(res.data || []);
-      } else {
-        setEvents([]);
+
+      const daysToLoad = 30;
+      const results = [];
+
+      for (let i = 0; i < daysToLoad; i++) {
+        const d = new Date(today);
+        d.setDate(today.getDate() + i);
+
+        const dateStr = formatDateForApi(d);
+        // eventService already uses '/events' and correct query parameter
+        const res = await eventService.getEventsByDate(dateStr);
+        const list = res?.data || [];
+        if (Array.isArray(list) && list.length > 0) results.push(...list);
       }
+
+      const normalized = results
+        .map(normalizeEvent)
+        .filter((e) => e.id != null)
+        .sort(
+          (a, b) =>
+            new Date(a.startDateTime).getTime() - new Date(b.startDateTime).getTime(),
+        );
+
+      // de-dupe by id
+      const uniq = [];
+      const seen = new Set();
+      for (const e of normalized) {
+        const key = String(e.id);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        uniq.push(e);
+      }
+
+      setEvents(uniq);
     } catch (err) {
       console.log("LOAD EVENTS ERROR:", err?.response?.data || err.message);
       setEvents([]);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (showLoader) setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadEvents(true);
+  }, [loadEvents]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // refresh when coming back from create screen
+      loadEvents(false);
+    }, [loadEvents]),
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadEvents();
+    try {
+      await loadEvents(false);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const formatEventDate = (dateValue) => {
     const date = new Date(dateValue);
 
-    return date.toLocaleDateString([], {
+    return date.toLocaleDateString("fr-FR", {
       weekday: "short",
       day: "2-digit",
       month: "short",
@@ -68,7 +159,7 @@ const EventsScreen = () => {
   const formatEventTime = (dateValue) => {
     const date = new Date(dateValue);
 
-    return date.toLocaleTimeString([], {
+    return date.toLocaleTimeString("fr-FR", {
       hour: "2-digit",
       minute: "2-digit",
     });
@@ -79,10 +170,12 @@ const EventsScreen = () => {
       <View style={styles.cardTopRow}>
         <View style={styles.dateBadge}>
           <Text style={styles.dateBadgeDay}>
-            {new Date(item.date).getDate()}
+            {new Date(item.startDateTime).getDate()}
           </Text>
           <Text style={styles.dateBadgeMonth}>
-            {new Date(item.date).toLocaleDateString([], { month: "short" })}
+            {new Date(item.startDateTime).toLocaleDateString("fr-FR", {
+              month: "short",
+            })}
           </Text>
         </View>
 
@@ -90,10 +183,25 @@ const EventsScreen = () => {
           <Text style={styles.title}>{item.title}</Text>
 
           <View style={styles.metaRow}>
-            <Text style={styles.metaText}>{formatEventDate(item.date)}</Text>
+            <Text style={styles.metaText}>
+              {formatEventDate(item.startDateTime)}
+            </Text>
             <Text style={styles.metaDot}>•</Text>
-            <Text style={styles.metaText}>{formatEventTime(item.date)}</Text>
+            <Text style={styles.metaText}>
+              {formatEventTime(item.startDateTime)}
+              {item.endDateTime
+                ? ` – ${formatEventTime(item.endDateTime)}`
+                : ""}
+            </Text>
           </View>
+
+          {(item.roomName || item.type) && (
+            <Text style={styles.metaExtra}>
+              {item.roomName ? item.roomName : null}
+              {item.roomName && item.type ? " • " : null}
+              {item.type ? (EVENT_TYPE_LABEL_FR[item.type] ?? "Événement") : null}
+            </Text>
+          )}
         </View>
       </View>
 
@@ -107,7 +215,7 @@ const EventsScreen = () => {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading upcoming events...</Text>
+        <Text style={styles.loadingText}>Chargement des événements à venir...</Text>
       </View>
     );
   }
@@ -117,8 +225,8 @@ const EventsScreen = () => {
       <View style={styles.emptyWrapper}>
         <EmptyState
           iconName="calendar-outline"
-          title="No events"
-          subtitle="There are no upcoming events."
+          title="Aucun événement"
+          subtitle="Il n’y a aucun événement à venir."
         />
       </View>
     );
@@ -127,15 +235,31 @@ const EventsScreen = () => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.screenTitle}>Upcoming Events</Text>
-        <Text style={styles.screenSubtitle}>
-          Stay updated with what’s happening next
-        </Text>
+        <View style={styles.headerTopRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.screenTitle}>Événements à venir</Text>
+            <Text style={styles.screenSubtitle}>
+              Restez informé des prochains événements
+            </Text>
+          </View>
+
+          {canManageEvents && (
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => navigation.navigate("ManageEvents")}
+              activeOpacity={0.85}
+              accessibilityLabel="Créer un événement"
+            >
+              <Ionicons name="add" size={18} color={colors.textOnPrimary} />
+              <Text style={styles.addButtonText}>Créer</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <FlatList
         data={events}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={(item) => String(item.id)}
         renderItem={renderEventCard}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
@@ -166,6 +290,12 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       borderBottomColor: colors.border,
       backgroundColor: colors.background,
     },
+    headerTopRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.md,
+    },
 
     screenTitle: {
       fontSize: typography.xxl,
@@ -177,6 +307,22 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       marginTop: spacing.xs,
       fontSize: typography.sm,
       color: colors.textSecondary,
+    },
+
+    addButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: colors.primary,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: borderRadius.full,
+      ...shadows.sm,
+    },
+    addButtonText: {
+      color: colors.textOnPrimary,
+      fontSize: typography.sm,
+      fontWeight: typography.bold,
     },
 
     listContent: {
@@ -250,6 +396,12 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
     metaDot: {
       marginHorizontal: spacing.sm,
       color: colors.textMuted,
+    },
+    metaExtra: {
+      marginTop: 6,
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      fontWeight: typography.semibold,
     },
 
     description: {

@@ -20,7 +20,7 @@ const ProfileScreen = () => {
   const displayName =
     [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
     user?.fullName ||
-    "User";
+    "Utilisateur";
 
   const email = user?.email || "";
 
@@ -33,7 +33,7 @@ const ProfileScreen = () => {
         : rawRole === 3
           ? "Admin"
           : rawRole === 1
-            ? "Employee"
+            ? "Employé"
             : "";
 
   const handleSignOut = () => {
@@ -156,9 +156,11 @@ const ProfileScreen = () => {
                 color={colors.primary}
               />
               <View style={styles.settingTextWrap}>
-                <Text style={styles.settingTitle}>Appearance</Text>
+                <Text style={styles.settingTitle}>Apparence</Text>
                 <Text style={styles.settingSubtitle}>
-                  {darkMode ? "Dark mode is enabled" : "Light mode is enabled"}
+                  {darkMode
+                    ? "Le mode sombre est activé"
+                    : "Le mode clair est activé"}
                 </Text>
               </View>
             </View>
@@ -173,7 +175,7 @@ const ProfileScreen = () => {
       </View>
 
       <View style={styles.footer}>
-        <Button title="Log out" variant="danger" onPress={handleSignOut} />
+        <Button title="Se déconnecter" variant="danger" onPress={handleSignOut} />
       </View>
     </View>
   );

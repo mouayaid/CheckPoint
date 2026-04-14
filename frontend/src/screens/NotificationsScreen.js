@@ -31,15 +31,15 @@ const formatNotificationTime = (isoDate) => {
   const diffMs = now.getTime() - d.getTime();
 
   const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return "À l’instant";
+  if (mins < 60) return `il y a ${mins} min`;
 
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return `il y a ${hours} h`;
 
   const days = Math.floor(hours / 24);
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days}d ago`;
+  if (days === 1) return "Hier";
+  if (days < 7) return `il y a ${days} j`;
 
   return d.toLocaleDateString([], {
     month: "short",
@@ -62,6 +62,17 @@ const NotificationsScreen = () => {
   const [markingAllRead, setMarkingAllRead] = useState(false);
   const [filter, setFilter] = useState("All");
 
+  const filterLabel = (key) => {
+    switch (key) {
+      case "All":
+        return "Tout";
+      case "Unread":
+        return "Non lues";
+      default:
+        return key;
+    }
+  };
+
   const getNotifBg = (type) => {
     switch (String(type || "").toLowerCase()) {
       case "success":
@@ -78,11 +89,11 @@ const NotificationsScreen = () => {
   const getTypePill = (type) => {
     switch (String(type || "").toLowerCase()) {
       case "success":
-        return { bg: colors.success, text: "SUCCESS" };
+        return { bg: colors.success, text: "SUCCÈS" };
       case "warning":
-        return { bg: colors.warning, text: "WARNING" };
+        return { bg: colors.warning, text: "AVERT." };
       case "error":
-        return { bg: colors.error, text: "ERROR" };
+        return { bg: colors.error, text: "ERREUR" };
       default:
         return { bg: colors.info, text: "INFO" };
     }
@@ -210,7 +221,7 @@ const NotificationsScreen = () => {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading notifications...</Text>
+        <Text style={styles.loadingText}>Chargement des notifications...</Text>
       </View>
     );
   }
@@ -221,7 +232,7 @@ const NotificationsScreen = () => {
         <View>
           <Text style={styles.screenTitle}>Notifications</Text>
           <Text style={styles.screenSubtitle}>
-            Stay updated with your latest activity
+            Restez informé de votre activité récente
           </Text>
         </View>
 
@@ -235,7 +246,7 @@ const NotificationsScreen = () => {
           disabled={markingAllRead || unreadCount === 0}
         >
           <Text style={styles.markAllButtonText}>
-            {markingAllRead ? "Marking..." : "Mark all read"}
+            {markingAllRead ? "Marquage..." : "Tout marquer comme lu"}
           </Text>
         </TouchableOpacity>
       </View>
@@ -262,7 +273,7 @@ const NotificationsScreen = () => {
                   selected && styles.filterChipTextActive,
                 ]}
               >
-                {item} ({count})
+                {filterLabel(item)} ({count})
               </Text>
             </TouchableOpacity>
           );
@@ -273,12 +284,14 @@ const NotificationsScreen = () => {
         <EmptyState
           iconName="notifications-outline"
           title={
-            filter === "Unread" ? "No unread notifications" : "No notifications"
+            filter === "Unread"
+              ? "Aucune notification non lue"
+              : "Aucune notification"
           }
           subtitle={
             filter === "Unread"
-              ? "You're all caught up."
-              : "You're all caught up!"
+              ? "Vous êtes à jour."
+              : "Vous êtes à jour !"
           }
         />
       ) : (

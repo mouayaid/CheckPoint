@@ -22,7 +22,7 @@ export function NotificationsProvider({ children }) {
     try {
       setLoading(true);
       const res = await notificationService.getNotifications();
-      const list = res?.data || [];
+      const list = res?.data?.data || [];
       setNotifications(list);
       setUnreadCount(computeUnread(list));
     } catch (err) {

@@ -48,11 +48,11 @@ export default function PendingLeaveRequestsScreen() {
       });
 
       Alert.alert(
-        "Error",
+        "Erreur",
         err?.response?.data?.message ||
-          `Failed to load pending leave requests${
-            err?.response?.status ? ` (status ${err.response.status})` : ""
-          }.`
+          `Impossible de charger les demandes de congé en attente${
+            err?.response?.status ? ` (statut ${err.response.status})` : ""
+          }.`,
       );
     } finally {
       setLoading(false);
@@ -71,11 +71,11 @@ export default function PendingLeaveRequestsScreen() {
 
       await api.put(`/Leave/requests/${item.id}/review`, {
         status: "Approved",
-        managerComment: "Approved by manager",
+        managerComment: "Approuvé par le responsable",
       });
 
       setRequests((prev) => prev.filter((req) => req.id !== item.id));
-      Alert.alert("Success", "Leave request approved.");
+      Alert.alert("Succès", "Demande de congé approuvée.");
     } catch (err) {
       console.log("Approve leave error:", {
         message: err?.message,
@@ -86,8 +86,8 @@ export default function PendingLeaveRequestsScreen() {
       });
 
       const message =
-        err?.response?.data?.message || "Failed to approve leave request.";
-      Alert.alert("Error", message);
+        err?.response?.data?.message || "Impossible d'approuver la demande de congé.";
+      Alert.alert("Erreur", message);
     } finally {
       setProcessingId(null);
       setProcessingAction(null);
@@ -111,7 +111,7 @@ export default function PendingLeaveRequestsScreen() {
 
     const comment = rejectComment.trim();
     if (!comment) {
-      Alert.alert("Validation", "Rejection comment is required.");
+      Alert.alert("Validation", "Le motif de rejet est obligatoire.");
       return;
     }
 
@@ -129,7 +129,7 @@ export default function PendingLeaveRequestsScreen() {
       );
 
       closeRejectModal();
-      Alert.alert("Success", "Leave request rejected.");
+      Alert.alert("Succès", "Demande de congé rejetée.");
     } catch (err) {
       console.log("Reject leave error:", {
         message: err?.message,
@@ -140,8 +140,8 @@ export default function PendingLeaveRequestsScreen() {
       });
 
       const message =
-        err?.response?.data?.message || "Failed to reject leave request.";
-      Alert.alert("Error", message);
+        err?.response?.data?.message || "Impossible de rejeter la demande de congé.";
+      Alert.alert("Erreur", message);
     } finally {
       setProcessingId(null);
       setProcessingAction(null);
@@ -168,7 +168,7 @@ export default function PendingLeaveRequestsScreen() {
               size={22}
               color={colors.primary}
             />
-            <Text style={styles.name}>{item.userName || "Unknown user"}</Text>
+            <Text style={styles.name}>{item.userName || "Utilisateur inconnu"}</Text>
           </View>
 
           <View style={styles.badge}>
@@ -196,7 +196,7 @@ export default function PendingLeaveRequestsScreen() {
             color={colors.textSecondary}
           />
           <Text style={styles.infoText}>
-            {item.reason || "No reason provided"}
+            {item.reason || "Aucun motif fourni"}
           </Text>
         </View>
 
@@ -207,7 +207,7 @@ export default function PendingLeaveRequestsScreen() {
             color={colors.textSecondary}
           />
           <Text style={styles.infoText}>
-            Created: {formatDate(item.createdAt)}
+            Créée : {formatDate(item.createdAt)}
           </Text>
         </View>
 
@@ -226,7 +226,7 @@ export default function PendingLeaveRequestsScreen() {
             ) : (
               <>
                 <Ionicons name="checkmark" size={16} color="#fff" />
-                <Text style={styles.actionText}>Approve</Text>
+                <Text style={styles.actionText}>Approuver</Text>
               </>
             )}
           </TouchableOpacity>
@@ -245,7 +245,7 @@ export default function PendingLeaveRequestsScreen() {
             ) : (
               <>
                 <Ionicons name="close" size={16} color="#fff" />
-                <Text style={styles.actionText}>Reject</Text>
+                <Text style={styles.actionText}>Rejeter</Text>
               </>
             )}
           </TouchableOpacity>
@@ -258,7 +258,7 @@ export default function PendingLeaveRequestsScreen() {
     return (
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.helperText}>Loading pending requests...</Text>
+        <Text style={styles.helperText}>Chargement des demandes en attente...</Text>
       </View>
     );
   }
@@ -287,9 +287,9 @@ export default function PendingLeaveRequestsScreen() {
               size={54}
               color={colors.textSecondary}
             />
-            <Text style={styles.emptyTitle}>No pending requests</Text>
+            <Text style={styles.emptyTitle}>Aucune demande en attente</Text>
             <Text style={styles.helperText}>
-              Everything is reviewed for now.
+              Tout a été traité pour le moment.
             </Text>
           </View>
         }
@@ -303,14 +303,14 @@ export default function PendingLeaveRequestsScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Reject Leave Request</Text>
+            <Text style={styles.modalTitle}>Rejeter la demande de congé</Text>
             <Text style={styles.modalSubtitle}>
-              Please provide a reason for rejection.
+              Veuillez indiquer le motif du rejet.
             </Text>
 
             <TextInput
               style={styles.input}
-              placeholder="Write your comment..."
+              placeholder="Écrivez votre commentaire..."
               placeholderTextColor={colors.textSecondary}
               multiline
               value={rejectComment}
@@ -322,14 +322,14 @@ export default function PendingLeaveRequestsScreen() {
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={closeRejectModal}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={styles.cancelButtonText}>Annuler</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={[styles.modalButton, styles.confirmRejectButton]}
                 onPress={submitReject}
               >
-                <Text style={styles.confirmRejectText}>Reject</Text>
+                <Text style={styles.confirmRejectText}>Rejeter</Text>
               </TouchableOpacity>
             </View>
           </View>

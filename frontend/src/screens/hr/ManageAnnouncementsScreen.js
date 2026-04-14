@@ -62,7 +62,7 @@ const ManageAnnouncementsScreen = () => {
         status: error?.response?.status,
         data: error?.response?.data,
       });
-      Alert.alert("Error", "Failed to load announcements.");
+      Alert.alert("Erreur", "Impossible de charger les annonces.");
       setAnnouncements([]);
     } finally {
       setLoading(false);
@@ -119,12 +119,12 @@ const ManageAnnouncementsScreen = () => {
 
   const validateForm = () => {
     if (!form.title.trim()) {
-      Alert.alert("Validation", "Title is required.");
+      Alert.alert("Validation", "Le titre est obligatoire.");
       return false;
     }
 
     if (!form.content.trim()) {
-      Alert.alert("Validation", "Content is required.");
+      Alert.alert("Validation", "Le contenu est obligatoire.");
       return false;
     }
 
@@ -139,7 +139,7 @@ const ManageAnnouncementsScreen = () => {
     if (schedulePublish && (!form.publishDate || !form.publishTime)) {
       Alert.alert(
         "Validation",
-        "Please enter both publish date and publish time.",
+        "Veuillez saisir la date et l'heure de publication.",
       );
       return false;
     }
@@ -147,23 +147,26 @@ const ManageAnnouncementsScreen = () => {
     if (autoExpire && (!form.expiryDate || !form.expiryTime)) {
       Alert.alert(
         "Validation",
-        "Please enter both expiry date and expiry time.",
+        "Veuillez saisir la date et l'heure d'expiration.",
       );
       return false;
     }
 
     if (schedulePublish && !publishAtValue) {
-      Alert.alert("Validation", "Publish date/time is invalid.");
+      Alert.alert("Validation", "La date/heure de publication est invalide.");
       return false;
     }
 
     if (autoExpire && !expiresAtValue) {
-      Alert.alert("Validation", "Expiry date/time is invalid.");
+      Alert.alert("Validation", "La date/heure d'expiration est invalide.");
       return false;
     }
 
     if (publishAtValue && expiresAtValue && expiresAtValue <= publishAtValue) {
-      Alert.alert("Validation", "Expiry time must be after publish time.");
+      Alert.alert(
+        "Validation",
+        "L'heure d'expiration doit être après l'heure de publication.",
+      );
       return false;
     }
 
@@ -191,10 +194,10 @@ const ManageAnnouncementsScreen = () => {
 
       if (editingId) {
         await announcementService.updateAnnouncement(editingId, payload);
-        Alert.alert("Success", "Announcement updated successfully.");
+        Alert.alert("Succès", "Annonce mise à jour avec succès.");
       } else {
         await announcementService.createAnnouncement(payload);
-        Alert.alert("Success", "Announcement created successfully.");
+        Alert.alert("Succès", "Annonce créée avec succès.");
       }
 
       resetForm();
@@ -207,8 +210,8 @@ const ManageAnnouncementsScreen = () => {
       });
 
       Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Failed to save announcement.",
+        "Erreur",
+        error?.response?.data?.message || "Impossible d'enregistrer l'annonce.",
       );
     } finally {
       setSaving(false);
@@ -219,12 +222,12 @@ const ManageAnnouncementsScreen = () => {
     const id = item.id ?? item.Id;
 
     Alert.alert(
-      "Delete announcement",
-      "Are you sure you want to delete this announcement?",
+      "Supprimer l'annonce",
+      "Êtes-vous sûr de vouloir supprimer cette annonce ?",
       [
-        { text: "Cancel", style: "cancel" },
+        { text: "Annuler", style: "cancel" },
         {
-          text: "Delete",
+          text: "Supprimer",
           style: "destructive",
           onPress: () => deleteAnnouncement(id),
         },
@@ -245,7 +248,7 @@ const ManageAnnouncementsScreen = () => {
         status: error?.response?.status,
         data: error?.response?.data,
       });
-      Alert.alert("Error", "Failed to delete announcement.");
+      Alert.alert("Erreur", "Impossible de supprimer l'annonce.");
     } finally {
       setDeletingId(null);
     }
@@ -256,18 +259,18 @@ const ManageAnnouncementsScreen = () => {
     const publishDate = publishAt ? new Date(publishAt) : null;
     const expiryDate = expiresAt ? new Date(expiresAt) : null;
 
-    let label = "Published";
+    let label = "Publié";
     let badgeStyle = styles.badgePublished;
     let textStyle = styles.badgePublishedText;
     let icon = "checkmark-circle-outline";
 
     if (publishDate && publishDate > now) {
-      label = "Scheduled";
+      label = "Planifié";
       badgeStyle = styles.badgeScheduled;
       textStyle = styles.badgeScheduledText;
       icon = "time-outline";
     } else if (expiryDate && expiryDate <= now) {
-      label = "Expired";
+      label = "Expiré";
       badgeStyle = styles.badgeExpired;
       textStyle = styles.badgeExpiredText;
       icon = "close-circle-outline";
@@ -283,7 +286,7 @@ const ManageAnnouncementsScreen = () => {
 
   const renderAnnouncement = ({ item }) => {
     const id = item.id ?? item.Id;
-    const title = item.title ?? item.Title ?? "Untitled";
+    const title = item.title ?? item.Title ?? "Sans titre";
     const content = item.content ?? item.Content ?? "";
     const publishAt = item.publishAt ?? item.PublishAt;
     const expiresAt = item.expiresAt ?? item.ExpiresAt;
@@ -312,8 +315,8 @@ const ManageAnnouncementsScreen = () => {
             />
             <Text style={styles.metaChipText}>
               {publishAt
-                ? `Publish: ${formatDisplayDate(publishAt)}`
-                : "Publish: immediately"}
+                ? `Publication : ${formatDisplayDate(publishAt)}`
+                : "Publication : immédiatement"}
             </Text>
           </View>
 
@@ -325,8 +328,8 @@ const ManageAnnouncementsScreen = () => {
             />
             <Text style={styles.metaChipText}>
               {expiresAt
-                ? `Expiry: ${formatDisplayDate(expiresAt)}`
-                : "Expiry: none"}
+                ? `Expiration : ${formatDisplayDate(expiresAt)}`
+                : "Expiration : aucune"}
             </Text>
           </View>
 
@@ -338,8 +341,8 @@ const ManageAnnouncementsScreen = () => {
             />
             <Text style={styles.metaChipText}>
               {createdAt
-                ? `Created: ${formatDisplayDate(createdAt)}`
-                : "Created: —"}
+                ? `Créée : ${formatDisplayDate(createdAt)}`
+                : "Créée : —"}
             </Text>
           </View>
 
@@ -351,7 +354,7 @@ const ManageAnnouncementsScreen = () => {
                 color={colors.textSecondary}
               />
               <Text style={styles.metaChipText}>
-                Updated: {formatDisplayDate(updatedAt)}
+                Mise à jour : {formatDisplayDate(updatedAt)}
               </Text>
             </View>
           ) : null}
@@ -364,7 +367,7 @@ const ManageAnnouncementsScreen = () => {
             activeOpacity={0.85}
           >
             <Ionicons name="create-outline" size={16} color={colors.primary} />
-            <Text style={styles.ghostActionText}>Edit</Text>
+            <Text style={styles.ghostActionText}>Modifier</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -375,7 +378,7 @@ const ManageAnnouncementsScreen = () => {
           >
             <Ionicons name="trash-outline" size={16} color="#fff" />
             <Text style={styles.dangerActionText}>
-              {deletingId === id ? "Deleting..." : "Delete"}
+              {deletingId === id ? "Suppression..." : "Supprimer"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -387,7 +390,7 @@ const ManageAnnouncementsScreen = () => {
     return (
       <View style={styles.centerState}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.stateText}>Loading announcements...</Text>
+        <Text style={styles.stateText}>Chargement des annonces...</Text>
       </View>
     );
   }
@@ -425,14 +428,14 @@ const ManageAnnouncementsScreen = () => {
               <View style={styles.heroTextWrap}>
                 <Text style={styles.heroTitle}>Manage announcements</Text>
                 <Text style={styles.heroSubtitle}>
-                  Create, schedule, update, and control what employees see.
+                  Créez, planifiez, mettez à jour et contrôlez ce que voient les employés.
                 </Text>
               </View>
             </View>
 
             {!showForm ? (
               <Button
-                title="Create announcement"
+                title="Créer une annonce"
                 onPress={openCreateForm}
                 style={styles.heroButton}
               />
@@ -444,11 +447,10 @@ const ManageAnnouncementsScreen = () => {
               <View style={styles.formHeader}>
                 <View style={styles.formHeaderTextWrap}>
                   <Text style={styles.formTitle}>
-                    {editingId ? "Edit announcement" : "Create announcement"}
+                    {editingId ? "Modifier l'annonce" : "Créer une annonce"}
                   </Text>
                   <Text style={styles.formSubtitle}>
-                    Fill in the details below and choose whether to schedule or
-                    expire it.
+                    Renseignez les détails ci-dessous et choisissez si vous voulez la planifier ou la faire expirer.
                   </Text>
                 </View>
 
@@ -457,20 +459,20 @@ const ManageAnnouncementsScreen = () => {
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.inputLabel}>Title</Text>
+              <Text style={styles.inputLabel}>Titre</Text>
               <TextInput
                 value={form.title}
                 onChangeText={(text) => handleChange("title", text)}
-                placeholder="Announcement title"
+                placeholder="Titre de l'annonce"
                 placeholderTextColor={colors.textSecondary}
                 style={styles.input}
               />
 
-              <Text style={styles.inputLabel}>Content</Text>
+              <Text style={styles.inputLabel}>Contenu</Text>
               <TextInput
                 value={form.content}
                 onChangeText={(text) => handleChange("content", text)}
-                placeholder="Write the announcement content"
+                placeholder="Écrivez le contenu de l'annonce"
                 placeholderTextColor={colors.textSecondary}
                 style={[styles.input, styles.textArea]}
                 multiline
@@ -480,9 +482,9 @@ const ManageAnnouncementsScreen = () => {
               <View style={styles.optionCard}>
                 <View style={styles.switchRow}>
                   <View style={styles.switchTextWrap}>
-                    <Text style={styles.switchTitle}>Schedule publish</Text>
+                    <Text style={styles.switchTitle}>Planifier la publication</Text>
                     <Text style={styles.switchSubtitle}>
-                      Make it visible later instead of immediately
+                      La rendre visible plus tard au lieu d&apos;immédiatement
                     </Text>
                   </View>
                   <Switch
@@ -495,7 +497,7 @@ const ManageAnnouncementsScreen = () => {
 
                 {schedulePublish && (
                   <>
-                    <Text style={styles.inputLabel}>Publish date</Text>
+                    <Text style={styles.inputLabel}>Date de publication</Text>
                     <TextInput
                       value={form.publishDate}
                       onChangeText={(text) => handleChange("publishDate", text)}
@@ -504,7 +506,7 @@ const ManageAnnouncementsScreen = () => {
                       style={styles.input}
                     />
 
-                    <Text style={styles.inputLabel}>Publish time</Text>
+                    <Text style={styles.inputLabel}>Heure de publication</Text>
                     <TextInput
                       value={form.publishTime}
                       onChangeText={(text) => handleChange("publishTime", text)}
@@ -520,7 +522,7 @@ const ManageAnnouncementsScreen = () => {
                         color={colors.primary}
                       />
                       <Text style={styles.previewText}>
-                        Will publish on {formatPrettyDate(form.publishDate)} at{" "}
+                        Publication le {formatPrettyDate(form.publishDate)} à{" "}
                         {formatPrettyTime(form.publishTime)}
                       </Text>
                     </View>
@@ -531,9 +533,9 @@ const ManageAnnouncementsScreen = () => {
               <View style={styles.optionCard}>
                 <View style={styles.switchRow}>
                   <View style={styles.switchTextWrap}>
-                    <Text style={styles.switchTitle}>Auto remove</Text>
+                    <Text style={styles.switchTitle}>Suppression automatique</Text>
                     <Text style={styles.switchSubtitle}>
-                      Expire this announcement automatically
+                      Faire expirer cette annonce automatiquement
                     </Text>
                   </View>
                   <Switch
@@ -546,7 +548,7 @@ const ManageAnnouncementsScreen = () => {
 
                 {autoExpire && (
                   <>
-                    <Text style={styles.inputLabel}>Expiry date</Text>
+                    <Text style={styles.inputLabel}>Date d'expiration</Text>
                     <TextInput
                       value={form.expiryDate}
                       onChangeText={(text) => handleChange("expiryDate", text)}
@@ -555,7 +557,7 @@ const ManageAnnouncementsScreen = () => {
                       style={styles.input}
                     />
 
-                    <Text style={styles.inputLabel}>Expiry time</Text>
+                    <Text style={styles.inputLabel}>Heure d'expiration</Text>
                     <TextInput
                       value={form.expiryTime}
                       onChangeText={(text) => handleChange("expiryTime", text)}
@@ -571,7 +573,7 @@ const ManageAnnouncementsScreen = () => {
                         color={colors.primary}
                       />
                       <Text style={styles.previewText}>
-                        Will expire on {formatPrettyDate(form.expiryDate)} at{" "}
+                        Expiration le {formatPrettyDate(form.expiryDate)} à{" "}
                         {formatPrettyTime(form.expiryTime)}
                       </Text>
                     </View>
@@ -583,10 +585,10 @@ const ManageAnnouncementsScreen = () => {
                 <Button
                   title={
                     saving
-                      ? "Saving..."
+                      ? "Enregistrement..."
                       : editingId
-                        ? "Update announcement"
-                        : "Create announcement"
+                        ? "Mettre à jour l'annonce"
+                        : "Créer l'annonce"
                   }
                   onPress={saveAnnouncement}
                   style={styles.formButton}
@@ -594,7 +596,7 @@ const ManageAnnouncementsScreen = () => {
                 />
 
                 <Button
-                  title="Cancel"
+                  title="Annuler"
                   variant="secondary"
                   onPress={resetForm}
                   style={styles.formButton}
@@ -605,7 +607,7 @@ const ManageAnnouncementsScreen = () => {
           )}
 
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Published and scheduled</Text>
+            <Text style={styles.sectionTitle}>Publiées et planifiées</Text>
             <View style={styles.counterPill}>
               <Text style={styles.counterText}>{announcements.length}</Text>
             </View>
@@ -621,13 +623,13 @@ const ManageAnnouncementsScreen = () => {
               color={colors.textSecondary}
             />
           </View>
-          <Text style={styles.emptyTitle}>No announcements yet</Text>
+          <Text style={styles.emptyTitle}>Aucune annonce pour le moment</Text>
           <Text style={styles.stateText}>
-            Create your first announcement to share updates with the team.
+            Créez votre première annonce pour partager des informations avec l'équipe.
           </Text>
           {!showForm ? (
             <Button
-              title="Create first announcement"
+              title="Créer la première annonce"
               onPress={openCreateForm}
               style={styles.emptyButton}
             />
@@ -663,12 +665,12 @@ function formatDisplayDate(value) {
 }
 
 function formatPrettyDate(dateValue) {
-  if (!dateValue) return "Select date";
+  if (!dateValue) return "Sélectionner une date";
 
   const d = new Date(dateValue);
   if (Number.isNaN(d.getTime())) {
     const [year, month, day] = dateValue.split("-");
-    if (!year || !month || !day) return "Select date";
+    if (!year || !month || !day) return "Sélectionner une date";
     return `${day}/${month}/${year}`;
   }
 
@@ -680,10 +682,10 @@ function formatPrettyDate(dateValue) {
 }
 
 function formatPrettyTime(timeValue) {
-  if (!timeValue) return "Select time";
+  if (!timeValue) return "Sélectionner une heure";
 
   const [hours, minutes] = timeValue.split(":");
-  if (!hours || !minutes) return "Select time";
+  if (!hours || !minutes) return "Sélectionner une heure";
 
   const d = new Date();
   d.setHours(Number(hours), Number(minutes), 0, 0);

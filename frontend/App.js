@@ -44,6 +44,7 @@ import ProfileScreen from "./src/screens/ProfileScreen";
 import PendingRoomReservationsScreen from "./src/screens/PendingRoomReservationsScreen";
 import PendingLeaveRequestsScreen from "./src/screens/PendingLeaveRequestScreen";
 import ManageAnnouncementsScreen from "./src/screens/hr/ManageAnnouncementsScreen";
+import ManageEventsScreen from "./src/screens/hr/ManageEventsScreen";
 import DepartmentChannelScreen from "./src/screens/DepartmentChannelScreen";
 import ApprovalsScreen from "./src/screens/approvals/ApprovalsScreen";
 import { DepartmentChannelProvider } from "./src/context/DepartmentChannelContext";
@@ -128,11 +129,7 @@ function HomeTabs() {
             <View style={styles.tabIconWrapper}>
               <Ionicons name={iconName} size={size} color={color} />
               {route.name === "Channel" && channelUnreadCount > 0 ? (
-                <View style={styles.tabBadge}>
-                  <Text style={styles.tabBadgeText}>
-                    {channelUnreadCount > 99 ? "99+" : channelUnreadCount}
-                  </Text>
-                </View>
+                <View style={styles.tabDot} />
               ) : null}
             </View>
           );
@@ -162,14 +159,14 @@ function HomeTabs() {
       <Tab.Screen
         name="Home"
         component={DashboardScreen}
-        options={{ title: "Home" }}
+        options={{ title: "Accueil" }}
       />
 
       <Tab.Screen
         name="Channel"
         component={DepartmentChannelScreen}
         options={{
-          title: "Channel",
+          title: "Canal"
         }}
       />
 
@@ -177,7 +174,7 @@ function HomeTabs() {
         <Tab.Screen
           name="Approvals"
           component={ApprovalsScreen}
-          options={{ title: "Approvals" }}
+          options={{ title: "Approbations" }}
         />
       )}
 
@@ -185,7 +182,7 @@ function HomeTabs() {
         name="Desk"
         component={DeskScreen}
         options={{
-          title: "Desk Reservation",
+          title: "Réservation Bureau",
           tabBarButton: () => null,
         }}
       />
@@ -194,7 +191,7 @@ function HomeTabs() {
         name="Rooms"
         component={RoomReservationScreen}
         options={{
-          title: "Room Reservation",
+          title: "Réservation Salle",
           tabBarButton: () => null,
         }}
       />
@@ -203,7 +200,7 @@ function HomeTabs() {
         name="Events"
         component={EventsScreen}
         options={{
-          title: "Events",
+          title: "Événements",
           tabBarButton: () => null,
         }}
       />
@@ -225,7 +222,7 @@ function AppNavigator() {
       >
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-          Loading…
+          Chargement…
         </Text>
       </View>
     );
@@ -261,7 +258,7 @@ function AppNavigator() {
             <Stack.Screen
               name="LeaveRequest"
               component={LeaveRequestScreen}
-              options={{ title: "Leave Requests" }}
+              options={{ title: "Demandes Congé" }}
             />
             <Stack.Screen
               name="Notifications"
@@ -271,22 +268,27 @@ function AppNavigator() {
             <Stack.Screen
               name="Profile"
               component={ProfileScreen}
-              options={{ title: "Profile" }}
+              options={{ title: "Profil" }}
             />
             <Stack.Screen
               name="PendingRoomReservations"
               component={PendingRoomReservationsScreen}
-              options={{ title: "Pending Room Requests" }}
+              options={{ title: "Demandes Salles En Attente" }}
             />
             <Stack.Screen
               name="ManageAnnouncements"
               component={ManageAnnouncementsScreen}
-              options={{ title: "Manage Announcements" }}
+              options={{ title: "Gérer Annonces" }}
+            />
+            <Stack.Screen
+              name="ManageEvents"
+              component={ManageEventsScreen}
+              options={{ title: "Créer un événement" }}
             />
             <Stack.Screen
               name="PendingLeaveRequests"
               component={PendingLeaveRequestsScreen}
-              options={{ title: "Pending Leave Requests" }}
+              options={{ title: "Demandes Congé En Attente" }}
             />
           </>
         )}
@@ -354,6 +356,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginRight: 8,
+  },
+  tabDot: {
+    position: "absolute",
+    top: -2,
+    right: -4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#ef4444",
+    borderWidth: 2,
+    borderColor: "#fff", // change if dark theme
   },
   headerIconButton: {
     marginLeft: 14,

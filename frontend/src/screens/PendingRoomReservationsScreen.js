@@ -43,9 +43,9 @@ const PendingRoomReservationsScreen = () => {
       });
 
       Alert.alert(
-        "Error",
+        "Erreur",
         error?.response?.data?.message ||
-          "Failed to load pending room requests."
+          "Impossible de charger les demandes de réservation de salle en attente."
       );
     } finally {
       setLoading(false);
@@ -66,7 +66,7 @@ const PendingRoomReservationsScreen = () => {
       await api.put(`/RoomReservation/${id}/approve`);
 
       setRequests((prev) => prev.filter((req) => req.id !== id));
-      Alert.alert("Success", "Room reservation approved.");
+      Alert.alert("Succès", "Réservation de salle approuvée.");
     } catch (error) {
       console.log("Approve room error:", {
         message: error?.message,
@@ -77,9 +77,9 @@ const PendingRoomReservationsScreen = () => {
       });
 
       Alert.alert(
-        "Error",
+        "Erreur",
         error?.response?.data?.message ||
-          "Failed to approve room reservation."
+          "Impossible d'approuver la réservation de salle."
       );
     } finally {
       setActionLoadingId(null);
@@ -91,11 +91,11 @@ const PendingRoomReservationsScreen = () => {
       setActionLoadingId(id);
 
       await api.put(`/RoomReservation/${id}/reject`, {
-        reason: "Rejected by manager",
+        reason: "Rejeté par le responsable",
       });
 
       setRequests((prev) => prev.filter((req) => req.id !== id));
-      Alert.alert("Success", "Room reservation rejected.");
+      Alert.alert("Succès", "Réservation de salle rejetée.");
     } catch (error) {
       console.log("Reject room error:", {
         message: error?.message,
@@ -106,9 +106,9 @@ const PendingRoomReservationsScreen = () => {
       });
 
       Alert.alert(
-        "Error",
+        "Erreur",
         error?.response?.data?.message ||
-          "Failed to reject room reservation."
+          "Impossible de rejeter la réservation de salle."
       );
     } finally {
       setActionLoadingId(null);
@@ -117,23 +117,23 @@ const PendingRoomReservationsScreen = () => {
 
   const confirmApprove = (id) => {
     Alert.alert(
-      "Approve Request",
-      "Are you sure you want to approve this room reservation?",
+      "Approuver la demande",
+      "Êtes-vous sûr de vouloir approuver cette réservation de salle ?",
       [
-        { text: "Cancel", style: "cancel" },
-        { text: "Approve", onPress: () => handleApprove(id) },
+        { text: "Annuler", style: "cancel" },
+        { text: "Approuver", onPress: () => handleApprove(id) },
       ]
     );
   };
 
   const confirmReject = (id) => {
     Alert.alert(
-      "Reject Request",
-      "Are you sure you want to reject this room reservation?",
+      "Rejeter la demande",
+      "Êtes-vous sûr de vouloir rejeter cette réservation de salle ?",
       [
-        { text: "Cancel", style: "cancel" },
+        { text: "Annuler", style: "cancel" },
         {
-          text: "Reject",
+          text: "Rejeter",
           style: "destructive",
           onPress: () => handleReject(id),
         },
@@ -151,22 +151,22 @@ const PendingRoomReservationsScreen = () => {
         </Text>
 
         <Text style={styles.text}>
-          User: {item.userName || `User #${item.userId || "-"}`}
+          Utilisateur : {item.userName || `Utilisateur #${item.userId || "-"}`}
         </Text>
 
         <Text style={styles.text}>
-          Date: {item.reservationDate?.split("T")[0] || "-"}
+          Date : {item.reservationDate?.split("T")[0] || "-"}
         </Text>
 
         <Text style={styles.text}>
-          Time: {item.startTime || "-"} - {item.endTime || "-"}
+          Heure : {item.startTime || "-"} - {item.endTime || "-"}
         </Text>
 
         {!!item.purpose && (
-          <Text style={styles.text}>Purpose: {item.purpose}</Text>
+          <Text style={styles.text}>Objet : {item.purpose}</Text>
         )}
 
-        <Text style={styles.status}>Status: {item.status || "Pending"}</Text>
+        <Text style={styles.status}>Statut : {item.status || "En attente"}</Text>
 
         <View style={styles.actions}>
           <TouchableOpacity
@@ -175,7 +175,7 @@ const PendingRoomReservationsScreen = () => {
             disabled={isBusy}
           >
             <Text style={styles.buttonText}>
-              {isBusy ? "Processing..." : "Approve"}
+              {isBusy ? "Traitement..." : "Approuver"}
             </Text>
           </TouchableOpacity>
 
@@ -185,7 +185,7 @@ const PendingRoomReservationsScreen = () => {
             disabled={isBusy}
           >
             <Text style={styles.buttonText}>
-              {isBusy ? "Processing..." : "Reject"}
+              {isBusy ? "Traitement..." : "Rejeter"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -197,7 +197,9 @@ const PendingRoomReservationsScreen = () => {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading pending room requests...</Text>
+        <Text style={styles.loadingText}>
+          Chargement des demandes de salle en attente...
+        </Text>
       </View>
     );
   }
@@ -206,7 +208,7 @@ const PendingRoomReservationsScreen = () => {
     <View style={styles.container}>
       {requests.length === 0 ? (
         <View style={styles.center}>
-          <Text style={styles.emptyText}>No pending room requests</Text>
+          <Text style={styles.emptyText}>Aucune demande de salle en attente</Text>
         </View>
       ) : (
         <FlatList

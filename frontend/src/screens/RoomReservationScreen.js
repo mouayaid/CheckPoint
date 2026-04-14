@@ -28,11 +28,17 @@ import { useTheme } from "../context/ThemeContext";
 
 const QUICK_DURATIONS = [
   { label: "30 min", minutes: 30 },
-  { label: "1 hour", minutes: 60 },
-  { label: "2 hours", minutes: 120 },
+  { label: "1 heure", minutes: 60 },
+  { label: "2 heures", minutes: 120 },
 ];
 
 const MY_RESERVATION_FILTERS = ["All", "Upcoming", "Past"];
+
+const MY_RESERVATION_FILTER_LABELS_FR = {
+  All: "Tout",
+  Upcoming: "À venir",
+  Past: "Passées",
+};
 
 const formatDateKey = (date) => {
   const y = date.getFullYear();
@@ -387,7 +393,8 @@ export default function RoomReservationScreen() {
       if (!ok) {
         setDayReservations([]);
         setModalScheduleError(
-          message || "Could not load this room’s schedule for the selected day."
+          message ||
+            "Impossible de charger le planning de cette salle pour le jour sélectionné."
         );
         return;
       }
@@ -401,7 +408,9 @@ export default function RoomReservationScreen() {
       }
     } catch (error) {
       setDayReservations([]);
-      setModalScheduleError(getErrorMessage(error, "Failed to load schedule."));
+      setModalScheduleError(
+        getErrorMessage(error, "Impossible de charger le planning."),
+      );
     } finally {
       setLoadingReservations(false);
     }
@@ -480,7 +489,7 @@ export default function RoomReservationScreen() {
     } catch (error) {
       setDayReservations([]);
       setModalScheduleError(
-        getErrorMessage(error, "Could not load schedule for this room.")
+        getErrorMessage(error, "Impossible de charger le planning de cette salle.")
       );
     } finally {
       setLoadingReservations(false);
@@ -496,22 +505,22 @@ export default function RoomReservationScreen() {
 
   const handleReserve = async () => {
     if (!selectedRoom?.id) {
-      Alert.alert("No room", "Choose a room from the list first.");
+      Alert.alert("Aucune salle", "Choisissez d'abord une salle dans la liste.");
       return;
     }
 
     if (!startTime || !endTime) {
       Alert.alert(
-        "Pick a time range",
-        "Select a start and end time for your request."
+        "Choisir une plage horaire",
+        "Sélectionnez une heure de début et une heure de fin pour votre demande."
       );
       return;
     }
 
     if (!purpose.trim()) {
       Alert.alert(
-        "Add a purpose",
-        "Briefly describe the meeting so your manager can approve the request."
+        "Ajouter un objet",
+        "Décrivez brièvement la réunion afin que votre responsable puisse valider la demande."
       );
       return;
     }
@@ -521,16 +530,16 @@ export default function RoomReservationScreen() {
 
     if (endDateTime <= startDateTime) {
       Alert.alert(
-        "Invalid time range",
-        "End time must be after start time on the same day."
+        "Plage horaire invalide",
+        "L'heure de fin doit être après l'heure de début le même jour."
       );
       return;
     }
 
     if (hasOverlap(startDateTime, endDateTime)) {
       Alert.alert(
-        "Time conflict",
-        "This range overlaps a confirmed booking for this room. Pick another slot."
+        "Conflit horaire",
+        "Cette plage chevauche une réservation confirmée pour cette salle. Choisissez un autre créneau."
       );
       return;
     }
@@ -553,9 +562,9 @@ export default function RoomReservationScreen() {
 
       if (response?.success) {
         Alert.alert(
-          "Request sent",
+          "Demande envoyée",
           response.message ||
-            "Your room request was submitted and is waiting for approval.",
+            "Votre demande de salle a été envoyée et est en attente de validation.",
           [{ text: "OK" }]
         );
 
@@ -568,8 +577,8 @@ export default function RoomReservationScreen() {
         resetModal();
       } else {
         Alert.alert(
-          "Request not sent",
-          response?.message || "Something went wrong. Try again."
+          "Demande non envoyée",
+          response?.message || "Une erreur s'est produite. Réessayez."
         );
       }
     } catch (error) {
@@ -581,17 +590,17 @@ export default function RoomReservationScreen() {
       });
 
       const status = error?.status || error?.response?.status;
-      const msg = getErrorMessage(error, "Could not submit your request.");
+      const msg = getErrorMessage(error, "Impossible d'envoyer votre demande.");
 
       if (status === 409) {
         Alert.alert(
-          "Slot no longer available",
-          msg || "Another approved booking overlaps this time."
+          "Créneau indisponible",
+          msg || "Une autre réservation approuvée chevauche ce créneau."
         );
       } else if (status === 400) {
-        Alert.alert("Can’t submit this request", msg);
+        Alert.alert("Impossible d'envoyer cette demande", msg);
       } else {
-        Alert.alert("Request failed", msg);
+        Alert.alert("Échec de la demande", msg);
       }
     } finally {
       setReserving(false);
@@ -605,8 +614,8 @@ export default function RoomReservationScreen() {
       return {
         badge: styles.statusPending,
         text: styles.statusPendingText,
-        label: "Awaiting approval",
-        hint: "A manager must approve before this is confirmed.",
+        label: "En attente de validation",
+        hint: "Un responsable doit approuver avant confirmation.",
       };
     }
 
@@ -614,8 +623,8 @@ export default function RoomReservationScreen() {
       return {
         badge: styles.statusApproved,
         text: styles.statusApprovedText,
-        label: "Approved",
-        hint: "Confirmed — this time counts toward room availability.",
+        label: "Approuvée",
+        hint: "Confirmée — ce créneau compte dans la disponibilité de la salle.",
       };
     }
 
@@ -623,7 +632,7 @@ export default function RoomReservationScreen() {
       return {
         badge: styles.statusApproved,
         text: styles.statusApprovedText,
-        label: "Completed",
+        label: "Terminée",
         hint: null,
       };
     }
@@ -632,8 +641,8 @@ export default function RoomReservationScreen() {
       return {
         badge: styles.statusRejected,
         text: styles.statusRejectedText,
-        label: "Rejected",
-        hint: "See manager comment below if provided.",
+        label: "Rejetée",
+        hint: "Consultez le commentaire du responsable ci-dessous si disponible.",
       };
     }
 
@@ -641,7 +650,7 @@ export default function RoomReservationScreen() {
       return {
         badge: styles.statusCancelled,
         text: styles.statusCancelledText,
-        label: "Cancelled",
+        label: "Annulée",
         hint: null,
       };
     }
@@ -659,7 +668,7 @@ export default function RoomReservationScreen() {
 
     if (loadingRoomStatuses) {
       return {
-        label: "Checking…",
+        label: "Vérification…",
         badge: styles.roomStatusMuted,
         text: styles.roomStatusMutedText,
         border: styles.roomBorderMuted,
@@ -668,7 +677,7 @@ export default function RoomReservationScreen() {
 
     if (roomDayLoadError) {
       return {
-        label: "No data",
+        label: "Aucune donnée",
         badge: styles.roomStatusMuted,
         text: styles.roomStatusMutedText,
         border: styles.roomBorderMuted,
@@ -677,7 +686,7 @@ export default function RoomReservationScreen() {
 
     if (reservations.length === 0) {
       return {
-        label: "No confirmed blocks",
+        label: "Aucun créneau confirmé",
         badge: styles.roomStatusAvailable,
         text: styles.roomStatusAvailableText,
         border: styles.roomBorderAvailable,
@@ -696,7 +705,7 @@ export default function RoomReservationScreen() {
 
       if (busyNow) {
         return {
-          label: "Busy now",
+          label: "Occupée maintenant",
           badge: styles.roomStatusBusy,
           text: styles.roomStatusBusyText,
           border: styles.roomBorderBusy,
@@ -705,7 +714,7 @@ export default function RoomReservationScreen() {
     }
 
     return {
-      label: "Has confirmed slots",
+      label: "Créneaux confirmés",
       badge: styles.roomStatusBooked,
       text: styles.roomStatusBookedText,
       border: styles.roomBorderBooked,
@@ -713,7 +722,7 @@ export default function RoomReservationScreen() {
   };
 
   const selectedDateReadable = useMemo(() => {
-    return parseDateKey(selectedDate).toLocaleDateString([], {
+    return parseDateKey(selectedDate).toLocaleDateString("fr-FR", {
       weekday: "long",
       month: "short",
       day: "numeric",
@@ -805,9 +814,9 @@ export default function RoomReservationScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.stickyHeader}>
-        <Text style={styles.screenTitle}>Room requests</Text>
+        <Text style={styles.screenTitle}>Demandes de salle</Text>
         <Text style={styles.screenSubtitle}>
-          Pick a time range and submit a request — bookings need manager approval
+          Choisissez une plage horaire et envoyez une demande — les réservations nécessitent une validation
         </Text>
       </View>
 
@@ -824,9 +833,9 @@ export default function RoomReservationScreen() {
       >
         <View style={styles.calendarCard}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.blockTitle}>Select a workday</Text>
+            <Text style={styles.blockTitle}>Sélectionner un jour ouvré</Text>
             <Text style={styles.blockSubtitle}>
-              Monday–Friday • View confirmed room availability for the selected day
+              Lundi–vendredi • Consultez les disponibilités confirmées pour le jour sélectionné
             </Text>
           </View>
 
@@ -931,10 +940,12 @@ export default function RoomReservationScreen() {
                 style={{ marginRight: spacing.sm }}
               />
               <View style={{ flex: 1 }}>
-                <Text style={styles.dayErrorTitle}>Can’t load day view</Text>
+                <Text style={styles.dayErrorTitle}>
+                  Impossible de charger la vue du jour
+                </Text>
                 <Text style={styles.dayErrorText}>{roomDayLoadError}</Text>
                 <Text style={styles.dayErrorHint}>
-                  Pull to refresh, then check backend logs for the failing endpoint.
+                  Faites glisser pour actualiser, puis vérifiez les logs du backend pour l’endpoint en erreur.
                 </Text>
               </View>
             </View>
@@ -943,7 +954,7 @@ export default function RoomReservationScreen() {
               <Text style={styles.daySummaryTitle}>{selectedDateReadable}</Text>
               <Text style={styles.daySummaryText}>
                 {selectedDayRoomSummary
-                  ? `${selectedDayRoomSummary.freeAllDay} with no confirmed bookings • ${selectedDayRoomSummary.partial} with confirmed slots`
+                  ? `${selectedDayRoomSummary.freeAllDay} sans réservation confirmée • ${selectedDayRoomSummary.partial} avec des créneaux confirmés`
                   : "—"}
               </Text>
             </View>
@@ -952,9 +963,9 @@ export default function RoomReservationScreen() {
 
         <View style={styles.sectionBlock}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.blockTitle}>My requests</Text>
+            <Text style={styles.blockTitle}>Mes demandes</Text>
             <Text style={styles.blockSubtitle}>
-              Pending items need approval; approved ones block the room
+              Les demandes en attente nécessitent une validation ; les demandes approuvées bloquent la salle
             </Text>
           </View>
 
@@ -984,7 +995,7 @@ export default function RoomReservationScreen() {
                       selected && styles.filterChipTextActive,
                     ]}
                   >
-                    {filter}
+                    {MY_RESERVATION_FILTER_LABELS_FR[filter] ?? filter}
                   </Text>
                 </TouchableOpacity>
               );
@@ -992,12 +1003,12 @@ export default function RoomReservationScreen() {
           </ScrollView>
 
           {loadingMyReservations ? (
-            <Text style={styles.muted}>Loading your reservations…</Text>
+            <Text style={styles.muted}>Chargement de vos réservations…</Text>
           ) : filteredMyReservations.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>No requests yet</Text>
+              <Text style={styles.emptyTitle}>Aucune demande pour le moment</Text>
               <Text style={styles.emptyText}>
-                After you submit a room request, it will appear here.
+                Après l’envoi d’une demande, elle apparaîtra ici.
               </Text>
             </View>
           ) : (
@@ -1011,7 +1022,7 @@ export default function RoomReservationScreen() {
                   <View style={styles.myReservationHeader}>
                     <View style={styles.myReservationMain}>
                       <Text style={styles.myReservationRoom}>
-                        {reservation.roomName || "Room"}
+                        {reservation.roomName || "Salle"}
                       </Text>
                       <Text style={styles.myReservationDate}>
                         {formatReservationDate(
@@ -1034,7 +1045,7 @@ export default function RoomReservationScreen() {
 
                   {!!reservation.purpose && (
                     <View style={styles.infoPill}>
-                      <Text style={styles.infoPillLabel}>Purpose</Text>
+                      <Text style={styles.infoPillLabel}>Objet</Text>
                       <Text style={styles.infoPillText}>
                         {reservation.purpose}
                       </Text>
@@ -1043,7 +1054,9 @@ export default function RoomReservationScreen() {
 
                   {!!reservation.managerComment && (
                     <View style={styles.commentBox}>
-                      <Text style={styles.commentLabel}>Manager comment</Text>
+                      <Text style={styles.commentLabel}>
+                        Commentaire du responsable
+                      </Text>
                       <Text style={styles.commentText}>
                         {reservation.managerComment}
                       </Text>
@@ -1057,9 +1070,9 @@ export default function RoomReservationScreen() {
 
         <View style={styles.sectionBlock}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.blockTitle}>Rooms</Text>
+            <Text style={styles.blockTitle}>Salles</Text>
             <Text style={styles.blockSubtitle}>
-              Tap a room to choose a time and send a request
+              Appuyez sur une salle pour choisir une heure et envoyer une demande
             </Text>
           </View>
 
@@ -1079,7 +1092,7 @@ export default function RoomReservationScreen() {
                     <View style={styles.roomTitleWrap}>
                       <Text style={styles.roomName}>{room.name}</Text>
                       <Text style={styles.roomDetails}>
-                        Floor {room.floor} • Capacity: {room.capacity}
+                        Étage {room.floor} • Capacité : {room.capacity}
                       </Text>
                     </View>
 
@@ -1102,9 +1115,9 @@ export default function RoomReservationScreen() {
                     <Text style={styles.roomBookingCount}>
                       {roomDayLoadError
                         ? "—"
-                        : `${reservationCount} confirmed ${
-                            reservationCount === 1 ? "slot" : "slots"
-                          }`}
+                        : `${reservationCount} créneau${
+                            reservationCount === 1 ? "" : "x"
+                          } confirmé${reservationCount === 1 ? "" : "s"}`}
                     </Text>
                   </View>
 
@@ -1116,7 +1129,7 @@ export default function RoomReservationScreen() {
                           size={14}
                           color={colors.primary}
                         />
-                        <Text style={styles.featureText}>Projector</Text>
+                      <Text style={styles.featureText}>Vidéoprojecteur</Text>
                       </View>
                     )}
 
@@ -1127,12 +1140,14 @@ export default function RoomReservationScreen() {
                           size={14}
                           color={colors.primary}
                         />
-                        <Text style={styles.featureText}>Whiteboard</Text>
+                      <Text style={styles.featureText}>Tableau blanc</Text>
                       </View>
                     )}
 
                     {!room.hasProjector && !room.hasWhiteboard && (
-                      <Text style={styles.featureMuted}>No extra equipment</Text>
+                      <Text style={styles.featureMuted}>
+                        Aucun équipement supplémentaire
+                      </Text>
                     )}
                   </View>
                 </TouchableOpacity>
@@ -1158,38 +1173,38 @@ export default function RoomReservationScreen() {
               contentContainerStyle={styles.modalScrollContent}
             >
               <Text style={styles.modalTitle}>
-                Request {selectedRoom?.name}
+                Demander {selectedRoom?.name}
               </Text>
 
               <Text style={styles.modalSubtitle}>
                 {selectedDateReadable}
                 {"\n"}
                 <Text style={styles.modalSubtitleEmphasis}>
-                  Submission creates a pending request — not an instant booking.
+                  L’envoi crée une demande en attente — ce n’est pas une réservation instantanée.
                 </Text>
               </Text>
 
               {modalScheduleError ? (
                 <View style={styles.warningCard}>
-                  <Text style={styles.warningLabel}>Schedule unavailable</Text>
+                  <Text style={styles.warningLabel}>Planning indisponible</Text>
                   <Text style={styles.warningText}>{modalScheduleError}</Text>
                 </View>
               ) : null}
 
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>
-                  Confirmed bookings (approved only)
+                  Réservations confirmées (approuvées uniquement)
                 </Text>
                 <Text style={styles.sectionCaption}>
-                  Pending requests are not listed here.
+                  Les demandes en attente ne sont pas affichées ici.
                 </Text>
 
                 {loadingReservations ? (
-                  <Text style={styles.muted}>Loading room schedule…</Text>
+                  <Text style={styles.muted}>Chargement du planning…</Text>
                 ) : dayReservations.length === 0 ? (
                   <View style={styles.emptyInlineCard}>
                     <Text style={styles.emptyInlineText}>
-                      No confirmed blocks for this day.
+                      Aucun créneau confirmé pour cette journée.
                     </Text>
                   </View>
                 ) : (
@@ -1236,7 +1251,7 @@ export default function RoomReservationScreen() {
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Your requested time</Text>
+                <Text style={styles.sectionTitle}>Heure demandée</Text>
 
                 <View style={styles.timeRow}>
                   <Pressable
@@ -1246,7 +1261,7 @@ export default function RoomReservationScreen() {
                     <Text style={styles.timeText}>
                       {startTime ? formatTime(startTime) : "—"}
                     </Text>
-                    <Text style={styles.timeLabel}>Start</Text>
+                    <Text style={styles.timeLabel}>Début</Text>
                   </Pressable>
 
                   <Pressable
@@ -1256,19 +1271,19 @@ export default function RoomReservationScreen() {
                     <Text style={styles.timeText}>
                       {endTime ? formatTime(endTime) : "—"}
                     </Text>
-                    <Text style={styles.timeLabel}>End</Text>
+                    <Text style={styles.timeLabel}>Fin</Text>
                   </Pressable>
                 </View>
 
                 {startTime && endTime && (
                   <View style={styles.timeRangeCard}>
-                    <Text style={styles.timeRangeLabel}>Selected range</Text>
+                    <Text style={styles.timeRangeLabel}>Plage sélectionnée</Text>
                     <Text style={styles.timeRangeValue}>
                       {formatTime(startTime)} → {formatTime(endTime)}
                     </Text>
                     <Text style={styles.timeRangeDate}>{selectedDateReadable}</Text>
                     <Text style={styles.timeRangeDuration}>
-                      Duration: {formatDuration(durationMinutes)}
+                      Durée : {formatDuration(durationMinutes)}
                     </Text>
                   </View>
                 )}
@@ -1289,7 +1304,7 @@ export default function RoomReservationScreen() {
                 </View>
 
                 <View style={styles.helperInfoCard}>
-                  <Text style={styles.helperInfoLabel}>Duration</Text>
+                  <Text style={styles.helperInfoLabel}>Durée</Text>
                   <Text style={styles.helperInfoText}>
                     {formatDuration(durationMinutes)}
                   </Text>
@@ -1298,11 +1313,11 @@ export default function RoomReservationScreen() {
                 {overlapWarning && (
                   <View style={styles.warningCard}>
                     <Text style={styles.warningLabel}>
-                      Conflicts with a confirmed slot
+                      Conflit avec un créneau confirmé
                     </Text>
                     <Text style={styles.warningText}>
-                      Adjust your start or end time so it doesn’t overlap the
-                      bookings listed above.
+                      Ajustez l’heure de début ou de fin pour éviter de chevaucher
+                      les réservations listées ci-dessus.
                     </Text>
                   </View>
                 )}
@@ -1349,13 +1364,13 @@ export default function RoomReservationScreen() {
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Purpose (required)</Text>
+                <Text style={styles.sectionTitle}>Objet (obligatoire)</Text>
                 <Text style={styles.sectionCaption}>
-                  Shown to approvers — keep it short and specific.
+                  Visible par les approbateurs — restez bref et précis.
                 </Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="e.g. Sprint planning with Design"
+                  placeholder="ex. Planification de sprint avec Design"
                   placeholderTextColor={colors.placeholder}
                   value={purpose}
                   onChangeText={setPurpose}
@@ -1370,7 +1385,7 @@ export default function RoomReservationScreen() {
                   onPress={resetModal}
                   disabled={reserving}
                 >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                  <Text style={styles.cancelButtonText}>Annuler</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -1385,7 +1400,7 @@ export default function RoomReservationScreen() {
                   disabled={!canSubmitRequest || reserving}
                 >
                   <Text style={styles.buttonText}>
-                    {reserving ? "Sending…" : "Submit request"}
+                    {reserving ? "Envoi…" : "Envoyer la demande"}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -1395,17 +1410,17 @@ export default function RoomReservationScreen() {
                 !modalScheduleError &&
                 (startTime && endTime && !purpose.trim() ? (
                   <Text style={styles.tip}>
-                    Add a purpose to enable Submit request.
+                    Ajoutez un objet pour activer « Envoyer la demande ».
                   </Text>
                 ) : overlapWarning ? (
                   <Text style={styles.tip}>
-                    Fix the time conflict above to submit.
+                    Corrigez le conflit horaire ci-dessus pour envoyer.
                   </Text>
                 ) : null)}
 
               <Text style={styles.tip}>
-                If the slot was taken by another approved booking, refresh and pick
-                a new range.
+                Si le créneau a été pris par une autre réservation approuvée,
+                actualisez et choisissez une nouvelle plage.
               </Text>
             </ScrollView>
           </View>

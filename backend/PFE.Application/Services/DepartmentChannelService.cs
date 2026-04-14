@@ -55,11 +55,8 @@ public class DepartmentChannelService : IDepartmentChannelService
         _context.DepartmentChannelMessages.Add(message);
         await _context.SaveChangesAsync();
 
-        var employees = await _context.Users
-            .Where(u => u.DepartmentId == dto.DepartmentId && u.Role == Role.Employee)
-            .ToListAsync();
-
-
+        // Mark as read for sender (manager)
+        await MarkDepartmentChannelAsReadAsync(userId);
 
         return new DepartmentChannelMessageDto
         {
@@ -143,10 +140,8 @@ public class DepartmentChannelService : IDepartmentChannelService
         _context.DepartmentPolls.Add(poll);
         await _context.SaveChangesAsync();
 
-        var employees = await _context.Users
-            .Where(u => u.DepartmentId == dto.DepartmentId && u.Role == Role.Employee)
-            .ToListAsync();
-
+        // Mark as read for sender (manager)
+        await MarkDepartmentChannelAsReadAsync(userId);
 
         return await GetMessageByIdAsync(message.Id, userId);
     }
@@ -262,7 +257,7 @@ public class DepartmentChannelService : IDepartmentChannelService
             .Where(m => m.DepartmentId == user.DepartmentId);
 
         var unreadCount = await messages.CountAsync(m =>
-            lastReadAt == null || m.CreatedAt > lastReadAt);
+            (lastReadAt == null || m.CreatedAt > lastReadAt) && m.SenderId != userId);
 
         var lastMessage = await messages
             .OrderByDescending(m => m.CreatedAt)

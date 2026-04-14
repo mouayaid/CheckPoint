@@ -71,7 +71,9 @@ const PollItem = React.memo(({ poll, roleName, votingId, onVote }) => {
 
       {poll.expiresAt && (
         <Text style={styles.pollMeta}>
-          {closed ? "Closed" : `Closes ${formatCloseDate(poll.expiresAt)}`}
+          {closed
+            ? "Clôturé"
+            : `Clôture le ${formatCloseDate(poll.expiresAt)}`}
         </Text>
       )}
 
@@ -118,15 +120,15 @@ const PollItem = React.memo(({ poll, roleName, votingId, onVote }) => {
         ) : (
           <Text style={styles.pollFooter}>
             {poll.hasVoted
-              ? "You voted"
+              ? "Vous avez voté"
               : closed
-                ? "Poll closed"
+                ? "Sondage clôturé"
                 : canVote
-                  ? "Tap to vote"
+                  ? "Appuyez pour voter"
                   : null}
           </Text>
         )}
-        <Text style={styles.pollTotalVotes}>{totalVotes} total</Text>
+        <Text style={styles.pollTotalVotes}>{totalVotes} au total</Text>
       </View>
     </View>
   );
@@ -160,7 +162,7 @@ const FeedItem = React.memo(
               <View style={[styles.pill, styles.pillPinned]}>
                 <Ionicons name="pin" size={10} color={colors.warning} />
                 <Text style={[styles.pillText, { color: colors.warning }]}>
-                  Pinned
+                  Épinglé
                 </Text>
               </View>
             )}
@@ -176,7 +178,7 @@ const FeedItem = React.memo(
                   isPoll ? styles.pillTextPoll : styles.pillTextMessage,
                 ]}
               >
-                {isPoll ? "Poll" : "Post"}
+                {isPoll ? "Sondage" : "Publication"}
               </Text>
             </View>
           </View>
@@ -249,7 +251,7 @@ export default function DepartmentChannelScreen() {
         const res = await departmentChannelService.getFeed(departmentId);
         setItems(Array.isArray(res) ? res : (res?.data ?? []));
       } catch (error) {
-        Alert.alert("Error", error?.message || "Could not load channel.");
+        Alert.alert("Erreur", error?.message || "Impossible de charger le canal.");
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -300,7 +302,7 @@ export default function DepartmentChannelScreen() {
       await loadFeed(false);
       await refreshChannelInfo();
     } catch (error) {
-      Alert.alert("Error", error?.message || "Could not post message.");
+      Alert.alert("Erreur", error?.message || "Impossible de publier le message.");
     } finally {
       setSubmitting(false);
     }
@@ -308,12 +310,12 @@ export default function DepartmentChannelScreen() {
 
   const handleSubmitPoll = async () => {
     if (!pollQuestion.trim()) {
-      Alert.alert("Required", "Poll question is required.");
+      Alert.alert("Requis", "La question du sondage est requise.");
       return;
     }
     const cleanedOptions = pollOptions.map((o) => o.trim()).filter(Boolean);
     if (cleanedOptions.length < MIN_OPTIONS) {
-      Alert.alert("Required", "Add at least two options.");
+      Alert.alert("Requis", "Ajoutez au moins deux options.");
       return;
     }
     setSubmitting(true);
@@ -330,7 +332,7 @@ export default function DepartmentChannelScreen() {
       await loadFeed(false);
       await refreshChannelInfo();
     } catch (error) {
-      Alert.alert("Error", error?.message || "Could not create poll.");
+      Alert.alert("Erreur", error?.message || "Impossible de créer le sondage.");
     } finally {
       setSubmitting(false);
     }
@@ -344,7 +346,7 @@ export default function DepartmentChannelScreen() {
         await loadFeed(false);
         await refreshChannelInfo(); 
       } catch (error) {
-        Alert.alert("Error", error?.message || "Could not submit vote.");
+        Alert.alert("Erreur", error?.message || "Impossible d'envoyer le vote.");
       } finally {
         setVotingId(null);
       }
@@ -412,9 +414,9 @@ export default function DepartmentChannelScreen() {
                     color={colors.textSecondary}
                   />
                 </View>
-                <Text style={styles.emptyTitle}>No posts yet</Text>
+                <Text style={styles.emptyTitle}>Aucune publication pour le moment</Text>
                 <Text style={styles.emptySubtitle}>
-                  Department updates and polls will appear here.
+                  Les actualités du département et les sondages apparaîtront ici.
                 </Text>
               </View>
             }
@@ -454,7 +456,7 @@ export default function DepartmentChannelScreen() {
                     composerMode === mode && styles.composerTabTextActive,
                   ]}
                 >
-                  {mode === "message" ? "Post" : "Poll"}
+                  {mode === "message" ? "Message" : "Sondage"}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -464,7 +466,7 @@ export default function DepartmentChannelScreen() {
             <View style={styles.composerBody}>
               <TextInput
                 style={styles.input}
-                placeholder="Share an update…"
+                placeholder="Partager une mise à jour…"
                 placeholderTextColor={colors.textSecondary}
                 value={messageContent}
                 onChangeText={setMessageContent}
@@ -472,7 +474,7 @@ export default function DepartmentChannelScreen() {
                 blurOnSubmit={false}
               />
               <Button
-                title={submitting ? "Posting…" : "Post"}
+                title={submitting ? "Publication…" : "Publier"}
                 onPress={handleSubmitMessage}
                 loading={submitting}
                 disabled={submitting || !messageContent.trim()}
@@ -483,7 +485,7 @@ export default function DepartmentChannelScreen() {
             <View style={styles.composerBody}>
               <TextInput
                 style={styles.input}
-                placeholder="Ask a question…"
+                placeholder="Poser une question…"
                 placeholderTextColor={colors.textSecondary}
                 value={pollQuestion}
                 onChangeText={setPollQuestion}
@@ -510,12 +512,12 @@ export default function DepartmentChannelScreen() {
                   onPress={handleAddPollOption}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.addOptionText}>+ Add option</Text>
+                  <Text style={styles.addOptionText}>+ Ajouter une option</Text>
                 </TouchableOpacity>
               </View>
 
               <Button
-                title={submitting ? "Creating…" : "Create poll"}
+                title={submitting ? "Création…" : "Créer le sondage"}
                 onPress={handleSubmitPoll}
                 loading={submitting}
                 disabled={submitting}

@@ -21,7 +21,7 @@ function formatEventCompact(event) {
   const raw =
     event?.date ?? event?.Date ?? event?.startDateTime ?? event?.StartDateTime;
 
-  if (!raw) return "Date to be announced";
+  if (!raw) return "Date à confirmer";
 
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return String(raw);
@@ -298,25 +298,26 @@ const DashboardScreen = () => {
   const seatLabel =
     myReservation?.seatLabel || myReservation?.SeatLabel || null;
 
-  const today = new Date().toLocaleDateString("en-US", {
+  const today = new Date().toLocaleDateString("fr-FR", {
     weekday: "long",
     month: "short",
     day: "numeric",
   });
 
+  const emoji = greeting.includes("Morning")
+    ? "🌅"
+    : greeting.includes("Evening")
+      ? "🌙"
+      : "👋";
   const hour = new Date().getHours();
   const greeting =
-    hour < 12
-      ? "Good morning 👋"
-      : hour < 18
-        ? "Good afternoon 👋"
-        : "Good evening 👋";
+    hour < 12 ? "Bonjour 👋" : hour < 18 ? "Bon après-midi 👋" : "Bonsoir 👋";
 
   const heroDeskLine = loadingDesk
-    ? "Checking your desk…"
+    ? "Vérification de votre bureau…"
     : seatLabel
-      ? `Desk ${seatLabel} reserved for today`
-      : "No desk reserved yet for today";
+      ? `Bureau ${seatLabel} réservé pour aujourd'hui`
+      : "Aucun bureau réservé pour aujourd'hui";
 
   const balanceKnown = leaveBalance !== null;
   const balanceNum = balanceKnown ? Number(leaveBalance) : NaN;
@@ -369,7 +370,7 @@ const DashboardScreen = () => {
             <View style={styles.heroTextWrap}>
               <Text style={styles.heroTitle}>
                 {greeting}
-                {userName ? `, ${userName.split(" ")[0]}` : ""}
+                {userName ? ` ${userName.split(" ")[0]}` : ""} {emoji}
               </Text>
               <Text style={styles.heroSubtitle}>{today}</Text>
             </View>
@@ -384,7 +385,7 @@ const DashboardScreen = () => {
           </View>
 
           <View style={styles.heroStatusCard}>
-            <Text style={styles.heroStatusLabel}>Today</Text>
+            <Text style={styles.heroStatusLabel}>Aujourd&apos;hui</Text>
             <Text style={styles.heroStatusText}>{heroDeskLine}</Text>
           </View>
         </LinearGradient>
@@ -403,18 +404,22 @@ const DashboardScreen = () => {
           ],
         }}
       >
-        <Text style={styles.sectionTitle}>Workspace</Text>
+        <Text style={styles.sectionTitle}>Espace de travail</Text>
 
         <Card style={styles.primaryCard}>
           <View style={styles.summaryTopRow}>
             <Ionicons name="desktop-outline" size={20} color={colors.primary} />
-            <Text style={styles.summaryTitle}>Your desk today</Text>
+            <Text style={styles.summaryTitle}>
+              Votre bureau aujourd&apos;hui
+            </Text>
           </View>
 
           {loadingDesk ? (
             <View style={styles.loadingInline}>
               <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={styles.summaryMuted}>Loading reservation…</Text>
+              <Text style={styles.summaryMuted}>
+                Chargement de la réservation…
+              </Text>
             </View>
           ) : seatLabel ? (
             <>
@@ -425,16 +430,16 @@ const DashboardScreen = () => {
                   color={colors.success}
                 />
                 <Text style={styles.successPillText}>
-                  Seat {seatLabel} is reserved for today
+                  Le poste {seatLabel} est réservé pour aujourd&apos;hui
                 </Text>
               </View>
 
               <Text style={styles.summarySubtitle}>
-                Open the desk map to view your reservation.
+                Ouvrez le plan des bureaux pour voir votre réservation.
               </Text>
 
               <Button
-                title="Open desk map"
+                title="Ouvrir le plan des bureaux"
                 variant="secondary"
                 onPress={() => navigation.navigate("Desk")}
                 style={styles.summaryButton}
@@ -442,14 +447,14 @@ const DashboardScreen = () => {
             </>
           ) : (
             <>
-              <Text style={styles.summaryEmptyValue}>No reservation</Text>
+              <Text style={styles.summaryEmptyValue}>Aucune réservation</Text>
               <Text style={styles.summarySubtitle}>
-                Pick a seat on the map if you plan to work from the office
-                today.
+                Choisissez un poste sur le plan si vous prévoyez de travailler
+                au bureau aujourd&apos;hui.
               </Text>
 
               <Button
-                title="Reserve a desk"
+                title="Réserver un bureau"
                 onPress={() => navigation.navigate("Desk")}
                 style={styles.summaryButton}
               />
@@ -457,7 +462,7 @@ const DashboardScreen = () => {
           )}
         </Card>
 
-        <Text style={styles.sectionTitle}>Leave balance</Text>
+        <Text style={styles.sectionTitle}>Solde de congés</Text>
 
         <Card style={styles.infoCard}>
           <View style={styles.infoCardRow}>
@@ -473,36 +478,37 @@ const DashboardScreen = () => {
               {loadingBalance ? (
                 <View style={styles.loadingInline}>
                   <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={styles.infoSubtitle}>Loading balance…</Text>
+                  <Text style={styles.infoSubtitle}>Chargement du solde…</Text>
                 </View>
               ) : balanceLoadFailed ? (
                 <Text style={styles.infoSubtitle}>
-                  Couldn&apos;t load your leave balance right now. Pull to
-                  refresh.
+                  Impossible de charger votre solde de congés pour le moment.
+                  Faites glisser pour actualiser.
                 </Text>
               ) : (
                 <>
                   <Text style={styles.balanceValue}>
-                    {balanceNum} {balanceNum === 1 ? "day" : "days"} left
+                    {balanceNum} {balanceNum === 1 ? "jour" : "jours"} restant
+                    {balanceNum === 1 ? "" : "s"}
                   </Text>
 
                   <Text style={styles.infoSubtitle}>
                     {balanceNum > 0
-                      ? "You can submit a new leave request or review your previous requests."
-                      : "You have no leave days left. You can still review your previous requests."}
+                      ? "Vous pouvez soumettre une nouvelle demande de congé ou consulter vos demandes précédentes."
+                      : "Vous n'avez plus de jours de congé. Vous pouvez tout de même consulter vos demandes précédentes."}
                   </Text>
 
                   {noLeaveDaysLeft && (
                     <Text style={styles.balanceWarningTextSmall}>
-                      You currently have no remaining leave days.
+                      Vous n&apos;avez actuellement plus de jours de congé.
                     </Text>
                   )}
 
                   <Button
                     title={
                       balanceNum > 0
-                        ? "Create leave request"
-                        : "View previous requests"
+                        ? "Créer une demande de congé"
+                        : "Voir les demandes précédentes"
                     }
                     variant={balanceNum > 0 ? "primary" : "secondary"}
                     onPress={() =>
@@ -534,14 +540,16 @@ const DashboardScreen = () => {
               {loadingEvent ? (
                 <View style={styles.loadingInline}>
                   <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={styles.infoSubtitle}>Loading calendar…</Text>
+                  <Text style={styles.infoSubtitle}>
+                    Chargement du calendrier…
+                  </Text>
                 </View>
               ) : upcomingEvent ? (
                 <>
                   <Text style={styles.eventTitle} numberOfLines={2}>
                     {upcomingEvent.title ??
                       upcomingEvent.Title ??
-                      "Untitled event"}
+                      "Événement sans titre"}
                   </Text>
                   <Text style={styles.eventCompact}>
                     {formatEventCompact(upcomingEvent)}
@@ -549,9 +557,9 @@ const DashboardScreen = () => {
                 </>
               ) : (
                 <>
-                  <Text style={styles.infoTitle}>Nothing scheduled</Text>
+                  <Text style={styles.infoTitle}>Aucun événement prévu</Text>
                   <Text style={styles.infoSubtitle}>
-                    No events in the next 7 days.
+                    Aucun événement dans les 7 prochains jours.
                   </Text>
                 </>
               )}
@@ -559,14 +567,14 @@ const DashboardScreen = () => {
           </View>
 
           <Button
-            title="Browse events"
+            title="Voir les événements"
             variant={upcomingEvent ? "secondary" : "primary"}
             onPress={() => navigation.navigate("Events")}
             style={styles.infoButton}
           />
         </Card>
 
-        <Text style={styles.sectionTitle}>Announcements</Text>
+        <Text style={styles.sectionTitle}>Annonces</Text>
 
         <Card style={styles.infoCard}>
           <View style={styles.infoCardRow}>
@@ -583,7 +591,7 @@ const DashboardScreen = () => {
                 <View style={styles.loadingInline}>
                   <ActivityIndicator size="small" color={colors.primary} />
                   <Text style={styles.infoSubtitle}>
-                    Loading announcements…
+                    Chargement des annonces…
                   </Text>
                 </View>
               ) : announcements.length > 0 ? (
@@ -591,7 +599,7 @@ const DashboardScreen = () => {
                   <Text style={styles.infoTitle}>
                     {announcements[0]?.title ??
                       announcements[0]?.Title ??
-                      "Announcement"}
+                      "Annonce"}
                   </Text>
 
                   <Text style={styles.infoSubtitle}>
@@ -612,9 +620,11 @@ const DashboardScreen = () => {
                 </>
               ) : (
                 <>
-                  <Text style={styles.infoTitle}>Company news</Text>
+                  <Text style={styles.infoTitle}>
+                    Actualités de l&apos;entreprise
+                  </Text>
                   <Text style={styles.infoSubtitle}>
-                    No announcements available right now.
+                    Aucune annonce disponible pour le moment.
                   </Text>
                 </>
               )}
@@ -623,7 +633,7 @@ const DashboardScreen = () => {
 
           {(isHr || isAdmin) && (
             <Button
-              title="Manage announcements"
+              title="Gérer les annonces"
               icon="megaphone-outline"
               variant="primary"
               onPress={() => navigation.navigate("ManageAnnouncements")}

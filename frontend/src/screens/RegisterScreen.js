@@ -38,25 +38,25 @@ const RegisterScreen = () => {
     const next = {};
 
     if (!fullName.trim()) {
-      next.fullName = "Please enter your full name";
+      next.fullName = "Veuillez saisir votre nom complet";
     }
 
     if (!email.trim()) {
-      next.email = "Please enter your email";
+      next.email = "Veuillez saisir votre e-mail";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      next.email = "Please enter a valid email";
+      next.email = "Veuillez saisir un e-mail valide";
     }
 
     if (!password) {
-      next.password = "Please enter a password";
+      next.password = "Veuillez saisir un mot de passe";
     } else if (password.length < 6) {
-      next.password = "Password must be at least 6 characters";
+      next.password = "Le mot de passe doit contenir au moins 6 caractères";
     }
 
     if (!confirmPassword) {
-      next.confirmPassword = "Please confirm your password";
+      next.confirmPassword = "Veuillez confirmer votre mot de passe";
     } else if (confirmPassword !== password) {
-      next.confirmPassword = "Passwords do not match";
+      next.confirmPassword = "Les mots de passe ne correspondent pas";
     }
 
     setErrors(next);
@@ -81,8 +81,8 @@ const RegisterScreen = () => {
 
       if (response.success) {
         Alert.alert(
-          "Account created",
-          "Your account is created and waiting for admin approval. You can login after approval.",
+          "Compte créé",
+          "Votre compte a été créé et est en attente de validation par un administrateur. Vous pourrez vous connecter après validation.",
           [
             {
               text: "OK",
@@ -92,16 +92,16 @@ const RegisterScreen = () => {
         );
       } else {
         Alert.alert(
-          "Registration failed",
-          response.message || "Unable to create account"
+          "Inscription échouée",
+          response.message || "Impossible de créer le compte"
         );
       }
     } catch (error) {
       console.error("Register error:", error);
       Alert.alert(
-        "Error",
+        "Erreur",
         error.message ||
-          "Registration failed. Please check your connection and try again."
+          "Échec de l'inscription. Veuillez vérifier votre connexion et réessayer."
       );
     } finally {
       setLoading(false);
@@ -213,15 +213,15 @@ const RegisterScreen = () => {
                 />
               </View>
 
-              <Text style={styles.title}>Register to request access</Text>
+              <Text style={styles.title}>Inscription</Text>
               <Text style={styles.subtitle}>
-                Create your account and wait for admin approval
+                Créez votre compte et attendez la validation par un administrateur
               </Text>
             </View>
 
             <View style={styles.card}>
               <Input
-                label="Full name"
+                label="Nom complet"
                 value={fullName}
                 onChangeText={setFullName}
                 placeholder="John Doe"
@@ -235,7 +235,7 @@ const RegisterScreen = () => {
 
               <Input
                 ref={emailRef}
-                label="Professional email"
+                label="E-mail professionnel"
                 value={email}
                 onChangeText={setEmail}
                 placeholder="you@company.com"
@@ -251,7 +251,7 @@ const RegisterScreen = () => {
 
               <Input
                 ref={passwordRef}
-                label="Password"
+                label="Mot de passe"
                 value={password}
                 onChangeText={setPassword}
                 placeholder="••••••••"
@@ -267,7 +267,7 @@ const RegisterScreen = () => {
 
               <Input
                 ref={confirmPasswordRef}
-                label="Confirm password"
+                label="Confirmer le mot de passe"
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 placeholder="••••••••"
@@ -281,7 +281,7 @@ const RegisterScreen = () => {
               />
 
               <Button
-                title="Create account"
+                title="Créer un compte"
                 onPress={handleRegister}
                 loading={loading}
                 disabled={loading}
@@ -289,13 +289,13 @@ const RegisterScreen = () => {
               />
 
               <View style={styles.footer}>
-                <Text style={styles.footerText}>Already have an account? </Text>
+                <Text style={styles.footerText}>Vous avez déjà un compte ? </Text>
                 <TouchableOpacity
                   activeOpacity={0.75}
                   onPress={() => navigation.goBack()}
                   disabled={loading}
                 >
-                  <Text style={styles.footerLink}>Back to login</Text>
+                  <Text style={styles.footerLink}>Retour à la connexion</Text>
                 </TouchableOpacity>
               </View>
             </View>

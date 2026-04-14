@@ -34,13 +34,13 @@ const LoginScreen = () => {
     const next = {};
 
     if (!email.trim()) {
-      next.email = 'Please enter your email';
+      next.email = "Veuillez saisir votre e-mail";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      next.email = 'Please enter a valid email';
+      next.email = "Veuillez saisir un e-mail valide";
     }
 
     if (!password) {
-      next.password = 'Please enter your password';
+      next.password = "Veuillez saisir votre mot de passe";
     }
 
     setErrors(next);
@@ -62,19 +62,20 @@ const LoginScreen = () => {
         if (token && user) {
           await signIn(token, user);
         } else {
-          Alert.alert('Login Failed', 'Invalid response from server');
+          Alert.alert("Connexion échouée", "Réponse invalide du serveur");
         }
       } else {
         Alert.alert(
-          'Login Failed',
-          response.message || 'Invalid email or password'
+          "Connexion échouée",
+          response.message || "E-mail ou mot de passe invalide"
         );
       }
     } catch (error) {
       console.error('Login error:', error);
       Alert.alert(
-        'Error',
-        error.message || 'Login failed. Please check your connection and try again.'
+        "Erreur",
+        error.message ||
+          "Échec de la connexion. Veuillez vérifier votre connexion et réessayer."
       );
     } finally {
       setLoading(false);
@@ -197,12 +198,12 @@ const LoginScreen = () => {
               </View>
 
               <Text style={styles.brandText}>by Triweb</Text>
-              <Text style={styles.subtitle}>Sign in to your account</Text>
+<Text style={styles.subtitle}>Connectez-vous à votre compte</Text>
             </View>
 
             <View style={styles.card}>
               <Input
-                label="Professional email"
+label="Email professionnel"
                 value={email}
                 onChangeText={setEmail}
                 placeholder="you@company.com"
@@ -218,7 +219,7 @@ const LoginScreen = () => {
 
               <Input
                 ref={passwordRef}
-                label="Password"
+label="Mot de passe"
                 value={password}
                 onChangeText={setPassword}
                 placeholder="••••••••"
@@ -236,17 +237,17 @@ const LoginScreen = () => {
                 style={styles.forgotButton}
                 onPress={() =>
                   Alert.alert(
-                    'Coming soon',
-                    'Forgot password feature is not implemented yet.'
+                    "Bientôt disponible",
+                    "La fonctionnalité « mot de passe oublié » n'est pas encore disponible."
                   )
                 }
                 disabled={loading}
               >
-                <Text style={styles.forgotText}>Forgot password?</Text>
+<Text style={styles.forgotText}>Mot de passe oublié ?</Text>
               </TouchableOpacity>
 
               <Button
-                title="Sign in"
+title="Se connecter"
                 onPress={handleLogin}
                 loading={loading}
                 disabled={loading}
@@ -254,13 +255,13 @@ const LoginScreen = () => {
               />
 
               <View style={styles.footer}>
-                <Text style={styles.footerText}>Don’t have an account? </Text>
+ <Text style={styles.footerText}>Pas de compte ? </Text>
                 <TouchableOpacity
                   activeOpacity={0.75}
                   onPress={() => navigation.navigate('Register')}
                   disabled={loading}
                 >
-                  <Text style={styles.footerLink}>Create one</Text>
+ <Text style={styles.footerLink}>Créez-en un</Text>
                 </TouchableOpacity>
               </View>
             </View>

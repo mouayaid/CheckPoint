@@ -38,6 +38,19 @@ import { useTheme } from "../context/ThemeContext";
 const LEAVE_TYPES = ["Vacation", "Sick", "Personal"];
 const FILTERS_EMPLOYEE = ["All", "Pending", "Approved", "Rejected"];
 
+const FILTER_LABELS_FR = {
+  All: "Tous",
+  Pending: "En attente",
+  Approved: "Approuvées",
+  Rejected: "Rejetées",
+};
+
+const LEAVE_TYPE_LABELS_FR = {
+  Vacation: "Vacances",
+  Sick: "Maladie",
+  Personal: "Personnel",
+};
+
 const formatDateValue = (date) => {
   if (!date) return "";
   const y = date.getFullYear();
@@ -214,13 +227,13 @@ export default function LeaveRequestScreen() {
 
         setRequests(normalized);
       } else {
-        Alert.alert("Error", res?.message || "Failed to load requests");
+        Alert.alert("Erreur", res?.message || "Impossible de charger les demandes");
       }
     } catch (error) {
       console.log("LOAD LEAVES status:", error?.status);
       console.log("LOAD LEAVES body:", error?.data);
       console.log("LOAD LEAVES message:", error?.message);
-      Alert.alert("Error", error?.message || "Failed to load requests");
+      Alert.alert("Erreur", error?.message || "Impossible de charger les demandes");
     } finally {
       setLoadingRequests(false);
     }
@@ -231,15 +244,15 @@ export default function LeaveRequestScreen() {
 
   const formValidationMessage = useMemo(() => {
     if (!startDate || !endDate || !trimmedReason) {
-      return "Please fill in all fields";
+      return "Veuillez remplir tous les champs";
     }
 
     if (trimmedReason.length < 5) {
-      return "Reason must be at least 5 characters";
+      return "Le motif doit contenir au moins 5 caractères";
     }
 
     if (trimmedReason.length > 300) {
-      return "Reason must be less than 300 characters";
+      return "Le motif doit contenir moins de 300 caractères";
     }
 
     const today = new Date();
@@ -249,11 +262,11 @@ export default function LeaveRequestScreen() {
     const normalizedEnd = normalizeDateOnly(endDate);
 
     if (normalizedStart < today) {
-      return "Start date cannot be in the past";
+      return "La date de début ne peut pas être dans le passé";
     }
 
     if (normalizedEnd < normalizedStart) {
-      return "End date must be after start date";
+      return "La date de fin doit être après la date de début";
     }
 
     if (
@@ -261,9 +274,9 @@ export default function LeaveRequestScreen() {
       requestedDays !== null &&
       requestedDays > leaveBalance
     ) {
-      return `You only have ${leaveBalance} leave day${
+      return `Il vous reste seulement ${leaveBalance} jour${
         leaveBalance === 1 ? "" : "s"
-      } left`;
+      } de congé`;
     }
 
     const hasOverlap = requests.some((request) => {
@@ -277,7 +290,7 @@ export default function LeaveRequestScreen() {
     });
 
     if (hasOverlap) {
-      return "You already have a leave request overlapping these dates";
+      return "Vous avez déjà une demande de congé qui chevauche ces dates";
     }
 
     return null;
@@ -298,7 +311,7 @@ export default function LeaveRequestScreen() {
     const validationError = validateLeaveRequest();
 
     if (validationError) {
-      Alert.alert("Error", validationError);
+      Alert.alert("Erreur", validationError);
       return;
     }
 
@@ -313,20 +326,23 @@ export default function LeaveRequestScreen() {
       });
 
       if (res?.success) {
-        Alert.alert("Success", "Leave request created");
+        Alert.alert("Succès", "Demande de congé créée");
         resetCreateModal();
         await Promise.all([loadRequests(), loadLeaveBalance()]);
       } else {
-        Alert.alert("Error", res?.message || "Failed to create request");
+        Alert.alert(
+          "Erreur",
+          res?.message || "Impossible de créer la demande"
+        );
       }
     } catch (error) {
       console.log("CREATE LEAVE status:", error.response?.status);
       console.log("CREATE LEAVE body:", error.response?.data);
       Alert.alert(
-        "Error",
+        "Erreur",
         error.response?.data?.message ||
           error.message ||
-          "Failed to create request",
+          "Impossible de créer la demande",
       );
     } finally {
       setCreating(false);
@@ -335,7 +351,7 @@ export default function LeaveRequestScreen() {
 
   const handleReview = async (status) => {
     if (!selectedRequest?.id) {
-      Alert.alert("Error", "No request selected");
+      Alert.alert("Erreur", "Aucune demande sélectionnée");
       return;
     }
 
@@ -353,23 +369,23 @@ export default function LeaveRequestScreen() {
       const success = res?.success;
 
       if (success) {
-        Alert.alert("Success", `Request ${String(status).toLowerCase()}`);
+        Alert.alert("Succès", `Demande ${String(status).toLowerCase()}`);
         resetReviewModal();
         await loadRequests();
       } else {
         Alert.alert(
-          "Error",
-          res?.data?.message || res?.message || "Failed to review request",
+          "Erreur",
+          res?.data?.message || res?.message || "Impossible de traiter la demande",
         );
       }
     } catch (error) {
       console.log("REVIEW LEAVE status:", error.response?.status);
       console.log("REVIEW LEAVE body:", error.response?.data);
       Alert.alert(
-        "Error",
+        "Erreur",
         error.response?.data?.message ||
           error.message ||
-          "Failed to review request",
+          "Impossible de traiter la demande",
       );
     } finally {
       setReviewingAction("");
@@ -384,7 +400,7 @@ export default function LeaveRequestScreen() {
         badge: styles.statusApproved,
         text: styles.statusApprovedText,
         border: styles.requestApprovedBorder,
-        label: "Approved",
+        label: "Approuvée",
       };
     }
 
@@ -393,7 +409,7 @@ export default function LeaveRequestScreen() {
         badge: styles.statusRejected,
         text: styles.statusRejectedText,
         border: styles.requestRejectedBorder,
-        label: "Rejected",
+        label: "Rejetée",
       };
     }
 
@@ -402,7 +418,7 @@ export default function LeaveRequestScreen() {
         badge: styles.statusPending,
         text: styles.statusPendingText,
         border: styles.requestPendingBorder,
-        label: "Pending",
+        label: "En attente",
       };
     }
 
@@ -411,7 +427,7 @@ export default function LeaveRequestScreen() {
         badge: styles.statusCancelled,
         text: styles.statusCancelledText,
         border: styles.requestDefaultBorder,
-        label: "Cancelled",
+        label: "Annulée",
       };
     }
 
@@ -446,7 +462,7 @@ export default function LeaveRequestScreen() {
   if (!user) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading...</Text>
+        <Text style={styles.loadingText}>Chargement...</Text>
       </View>
     );
   }
@@ -454,9 +470,9 @@ export default function LeaveRequestScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.stickyHeader}>
-        <Text style={styles.screenTitle}>Leave Requests</Text>
+        <Text style={styles.screenTitle}>Demandes de congé</Text>
         <Text style={styles.screenSubtitle}>
-          Create and track your leave requests
+          Créez et suivez vos demandes de congé
         </Text>
       </View>
 
@@ -487,8 +503,8 @@ export default function LeaveRequestScreen() {
               }
 
               Alert.alert(
-                "No leave balance",
-                "You have no leave days left. You can still review your previous requests below.",
+                "Aucun solde de congés",
+                "Vous n'avez plus de jours de congé. Vous pouvez tout de même consulter vos demandes précédentes ci-dessous.",
               );
             }}
           >
@@ -501,10 +517,10 @@ export default function LeaveRequestScreen() {
               ]}
             >
               {loadingBalance
-                ? "Checking balance..."
+                ? "Vérification du solde..."
                 : leaveBalance > 0
-                  ? "+ Create Leave Request"
-                  : "View Previous Requests"}
+                  ? "+ Créer une demande"
+                  : "Voir les demandes précédentes"}
             </Text>
           </TouchableOpacity>
 
@@ -516,7 +532,7 @@ export default function LeaveRequestScreen() {
                 color={colors.warning}
               />
               <Text style={styles.balanceWarningText}>
-                Your leave balance is 0. You cannot create a new leave request.
+                Votre solde de congés est à 0. Vous ne pouvez pas créer une nouvelle demande.
               </Text>
             </View>
           )}
@@ -549,7 +565,7 @@ export default function LeaveRequestScreen() {
                     selected && styles.filterChipTextActive,
                   ]}
                 >
-                  {filter} ({count})
+                  {(FILTER_LABELS_FR[filter] ?? filter)} ({count})
                 </Text>
               </TouchableOpacity>
             );
@@ -558,21 +574,21 @@ export default function LeaveRequestScreen() {
 
         {loadingRequests ? (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Loading requests...</Text>
+            <Text style={styles.emptyTitle}>Chargement des demandes...</Text>
           </View>
         ) : filteredRequests.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>
               {isManager
                 ? activeFilter === "Pending"
-                  ? "No pending requests"
-                  : "No matching requests"
-                : "No leave requests found"}
+                  ? "Aucune demande en attente"
+                  : "Aucune demande correspondante"
+                : "Aucune demande de congé trouvée"}
             </Text>
             <Text style={styles.emptyText}>
               {isManager
-                ? "There are currently no requests for this filter."
-                : "Try another filter or create your first leave request."}
+                ? "Il n'y a actuellement aucune demande pour ce filtre."
+                : "Essayez un autre filtre ou créez votre première demande de congé."}
             </Text>
           </View>
         ) : (
@@ -593,7 +609,10 @@ export default function LeaveRequestScreen() {
                       </Text>
                     )}
 
-                    <Text style={styles.requestType}>{request.typeLabel}</Text>
+                    <Text style={styles.requestType}>
+                      {LEAVE_TYPE_LABELS_FR[request.typeLabel] ??
+                        request.typeLabel}
+                    </Text>
 
                     <Text style={styles.requestDates}>
                       {formatDateReadable(request.startDate)} -{" "}
@@ -610,15 +629,15 @@ export default function LeaveRequestScreen() {
 
                 <View style={styles.metaRow}>
                   <View style={styles.metaPill}>
-                    <Text style={styles.metaPillLabel}>Duration</Text>
+                    <Text style={styles.metaPillLabel}>Durée</Text>
                     <Text style={styles.metaPillText}>
-                      {dayCount} {dayCount === 1 ? "day" : "days"}
+                      {dayCount} {dayCount === 1 ? "jour" : "jours"}
                     </Text>
                   </View>
 
                   {!!request.createdAt && (
                     <View style={styles.metaPill}>
-                      <Text style={styles.metaPillLabel}>Submitted</Text>
+                      <Text style={styles.metaPillLabel}>Soumise</Text>
                       <Text style={styles.metaPillText}>
                         {formatDateReadable(request.createdAt)}
                       </Text>
@@ -627,13 +646,13 @@ export default function LeaveRequestScreen() {
                 </View>
 
                 <View style={styles.reasonBox}>
-                  <Text style={styles.reasonLabel}>Reason</Text>
+                  <Text style={styles.reasonLabel}>Motif</Text>
                   <Text style={styles.requestReason}>{request.reason}</Text>
                 </View>
 
                 {!!request.managerComment && (
                   <View style={styles.commentBox}>
-                    <Text style={styles.commentLabel}>Manager comment</Text>
+                    <Text style={styles.commentLabel}>Commentaire du responsable</Text>
                     <Text style={styles.commentText}>
                       {request.managerComment}
                     </Text>
@@ -664,11 +683,11 @@ export default function LeaveRequestScreen() {
             >
               <Text style={styles.modalTitle}>Create Leave Request</Text>
               <Text style={styles.modalSubtitle}>
-                Fill in the details of your request
+                Renseignez les détails de votre demande
               </Text>
 
               <View style={styles.section}>
-                <Text style={styles.label}>Leave type</Text>
+                <Text style={styles.label}>Type de congé</Text>
 
                 <View style={styles.typeChipRow}>
                   {LEAVE_TYPES.map((item) => {
@@ -689,7 +708,7 @@ export default function LeaveRequestScreen() {
                             selected && styles.typeChipTextActive,
                           ]}
                         >
-                          {item}
+                          {LEAVE_TYPE_LABELS_FR[item] ?? item}
                         </Text>
                       </TouchableOpacity>
                     );
@@ -717,10 +736,10 @@ export default function LeaveRequestScreen() {
                           !startDate && styles.placeholderText,
                         ]}
                       >
-                        {startDate ? formatDateValue(startDate) : "Start date"}
+              {startDate ? formatDateValue(startDate) : "Date de début"}
                       </Text>
                     </View>
-                    <Text style={styles.dateFieldLabel}>Start</Text>
+                    <Text style={styles.dateFieldLabel}>Début</Text>
                   </Pressable>
 
                   <Pressable
@@ -739,18 +758,18 @@ export default function LeaveRequestScreen() {
                           !endDate && styles.placeholderText,
                         ]}
                       >
-                        {endDate ? formatDateValue(endDate) : "End date"}
+              {endDate ? formatDateValue(endDate) : "Date de fin"}
                       </Text>
                     </View>
-                    <Text style={styles.dateFieldLabel}>End</Text>
+                    <Text style={styles.dateFieldLabel}>Fin</Text>
                   </Pressable>
                 </View>
 
                 {startDate && endDate && (
                   <View style={styles.helperCard}>
-                    <Text style={styles.helperLabel}>Duration</Text>
+                    <Text style={styles.helperLabel}>Durée</Text>
                     <Text style={styles.helperText}>
-                      {requestedDays} {requestedDays === 1 ? "day" : "days"}
+                      {requestedDays} {requestedDays === 1 ? "jour" : "jours"}
                     </Text>
                   </View>
                 )}
@@ -788,10 +807,10 @@ export default function LeaveRequestScreen() {
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.label}>Reason</Text>
+                <Text style={styles.label}>Motif</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  placeholder="Write a short reason..."
+                  placeholder="Écrivez un motif court..."
                   placeholderTextColor={colors.textTertiary}
                   value={reason}
                   onChangeText={setReason}
@@ -799,13 +818,13 @@ export default function LeaveRequestScreen() {
                   maxLength={300}
                 />
                 <Text style={styles.fieldHelperText}>
-                  Please add a clear short explanation ({trimmedReason.length}/300).
+                  Ajoutez une explication courte et claire ({trimmedReason.length}/300).
                 </Text>
               </View>
 
               {!!formValidationMessage &&
                 !(
-                  formValidationMessage === "Please fill in all fields" &&
+                  formValidationMessage === "Veuillez remplir tous les champs" &&
                   !startDate &&
                   !endDate &&
                   !trimmedReason
@@ -829,7 +848,7 @@ export default function LeaveRequestScreen() {
                   onPress={resetCreateModal}
                   disabled={creating}
                 >
-                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                  <Text style={styles.cancelBtnText}>Annuler</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -848,7 +867,7 @@ export default function LeaveRequestScreen() {
                       isCreateDisabled && styles.primaryBtnTextDisabled,
                     ]}
                   >
-                    {creating ? "Creating..." : "Create"}
+                    {creating ? "Création..." : "Créer"}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -874,7 +893,7 @@ export default function LeaveRequestScreen() {
             >
               <Text style={styles.modalTitle}>Review Leave Request</Text>
               <Text style={styles.modalSubtitle}>
-                Add an optional comment and choose an action
+                Ajoutez un commentaire (optionnel) et choisissez une action
               </Text>
 
               {selectedRequest && (
@@ -903,10 +922,10 @@ export default function LeaveRequestScreen() {
               )}
 
               <View style={styles.section}>
-                <Text style={styles.label}>Manager comment (optional)</Text>
+                <Text style={styles.label}>Commentaire du responsable (optionnel)</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  placeholder="Write a short comment..."
+                  placeholder="Écrivez un commentaire court..."
                   placeholderTextColor={colors.textTertiary}
                   value={reviewComment}
                   onChangeText={setReviewComment}
@@ -925,7 +944,7 @@ export default function LeaveRequestScreen() {
                   onPress={resetReviewModal}
                   disabled={!!reviewingAction}
                 >
-                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                  <Text style={styles.cancelBtnText}>Annuler</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -939,7 +958,9 @@ export default function LeaveRequestScreen() {
                   disabled={!!reviewingAction}
                 >
                   <Text style={styles.reviewButtonText}>
-                    {reviewingAction === "Rejected" ? "Rejecting..." : "Reject"}
+                    {reviewingAction === "Rejected"
+                      ? "Rejet..."
+                      : "Rejeter"}
                   </Text>
                 </TouchableOpacity>
 
@@ -955,8 +976,8 @@ export default function LeaveRequestScreen() {
                 >
                   <Text style={styles.reviewButtonText}>
                     {reviewingAction === "Approved"
-                      ? "Approving..."
-                      : "Approve"}
+                      ? "Approbation..."
+                      : "Approuver"}
                   </Text>
                 </TouchableOpacity>
               </View>

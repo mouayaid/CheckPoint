@@ -17,7 +17,7 @@ import { useTheme } from "../../context/ThemeContext";
 import api from "../../services/api/axiosInstance";
 
 const ROLE_OPTIONS = [
-  { label: "Employee", value: 1, icon: "person-outline" },
+  { label: "Employé", value: 1, icon: "person-outline" },
   { label: "Manager", value: 2, icon: "people-outline" },
   { label: "Admin", value: 3, icon: "shield-checkmark-outline" },
 ];
@@ -47,7 +47,7 @@ const ApprovalsScreen = () => {
   const [formByUserId, setFormByUserId] = useState({});
 
   const normalizeDate = (value) => {
-    if (!value) return "Unknown date";
+    if (!value) return "Date inconnue";
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return String(value);
     return d.toLocaleDateString();
@@ -127,7 +127,7 @@ const ApprovalsScreen = () => {
         return next;
       });
     } catch (error) {
-      Alert.alert("Error", "Failed to load approvals.");
+      Alert.alert("Erreur", "Impossible de charger les approbations.");
       setLeaveRequests([]);
       setPendingUsers([]);
     } finally {
@@ -169,7 +169,7 @@ const ApprovalsScreen = () => {
 
       await loadApprovals();
     } catch (error) {
-      Alert.alert("Error", "Failed to approve leave request.");
+      Alert.alert("Erreur", "Impossible d'approuver la demande de congé.");
     } finally {
       setActionLoadingKey(null);
     }
@@ -188,7 +188,7 @@ const ApprovalsScreen = () => {
 
       await loadApprovals();
     } catch (error) {
-      Alert.alert("Error", "Failed to reject leave request.");
+      Alert.alert("Erreur", "Impossible de rejeter la demande de congé.");
     } finally {
       setActionLoadingKey(null);
     }
@@ -205,7 +205,7 @@ const ApprovalsScreen = () => {
       Number.isNaN(leaveBalance) ||
       leaveBalance < 0
     ) {
-      Alert.alert("Validation", "Please enter a valid leave balance.");
+      Alert.alert("Validation", "Veuillez saisir un solde de congés valide.");
       return;
     }
 
@@ -219,7 +219,7 @@ const ApprovalsScreen = () => {
 
       await loadApprovals();
     } catch (error) {
-      Alert.alert("Error", "Could not approve this user.");
+      Alert.alert("Erreur", "Impossible d'approuver cet utilisateur.");
     } finally {
       setSubmittingUserId(null);
     }
@@ -229,24 +229,24 @@ const ApprovalsScreen = () => {
     const userId = getUserId(user);
 
     Alert.alert(
-      "Reject user",
-      "Are you sure you want to reject this account request?",
+      "Rejeter l'utilisateur",
+      "Êtes-vous sûr de vouloir rejeter cette demande de compte ?",
       [
-        { text: "Cancel", style: "cancel" },
+        { text: "Annuler", style: "cancel" },
         {
-          text: "Reject",
+          text: "Rejeter",
           style: "destructive",
           onPress: async () => {
             try {
               setRejectingUserId(userId);
 
               await api.put(`/admin/users/${userId}/reject`, {
-                reason: "Rejected by HR/Admin",
+                reason: "Rejeté par RH/Admin",
               });
 
               await loadApprovals();
             } catch (error) {
-              Alert.alert("Error", "Could not reject this user.");
+              Alert.alert("Erreur", "Impossible de rejeter cet utilisateur.");
             } finally {
               setRejectingUserId(null);
             }
@@ -291,9 +291,9 @@ const ApprovalsScreen = () => {
     const isBusy = actionLoadingKey === key;
 
     const userName =
-      item?.userName ?? item?.UserName ?? `User #${item?.userId ?? ""}`;
-    const leaveType = item?.type ?? item?.leaveType ?? item?.Type ?? "Leave";
-    const reason = item?.reason ?? item?.Reason ?? "No reason provided";
+      item?.userName ?? item?.UserName ?? `Utilisateur #${item?.userId ?? ""}`;
+    const leaveType = item?.type ?? item?.leaveType ?? item?.Type ?? "Congé";
+    const reason = item?.reason ?? item?.Reason ?? "Aucun motif fourni";
     const createdAt = item?.createdAt ?? item?.CreatedAt;
 
     return (
@@ -308,7 +308,7 @@ const ApprovalsScreen = () => {
           </View>
 
           <View style={styles.headerTextWrap}>
-            <Text style={styles.name}>Leave Request</Text>
+            <Text style={styles.name}>Demande de congé</Text>
             <Text style={styles.email}>{userName}</Text>
           </View>
 
@@ -318,7 +318,7 @@ const ApprovalsScreen = () => {
               size={13}
               color={colors.warning || "#D97706"}
             />
-            <Text style={styles.pendingBadgeText}>Pending</Text>
+            <Text style={styles.pendingBadgeText}>En attente</Text>
           </View>
         </View>
 
@@ -340,7 +340,7 @@ const ApprovalsScreen = () => {
               size={16}
               color={colors.textSecondary}
             />
-            <Text style={styles.metaText}>Type: {leaveType}</Text>
+            <Text style={styles.metaText}>Type : {leaveType}</Text>
           </View>
 
           <View style={styles.metaRow}>
@@ -358,9 +358,7 @@ const ApprovalsScreen = () => {
               size={16}
               color={colors.textSecondary}
             />
-            <Text style={styles.metaText}>
-              Submitted on {normalizeDate(createdAt)}
-            </Text>
+            <Text style={styles.metaText}>Soumise le {normalizeDate(createdAt)}</Text>
           </View>
         </View>
 
@@ -376,7 +374,7 @@ const ApprovalsScreen = () => {
             ) : (
               <>
                 <Ionicons name="close-outline" size={18} color={colors.text} />
-                <Text style={styles.secondaryButtonText}>Reject</Text>
+                <Text style={styles.secondaryButtonText}>Rejeter</Text>
               </>
             )}
           </TouchableOpacity>
@@ -396,7 +394,7 @@ const ApprovalsScreen = () => {
                   size={18}
                   color={colors.textOnPrimary}
                 />
-                <Text style={styles.primaryButtonText}>Approve</Text>
+                <Text style={styles.primaryButtonText}>Approuver</Text>
               </>
             )}
           </TouchableOpacity>
@@ -407,10 +405,10 @@ const ApprovalsScreen = () => {
 
   const renderUserCard = (item) => {
     const userId = getUserId(item);
-    const fullName = item?.fullName ?? item?.FullName ?? "Unknown user";
-    const email = item?.email ?? item?.Email ?? "No email";
+    const fullName = item?.fullName ?? item?.FullName ?? "Utilisateur inconnu";
+    const email = item?.email ?? item?.Email ?? "Aucun e-mail";
     const departmentName =
-      item?.departmentName ?? item?.DepartmentName ?? "No department";
+      item?.departmentName ?? item?.DepartmentName ?? "Aucun département";
     const role = item?.role ?? item?.Role ?? "Employee";
     const createdAt = item?.createdAt ?? item?.CreatedAt;
 
@@ -443,7 +441,7 @@ const ApprovalsScreen = () => {
               size={13}
               color={colors.warning || "#D97706"}
             />
-            <Text style={styles.pendingBadgeText}>Pending</Text>
+            <Text style={styles.pendingBadgeText}>En attente</Text>
           </View>
         </View>
 
@@ -463,9 +461,7 @@ const ApprovalsScreen = () => {
               size={16}
               color={colors.textSecondary}
             />
-            <Text style={styles.metaText}>
-              Registered on {normalizeDate(createdAt)}
-            </Text>
+            <Text style={styles.metaText}>Inscrit le {normalizeDate(createdAt)}</Text>
           </View>
 
           <View style={styles.metaRow}>
@@ -474,12 +470,12 @@ const ApprovalsScreen = () => {
               size={16}
               color={colors.textSecondary}
             />
-            <Text style={styles.metaText}>Selected role: {roleMeta.label}</Text>
+            <Text style={styles.metaText}>Rôle sélectionné : {roleMeta.label}</Text>
           </View>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Initial leave balance</Text>
+          <Text style={styles.sectionLabel}>Solde de congés initial</Text>
           <View style={styles.inputWrap}>
             <Ionicons
               name="calendar-number-outline"
@@ -490,19 +486,19 @@ const ApprovalsScreen = () => {
               value={String(form.leaveBalance)}
               onChangeText={(text) => updateForm(userId, "leaveBalance", text)}
               keyboardType="numeric"
-              placeholder="e.g. 18"
+              placeholder="ex. 18"
               placeholderTextColor={colors.textSecondary}
               style={styles.input}
               editable={!isBusy}
             />
           </View>
           <Text style={styles.helperText}>
-            Set the annual leave balance for this employee.
+            Définissez le solde annuel de congés pour cet employé.
           </Text>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Assign role</Text>
+          <Text style={styles.sectionLabel}>Attribuer un rôle</Text>
           <View style={styles.roleRow}>
             {ROLE_OPTIONS.map((option) =>
               renderRoleOption(userId, option, selectedRole, isBusy)
@@ -522,7 +518,7 @@ const ApprovalsScreen = () => {
             ) : (
               <>
                 <Ionicons name="close-outline" size={18} color={colors.text} />
-                <Text style={styles.secondaryButtonText}>Reject</Text>
+                <Text style={styles.secondaryButtonText}>Rejeter</Text>
               </>
             )}
           </TouchableOpacity>
@@ -542,7 +538,7 @@ const ApprovalsScreen = () => {
                   size={18}
                   color={colors.textOnPrimary}
                 />
-                <Text style={styles.primaryButtonText}>Approve user</Text>
+                <Text style={styles.primaryButtonText}>Approuver l'utilisateur</Text>
               </>
             )}
           </TouchableOpacity>
@@ -560,7 +556,7 @@ const ApprovalsScreen = () => {
         <View>
           <Text style={styles.sectionTitle}>{title}</Text>
           <Text style={styles.sectionSubtitle}>
-            {count} pending {count === 1 ? "item" : "items"}
+            {count} en attente {count === 1 ? "élément" : "éléments"}
           </Text>
         </View>
       </View>
@@ -569,9 +565,9 @@ const ApprovalsScreen = () => {
 
   const renderTabs = () => {
     const tabs = [
-      { key: "all", label: "All", count: leaveRequests.length + pendingUsers.length },
-      { key: "leave", label: "Leave", count: leaveRequests.length },
-      { key: "users", label: "Users", count: pendingUsers.length },
+      { key: "all", label: "Tout", count: leaveRequests.length + pendingUsers.length },
+      { key: "leave", label: "Congés", count: leaveRequests.length },
+      { key: "users", label: "Utilisateurs", count: pendingUsers.length },
     ];
 
     return (
@@ -615,7 +611,7 @@ const ApprovalsScreen = () => {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading approvals...</Text>
+        <Text style={styles.loadingText}>Chargement des approbations...</Text>
       </View>
     );
   }
@@ -648,9 +644,9 @@ const ApprovalsScreen = () => {
               color={colors.primary}
             />
           </View>
-          <Text style={styles.emptyTitle}>No pending approvals</Text>
+          <Text style={styles.emptyTitle}>Aucune approbation en attente</Text>
           <Text style={styles.emptyText}>
-            Everything has already been reviewed.
+            Tout a déjà été traité.
           </Text>
         </View>
       ) : (
@@ -658,7 +654,7 @@ const ApprovalsScreen = () => {
           {(activeTab === "all" || activeTab === "leave") && (
             <View style={styles.block}>
               {renderSectionHeader(
-                "Leave Requests",
+                "Demandes de congé",
                 leaveRequests.length,
                 "calendar-clear-outline"
               )}
@@ -666,10 +662,10 @@ const ApprovalsScreen = () => {
               {noLeaveRequests ? (
                 <Card style={styles.emptyCard}>
                   <Text style={styles.emptyCardTitle}>
-                    No pending leave requests
+                    Aucune demande de congé en attente
                   </Text>
                   <Text style={styles.emptyCardText}>
-                    All leave requests have been reviewed.
+                    Toutes les demandes de congé ont été traitées.
                   </Text>
                 </Card>
               ) : (
@@ -681,7 +677,7 @@ const ApprovalsScreen = () => {
           {(activeTab === "all" || activeTab === "users") && (
             <View style={styles.block}>
               {renderSectionHeader(
-                "New User Accounts",
+                "Nouveaux comptes",
                 pendingUsers.length,
                 "person-add-outline"
               )}
@@ -689,10 +685,10 @@ const ApprovalsScreen = () => {
               {noPendingUsers ? (
                 <Card style={styles.emptyCard}>
                   <Text style={styles.emptyCardTitle}>
-                    No pending account approvals
+                    Aucune validation de compte en attente
                   </Text>
                   <Text style={styles.emptyCardText}>
-                    All user account requests have been reviewed.
+                    Toutes les demandes de compte ont été traitées.
                   </Text>
                 </Card>
               ) : (

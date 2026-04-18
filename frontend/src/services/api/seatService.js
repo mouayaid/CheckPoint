@@ -19,6 +19,10 @@ export const seatService = {
   cancelMyTodayReservation: async () => {
     return await axiosInstance.delete("/SeatReservations/my-today");
   },
+
+  getMyMonthReservations: async (year, month) => {
+    return await axiosInstance.get("/SeatReservations/my-month", { params: { year, month } });
+  },
 };
 export const profileService = {
   getMyProfile: async () => {

@@ -9,7 +9,9 @@ public class Seat
     public int PositionY { get; set; }
     public string Label { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
-    
+
+    public string QrCodeValue { get; set; } = string.Empty;
+
     // Navigation properties
     public ICollection<SeatReservation> Reservations { get; set; } = new List<SeatReservation>();
 }

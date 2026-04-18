@@ -11,7 +11,7 @@ public class SeatReservationDto
     public int UserId { get; set; }
     public string UserName { get; set; } = string.Empty;
     public DateTime Date { get; set; }
-    public ReservationStatus Status { get; set; }
+    public SeatReservationStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 

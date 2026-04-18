@@ -12,6 +12,7 @@ public class User
     public int DepartmentId { get; set; }
     public Department Department { get; set; } = null!;
     public int? LeaveBalance { get; set; }
+    public decimal? YearlySalary { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public bool IsActive { get; set; } = false;
     public DateTime? ApprovedAt { get; set; }

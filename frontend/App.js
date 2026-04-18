@@ -47,6 +47,9 @@ import ManageAnnouncementsScreen from "./src/screens/hr/ManageAnnouncementsScree
 import ManageEventsScreen from "./src/screens/hr/ManageEventsScreen";
 import DepartmentChannelScreen from "./src/screens/DepartmentChannelScreen";
 import ApprovalsScreen from "./src/screens/approvals/ApprovalsScreen";
+import UserManagementScreen from "./src/screens/admin/UserManagementScreen";
+import RoomManagementScreen from "./src/screens/admin/RoomManagementScreen";
+import SeatManagementScreen from "./src/screens/admin/SeatManagementScreen";
 import { DepartmentChannelProvider } from "./src/context/DepartmentChannelContext";
 import { useDepartmentChannel } from "./src/context/DepartmentChannelContext";
 
@@ -289,6 +292,21 @@ function AppNavigator() {
               name="PendingLeaveRequests"
               component={PendingLeaveRequestsScreen}
               options={{ title: "Demandes Congé En Attente" }}
+            />
+            <Stack.Screen
+              name="UserManagement"
+              component={UserManagementScreen}
+              options={{ title: "Gestion des Utilisateurs" }}
+            />
+            <Stack.Screen
+              name="RoomManagement"
+              component={RoomManagementScreen}
+              options={{ title: "Gestion des Salles" }}
+            />
+            <Stack.Screen
+              name="SeatManagement"
+              component={SeatManagementScreen}
+              options={{ title: "Gestion des Sièges" }}
             />
           </>
         )}

@@ -23,6 +23,7 @@ const ROLE_OPTIONS = [
 ];
 
 const DEFAULT_LEAVE_BALANCE = "18";
+  const DEFAULT_YEARLY_SALARY = "50000";
 
 const ApprovalsScreen = () => {
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
@@ -119,6 +120,7 @@ const ApprovalsScreen = () => {
           if (!next[userId]) {
             next[userId] = {
               leaveBalance: DEFAULT_LEAVE_BALANCE,
+              yearlySalary: DEFAULT_YEARLY_SALARY,
               role: normalizeRoleValue(user?.role ?? user?.Role),
             };
           }
@@ -209,11 +211,24 @@ const ApprovalsScreen = () => {
       return;
     }
 
+    const rawYearlySalary = String(form.yearlySalary ?? "").trim();
+    const yearlySalary = Number(rawYearlySalary);
+
+    if (
+      rawYearlySalary === "" ||
+      Number.isNaN(yearlySalary) ||
+      yearlySalary <= 0
+    ) {
+      Alert.alert("Validation", "Veuillez saisir un salaire annuel valide.");
+      return;
+    }
+
     try {
       setSubmittingUserId(userId);
 
       await api.put(`/admin/users/${userId}/approve`, {
         leaveBalance,
+        yearlySalary,
         role: form.role,
       });
 
@@ -412,8 +427,9 @@ const ApprovalsScreen = () => {
     const role = item?.role ?? item?.Role ?? "Employee";
     const createdAt = item?.createdAt ?? item?.CreatedAt;
 
-    const form = formByUserId[userId] || {
+        const form = formByUserId[userId] || {
       leaveBalance: DEFAULT_LEAVE_BALANCE,
+      yearlySalary: DEFAULT_YEARLY_SALARY,
       role: normalizeRoleValue(role),
     };
 
@@ -494,6 +510,29 @@ const ApprovalsScreen = () => {
           </View>
           <Text style={styles.helperText}>
             Définissez le solde annuel de congés pour cet employé.
+          </Text>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>Salaire annuel</Text>
+          <View style={styles.inputWrap}>
+            <Ionicons
+              name="cash-outline"
+              size={18}
+              color={colors.textSecondary}
+            />
+            <TextInput
+              value={String(form.yearlySalary)}
+              onChangeText={(text) => updateForm(userId, "yearlySalary", text)}
+              keyboardType="numeric"
+              placeholder="ex. 50000"
+              placeholderTextColor={colors.textSecondary}
+              style={styles.input}
+              editable={!isBusy}
+            />
+          </View>
+          <Text style={styles.helperText}>
+            Salaire annuel brut en MAD.
           </Text>
         </View>
 

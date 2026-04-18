@@ -4,6 +4,6 @@ namespace PFE.Application.DTOs.SeatReservation;
 
 public class UpdateSeatReservationDto
 {
-    public ReservationStatus Status { get; set; }
+    public SeatReservationStatus Status { get; set; }
 }
 

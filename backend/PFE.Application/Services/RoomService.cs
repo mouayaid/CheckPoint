@@ -120,5 +120,44 @@ public class RoomService : IRoomService
         await _context.SaveChangesAsync();
     }
 
+    public async Task<RoomDto?> GetRoomByIdAsync(int id)
+    {
+        var room = await _context.Rooms.FindAsync(id);
+        if (room == null) return null;
+        return _mapper.Map<RoomDto>(room);
+    }
+
+    public async Task<RoomDto> CreateRoomAsync(CreateRoomDto dto)
+    {
+        var room = _mapper.Map<Room>(dto);
+        room.IsActive = true;
+        _context.Rooms.Add(room);
+        await _context.SaveChangesAsync();
+        return _mapper.Map<RoomDto>(room);
+    }
+
+    public async Task<RoomDto?> UpdateRoomAsync(int id, UpdateRoomDto dto)
+    {
+        var room = await _context.Rooms.FindAsync(id);
+        if (room == null) return null;
+
+        _mapper.Map(dto, room);
+        _context.Rooms.Update(room);
+        await _context.SaveChangesAsync();
+
+        return _mapper.Map<RoomDto>(room);
+    }
+
+    public async Task<bool> DeleteRoomAsync(int id)
+    {
+        var room = await _context.Rooms.FindAsync(id);
+        if (room == null) return false;
+
+        room.IsActive = false; // Soft delete
+        _context.Rooms.Update(room);
+        await _context.SaveChangesAsync();
+
+        return true;
+    }
 }
 

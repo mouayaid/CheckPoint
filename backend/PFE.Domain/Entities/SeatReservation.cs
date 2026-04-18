@@ -10,7 +10,9 @@ public class SeatReservation
     public int UserId { get; set; }
     public User User { get; set; } = null!;
     public DateTime Date { get; set; }
-    public ReservationStatus Status { get; set; } = ReservationStatus.Active;
+    public SeatReservationStatus Status { get; set; } = SeatReservationStatus.Active;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public DateTime? CheckedInAt { get; set; }
 }
 

@@ -9,7 +9,9 @@ public interface IRoomService
     Task<RoomReservationDto?> CreateReservationAsync(int userId, CreateRoomReservationDto dto);
     Task<List<RoomReservationDto>> GetUserReservationsAsync(int userId);
     Task CancelReservationAsync(int reservationId, int userId);
-
-
+    Task<RoomDto?> GetRoomByIdAsync(int id);
+    Task<RoomDto> CreateRoomAsync(CreateRoomDto dto);
+    Task<RoomDto?> UpdateRoomAsync(int id, UpdateRoomDto dto);
+    Task<bool> DeleteRoomAsync(int id);
 }
 

@@ -11,6 +11,7 @@ public class UserDto
     public int DepartmentId { get; set; }
     public string DepartmentName { get; set; } = string.Empty;
     public int? LeaveBalance { get; set; }
+    public decimal? YearlySalary { get; set; }
     public DateTime CreatedAt { get; set; }
     public bool IsActive { get; set; }
     public DateTime? ApprovedAt { get; set; }

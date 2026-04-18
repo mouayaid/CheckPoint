@@ -37,6 +37,44 @@ public class AdminUserService : IAdminUserService
         }).ToList();
     }
 
+    public async Task<List<UserDto>> GetAllUsersAsync(string? search, string? role, bool? isActive)
+    {
+        var query = _context.Users
+            .Include(u => u.Department)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var lower = search.Trim().ToLower();
+            query = query.Where(u =>
+                u.FullName.ToLower().Contains(lower) ||
+                u.Email.ToLower().Contains(lower) ||
+                (u.Department != null && u.Department.Name.ToLower().Contains(lower)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(role) && Enum.TryParse<Role>(role, true, out var parsedRole))
+        {
+            query = query.Where(u => u.Role == parsedRole);
+        }
+
+        if (isActive.HasValue)
+        {
+            query = query.Where(u => u.IsActive == isActive.Value);
+        }
+
+        var users = await query.OrderBy(u => u.FullName).ToListAsync();
+        return _mapper.Map<List<UserDto>>(users);
+    }
+
+    public async Task<UserDto?> GetUserByIdAsync(int userId)
+    {
+        var user = await _context.Users
+            .Include(u => u.Department)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        return user == null ? null : _mapper.Map<UserDto>(user);
+    }
+
     public async Task<UserDto?> ApproveUserAsync(int userId, int reviewerId, ApproveUserDto dto)
     {
         var user = await _context.Users
@@ -50,6 +88,7 @@ public class AdminUserService : IAdminUserService
 
         user.IsActive = true;
         user.LeaveBalance = dto.LeaveBalance;
+        user.YearlySalary = dto.YearlySalary;
         user.ApprovedAt = DateTime.UtcNow;
         user.ApprovedByUserId = reviewerId;
 
@@ -117,5 +156,46 @@ public class AdminUserService : IAdminUserService
         await _context.SaveChangesAsync();
 
         return _mapper.Map<UserDto>(user);
+    }
+
+    public async Task<UserDto?> UpdateUserAsync(int userId, UpdateUserDto dto)
+    {
+        var user = await _context.Users
+            .Include(u => u.Department)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(dto.FullName))
+            user.FullName = dto.FullName.Trim();
+
+        user.Role = dto.Role;
+        user.DepartmentId = dto.DepartmentId;
+        user.LeaveBalance = dto.LeaveBalance;
+
+        await _context.SaveChangesAsync();
+
+        var updated = await _context.Users
+            .Include(u => u.Department)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        return _mapper.Map<UserDto>(updated);
+    }
+
+    public async Task<bool> DeleteUserAsync(int userId)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+        {
+            return false;
+        }
+
+        _context.Users.Remove(user);
+        await _context.SaveChangesAsync();
+        return true;
     }
 }

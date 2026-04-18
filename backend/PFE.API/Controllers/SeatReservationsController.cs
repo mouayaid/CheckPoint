@@ -81,4 +81,34 @@ public class SeatReservationsController : ControllerBase
         return Ok(ApiResponse<SeatReservationDto?>.SuccessResponse(result,
             result == null ? "No seat reservation for today." : "Today's seat reservation fetched successfully."));
     }
+
+    [Authorize]
+    [HttpPost("checkin")]
+    public async Task<ActionResult<ApiResponse<SeatReservationDto>>> CheckIn([FromBody] SeatCheckInDto dto)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        try
+        {
+            var result = await _seatReservationService.CheckInAsync(userId, dto);
+            return Ok(ApiResponse<SeatReservationDto>.SuccessResponse(result, "Seat check-in successful"));
+        }
+        catch (FrontendValidationException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<SeatReservationDto>.ErrorResponse(ex.Message, ex.Errors));
+        }
+    }
+
+    [HttpGet("my-month")]
+    public async Task<ActionResult<ApiResponse<List<MonthCheckInDto>>>> GetMyMonthReservations(
+        [FromQuery] int year, 
+        [FromQuery] int month)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        var result = await _seatReservationService.GetMyMonthReservationsAsync(userId, year, month);
+
+        return Ok(ApiResponse<List<MonthCheckInDto>>.SuccessResponse(result));
+    }
 }
+

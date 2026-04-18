@@ -9,4 +9,7 @@ export { profileService } from './profileService';
 export { default as axiosInstance } from './axiosInstance';
 export { leaveService } from './leaveService';
 export { departmentChannelService } from './departmentChannelService';
-
+export { adminUserService } from './adminUserService';
+export { adminRoomService } from './adminRoomService';
+export { adminSeatService } from './adminSeatService';
+export { adminOfficeTableService } from './adminOfficeTableService';

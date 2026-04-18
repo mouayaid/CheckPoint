@@ -392,7 +392,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.Property(e => e.Status)
                 .IsRequired()
                 .HasConversion<int>()
-                .HasDefaultValue(ReservationStatus.Active);
+                .HasDefaultValue(SeatReservationStatus.Active);
 
             entity.Property(e => e.CreatedAt)
                 .IsRequired()

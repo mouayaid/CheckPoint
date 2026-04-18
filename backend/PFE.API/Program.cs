@@ -142,6 +142,7 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<IDepartmentChannelService, DepartmentChannelService>();
 builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
+builder.Services.AddScoped<IOfficeTableService, OfficeTableService>();
 
 var app = builder.Build();
 

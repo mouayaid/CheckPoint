@@ -30,7 +30,7 @@ public class SeatService : ISeatService
         var reservations = await _context.SeatReservations
             .Include(r => r.User)
                 .ThenInclude(u => u.Department)
-            .Where(r => r.Date.Date == dateOnly && r.Status == ReservationStatus.Active)
+            .Where(r => r.Date.Date == dateOnly && r.Status == SeatReservationStatus.Active)
             .ToListAsync();
 
         // Create a dictionary for quick lookup: SeatId -> Reservation
@@ -65,6 +65,66 @@ public class SeatService : ISeatService
         
 
         return seatMapDtos;
+    }
+
+    public async Task<List<SeatDto>> GetAllSeatsAsync()
+    {
+        var seats = await _context.Seats
+            .Include(s => s.OfficeTable)
+            .ToListAsync();
+        return _mapper.Map<List<SeatDto>>(seats);
+    }
+
+    public async Task<SeatDto?> GetSeatByIdAsync(int id)
+    {
+        var seat = await _context.Seats
+            .Include(s => s.OfficeTable)
+            .FirstOrDefaultAsync(s => s.Id == id);
+        if (seat == null) return null;
+        return _mapper.Map<SeatDto>(seat);
+    }
+
+    public async Task<SeatDto> CreateSeatAsync(CreateSeatDto dto)
+    {
+        var seat = _mapper.Map<Seat>(dto);
+        seat.IsActive = true;
+        _context.Seats.Add(seat);
+        await _context.SaveChangesAsync();
+        
+        // Reload to get OfficeTable for DTO mapping
+        var createdSeat = await _context.Seats
+            .Include(s => s.OfficeTable)
+            .FirstAsync(s => s.Id == seat.Id);
+
+        return _mapper.Map<SeatDto>(createdSeat);
+    }
+
+    public async Task<SeatDto?> UpdateSeatAsync(int id, UpdateSeatDto dto)
+    {
+        var seat = await _context.Seats.FindAsync(id);
+        if (seat == null) return null;
+
+        _mapper.Map(dto, seat);
+        _context.Seats.Update(seat);
+        await _context.SaveChangesAsync();
+
+        var updatedSeat = await _context.Seats
+            .Include(s => s.OfficeTable)
+            .FirstAsync(s => s.Id == seat.Id);
+
+        return _mapper.Map<SeatDto>(updatedSeat);
+    }
+
+    public async Task<bool> DeleteSeatAsync(int id)
+    {
+        var seat = await _context.Seats.FindAsync(id);
+        if (seat == null) return false;
+
+        seat.IsActive = false; // Soft delete
+        _context.Seats.Update(seat);
+        await _context.SaveChangesAsync();
+
+        return true;
     }
 }
 

@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   View,
   Text,
@@ -7,17 +13,51 @@ import {
   RefreshControl,
   ActivityIndicator,
   Animated,
+  Pressable,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+
 import { seatService, profileService, eventService } from "../services/api";
+import api from "../services/api/axiosInstance";
 import { Card, Button } from "../components";
 import { useTheme } from "../context/ThemeContext";
-import api from "../services/api/axiosInstance";
 import { useAuth } from "../context/AuthContext";
 
-function formatEventCompact(event) {
+/* ----------------------------- Helper functions ---------------------------- */
+
+const getResponseData = (response) => {
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.data?.data)) return response.data.data;
+  return response?.data?.data ?? response?.data ?? null;
+};
+
+const normalizeRole = (role) => {
+  if (typeof role === "string") return role.trim().toLowerCase();
+  if (typeof role === "number") return role;
+  return null;
+};
+
+const getRoleFlags = (role) => {
+  const normalized = normalizeRole(role);
+
+  return {
+    role: normalized,
+    isAdmin: normalized === "admin" || normalized === 3,
+    isHr: normalized === "hr" || normalized === 4,
+    isManager: normalized === "manager" || normalized === 2,
+    canReviewLeave:
+      normalized === "admin" ||
+      normalized === "hr" ||
+      normalized === 3 ||
+      normalized === 4,
+  };
+};
+
+const formatDateForApi = (date) => date.toISOString().split("T")[0];
+
+const formatEventCompact = (event) => {
   const raw =
     event?.date ?? event?.Date ?? event?.startDateTime ?? event?.StartDateTime;
 
@@ -26,19 +66,251 @@ function formatEventCompact(event) {
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return String(raw);
 
-  const datePart = d.toLocaleDateString(undefined, {
+  const datePart = d.toLocaleDateString("fr-FR", {
     weekday: "short",
     month: "short",
     day: "numeric",
   });
 
-  const timePart = d.toLocaleTimeString(undefined, {
+  const timePart = d.toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
   });
 
   return `${datePart} · ${timePart}`;
-}
+};
+
+const getEventDateParts = (event) => {
+  const raw =
+    event?.date ?? event?.Date ?? event?.startDateTime ?? event?.StartDateTime;
+
+  if (!raw) {
+    return { day: "—", month: "—" };
+  }
+
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) {
+    return { day: "—", month: "—" };
+  }
+
+  return {
+    day: String(d.getDate()),
+    month: d
+      .toLocaleDateString("fr-FR", { month: "short" })
+      .replace(".", "")
+      .toUpperCase(),
+  };
+};
+
+const getDisplayName = (payload) => {
+  const profileUser =
+    payload?.user ??
+    payload?.User ??
+    payload?.userDto ??
+    payload?.UserDto ??
+    payload ??
+    null;
+
+  return (
+    profileUser?.fullName ??
+    profileUser?.FullName ??
+    payload?.fullName ??
+    payload?.FullName ??
+    ""
+  );
+};
+
+const getLeaveBalanceValue = (payload) => {
+  const profileUser =
+    payload?.user ??
+    payload?.User ??
+    payload?.userDto ??
+    payload?.UserDto ??
+    payload ??
+    null;
+
+  const rawBalance =
+    profileUser?.leaveBalance ??
+    profileUser?.LeaveBalance ??
+    payload?.leaveBalance ??
+    payload?.LeaveBalance ??
+    0;
+
+  const balance = Number(rawBalance);
+  return Number.isNaN(balance) ? 0 : balance;
+};
+
+const isCheckedInEntry = (entry) => {
+  const status = entry?.status ?? entry?.Status;
+
+  if (typeof status === "number") return status === 2;
+
+  if (typeof status === "string") {
+    const normalized = status.trim().toLowerCase();
+    return normalized === "checkedin" || normalized === "checked_in";
+  }
+
+  return false;
+};
+
+const buildAttendanceSummary = (monthCheckIns, currentYear, currentMonth) => {
+  const today = new Date();
+  const year = currentYear;
+  const monthIndex = currentMonth - 1;
+  const daysInMonth = new Date(year, currentMonth, 0).getDate();
+
+  const checkInMap = {};
+  monthCheckIns.forEach((item) => {
+    const rawDate = item?.date ?? item?.Date;
+    if (!rawDate) return;
+    checkInMap[String(rawDate).split("T")[0]] = item;
+  });
+
+  let checkedInCount = 0;
+  let missedCount = 0;
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateObj = new Date(year, monthIndex, day);
+    if (dateObj > today) continue;
+
+    const dateStr = `${year}-${String(currentMonth).padStart(2, "0")}-${String(
+      day,
+    ).padStart(2, "0")}`;
+
+    const entry = checkInMap[dateStr];
+
+    if (isCheckedInEntry(entry)) {
+      checkedInCount += 1;
+    } else if (dateObj.toDateString() !== today.toDateString()) {
+      missedCount += 1;
+    }
+  }
+
+  const recentDays = [];
+  for (let offset = 6; offset >= 0; offset--) {
+    const d = new Date();
+    d.setDate(today.getDate() - offset);
+
+    const isSameMonth =
+      d.getFullYear() === year && d.getMonth() === monthIndex;
+
+    if (!isSameMonth) {
+      recentDays.push({
+        key: `outside-${offset}`,
+        label: "",
+        type: "empty",
+      });
+      continue;
+    }
+
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+      2,
+      "0",
+    )}-${String(d.getDate()).padStart(2, "0")}`;
+
+    const entry = checkInMap[dateStr];
+    const isToday = d.toDateString() === today.toDateString();
+
+    let type = "today";
+    if (isCheckedInEntry(entry)) type = "checked";
+    else if (!isToday) type = "missed";
+
+    recentDays.push({
+      key: dateStr,
+      label: String(d.getDate()),
+      type,
+    });
+  }
+
+  const todayStr = `${today.getFullYear()}-${String(
+    today.getMonth() + 1,
+  ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  return {
+    checkedInCount,
+    missedCount,
+    recentDays,
+    checkedInToday: isCheckedInEntry(checkInMap[todayStr]),
+  };
+};
+
+const getGreeting = () => {
+  const hour = new Date().getHours();
+
+  if (hour < 12) {
+    return { greeting: "Bonjour", emoji: "🌅" };
+  }
+
+  if (hour < 18) {
+    return { greeting: "Bon après-midi", emoji: "👋" };
+  }
+
+  return { greeting: "Bonsoir", emoji: "🌙" };
+};
+
+/* -------------------------------- UI pieces ------------------------------- */
+
+const SectionHeader = ({ title, styles }) => {
+  return <Text style={styles.sectionTitle}>{title}</Text>;
+};
+
+const CardHeader = ({ icon, title, styles, colors }) => {
+  return (
+    <View style={styles.cardHeader}>
+      <View
+        style={[
+          styles.cardHeaderIconWrap,
+          { backgroundColor: colors.primaryLight ?? `${colors.primary}18` },
+        ]}
+      >
+        <Ionicons name={icon} size={18} color={colors.primary} />
+      </View>
+
+      <Text style={styles.cardHeaderTitle}>{title}</Text>
+    </View>
+  );
+};
+
+const StatusChip = ({ text, dotColor, styles }) => {
+  return (
+    <View style={styles.heroChip}>
+      <View style={[styles.heroChipDot, { backgroundColor: dotColor }]} />
+      <Text style={styles.heroChipText} numberOfLines={1}>
+        {text}
+      </Text>
+    </View>
+  );
+};
+
+const AdminStatChip = ({
+  label,
+  count,
+  loading,
+  badgeText,
+  onPress,
+  styles,
+  colors,
+}) => {
+  return (
+    <Pressable style={styles.adminChip} onPress={onPress}>
+      {loading ? (
+        <ActivityIndicator size="small" color={colors.primary} />
+      ) : (
+        <Text style={styles.adminChipNum}>{count}</Text>
+      )}
+
+      <Text style={styles.adminChipLabel}>{label}</Text>
+
+      {!loading && count > 0 && badgeText ? (
+        <View style={styles.adminChipBadge}>
+          <Text style={styles.adminChipBadgeText}>{badgeText}</Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+};
+
+/* ------------------------------ Main screen ------------------------------- */
 
 const DashboardScreen = () => {
   const navigation = useNavigation();
@@ -50,11 +322,24 @@ const DashboardScreen = () => {
     [colors, spacing, typography, borderRadius, shadows],
   );
 
+  const { isAdmin, isHr, isManager, canReviewLeave } = useMemo(
+    () => getRoleFlags(user?.role),
+    [user?.role],
+  );
+
+  const canManageRooms = isManager || isHr;
+
   const [upcomingEvent, setUpcomingEvent] = useState(null);
   const [loadingEvent, setLoadingEvent] = useState(true);
+
   const [refreshing, setRefreshing] = useState(false);
+
   const [loadingDesk, setLoadingDesk] = useState(true);
   const [loadingBalance, setLoadingBalance] = useState(true);
+  const [loadingPendingLeave, setLoadingPendingLeave] = useState(true);
+  const [loadingPendingUsers, setLoadingPendingUsers] = useState(true);
+  const [loadingAnnouncements, setLoadingAnnouncements] = useState(true);
+  const [loadingAttendance, setLoadingAttendance] = useState(true);
 
   const [myReservation, setMyReservation] = useState(null);
   const [leaveBalance, setLeaveBalance] = useState(null);
@@ -62,51 +347,17 @@ const DashboardScreen = () => {
 
   const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
   const [pendingUserCount, setPendingUserCount] = useState(0);
-  const [loadingPendingLeave, setLoadingPendingLeave] = useState(true);
-  const [loadingPendingUsers, setLoadingPendingUsers] = useState(true);
 
   const [announcements, setAnnouncements] = useState([]);
-  const [loadingAnnouncements, setLoadingAnnouncements] = useState(true);
+  const [monthCheckIns, setMonthCheckIns] = useState([]);
 
-  const normalizeRole = (role) => {
-    if (typeof role === "string") return role.trim().toLowerCase();
-    if (typeof role === "number") return role;
-    return null;
-  };
+  const [currentYear] = useState(new Date().getFullYear());
+  const [currentMonth] = useState(new Date().getMonth() + 1);
 
-  const role = normalizeRole(user?.role);
-
-  const isAdmin = role === "admin" || role === 3;
-  const isHr = role === "hr" || role === 4;
-  const canReviewLeave =
-    role === "hr" || role === "admin" || role === 4 || role === 3;
   const heroFadeAnim = useRef(new Animated.Value(0)).current;
   const contentFadeAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
-
-  useEffect(() => {
-    Animated.stagger(150, [
-      Animated.timing(heroFadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(contentFadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
-
-  const formatDateForApi = (date) => {
-    return date.toISOString().split("T")[0];
-  };
-
-  const fetchUpcomingEvent = async () => {
+  const fetchUpcomingEvent = useCallback(async () => {
     setLoadingEvent(true);
 
     try {
@@ -117,9 +368,15 @@ const DashboardScreen = () => {
         const checkDate = new Date(today);
         checkDate.setDate(today.getDate() + i);
 
-        const formattedDate = formatDateForApi(checkDate);
-        const response = await eventService.getEventsByDate(formattedDate);
-        const events = response?.data || [];
+        const response = await eventService.getEventsByDate(
+          formatDateForApi(checkDate),
+        );
+
+        const events = Array.isArray(response?.data)
+          ? response.data
+          : Array.isArray(response?.data?.data)
+            ? response.data.data
+            : [];
 
         if (events.length > 0) {
           foundEvent = events[0];
@@ -134,12 +391,12 @@ const DashboardScreen = () => {
     } finally {
       setLoadingEvent(false);
     }
-  };
+  }, []);
 
-  const fetchPendingLeaveApprovals = async () => {
+  const fetchPendingLeaveApprovals = useCallback(async () => {
     if (!canReviewLeave) {
-      setLoadingPendingLeave(false);
       setPendingLeaveCount(0);
+      setLoadingPendingLeave(false);
       return;
     }
 
@@ -147,8 +404,8 @@ const DashboardScreen = () => {
 
     try {
       const res = await api.get("/Leave/pending-review");
-      const data = Array.isArray(res.data) ? res.data : res.data?.data || [];
-      setPendingLeaveCount(data.length);
+      const data = getResponseData(res);
+      setPendingLeaveCount(Array.isArray(data) ? data.length : 0);
     } catch (error) {
       console.log("Pending leave approvals error", {
         message: error?.message,
@@ -159,12 +416,12 @@ const DashboardScreen = () => {
     } finally {
       setLoadingPendingLeave(false);
     }
-  };
+  }, [canReviewLeave]);
 
-  const fetchPendingUserApprovals = async () => {
+  const fetchPendingUserApprovals = useCallback(async () => {
     if (!isAdmin) {
-      setLoadingPendingUsers(false);
       setPendingUserCount(0);
+      setLoadingPendingUsers(false);
       return;
     }
 
@@ -172,8 +429,8 @@ const DashboardScreen = () => {
 
     try {
       const res = await api.get("/admin/users/pending");
-      const data = Array.isArray(res.data) ? res.data : res.data?.data || [];
-      setPendingUserCount(data.length);
+      const data = getResponseData(res);
+      setPendingUserCount(Array.isArray(data) ? data.length : 0);
     } catch (error) {
       console.log("Pending user approvals error", {
         message: error?.message,
@@ -186,44 +443,17 @@ const DashboardScreen = () => {
     } finally {
       setLoadingPendingUsers(false);
     }
-  };
+  }, [isAdmin]);
 
-  const fetchLeaveBalance = async () => {
+  const fetchLeaveBalance = useCallback(async () => {
     setLoadingBalance(true);
 
     try {
       const response = await profileService.getProfile();
+      const payload = getResponseData(response);
 
-      const payload = response?.data?.data || response?.data || null;
-
-      const profileUser =
-        payload?.user ??
-        payload?.User ??
-        payload?.userDto ??
-        payload?.UserDto ??
-        payload ??
-        null;
-
-      const rawBalance =
-        profileUser?.leaveBalance ??
-        profileUser?.LeaveBalance ??
-        payload?.leaveBalance ??
-        payload?.LeaveBalance ??
-        0;
-
-      const balance = Number(rawBalance);
-      const safeBalance = Number.isNaN(balance) ? 0 : balance;
-
-      setLeaveBalance(safeBalance);
-
-      const name =
-        profileUser?.fullName ??
-        profileUser?.FullName ??
-        payload?.fullName ??
-        payload?.FullName ??
-        "";
-
-      setUserName(name);
+      setLeaveBalance(getLeaveBalanceValue(payload));
+      setUserName(getDisplayName(payload));
     } catch (error) {
       console.log("Leave balance error", {
         message: error?.message,
@@ -232,20 +462,19 @@ const DashboardScreen = () => {
         url: error?.config?.url,
         baseURL: error?.config?.baseURL,
       });
-
       setLeaveBalance(null);
     } finally {
       setLoadingBalance(false);
     }
-  };
+  }, []);
 
-  const fetchAnnouncements = async () => {
+  const fetchAnnouncements = useCallback(async () => {
     setLoadingAnnouncements(true);
 
     try {
       const res = await api.get("/Announcement");
-      const data = Array.isArray(res.data) ? res.data : res.data?.data || [];
-      setAnnouncements(data);
+      const data = getResponseData(res);
+      setAnnouncements(Array.isArray(data) ? data : []);
     } catch (error) {
       console.log("Announcements error", {
         message: error?.message,
@@ -258,14 +487,14 @@ const DashboardScreen = () => {
     } finally {
       setLoadingAnnouncements(false);
     }
-  };
+  }, []);
 
-  const fetchMyReservation = async () => {
+  const fetchMyReservation = useCallback(async () => {
     setLoadingDesk(true);
 
     try {
       const response = await seatService.getMyTodayReservation();
-      const reservation = response?.data?.data || response?.data || null;
+      const reservation = getResponseData(response);
       setMyReservation(reservation || null);
     } catch (error) {
       console.log("Dashboard reservation error", error);
@@ -273,9 +502,34 @@ const DashboardScreen = () => {
     } finally {
       setLoadingDesk(false);
     }
-  };
+  }, []);
 
-  const loadDashboardData = async () => {
+  const fetchMonthCheckIns = useCallback(async () => {
+    setLoadingAttendance(true);
+
+    try {
+      const res = await seatService.getMyMonthReservations(
+        currentYear,
+        currentMonth,
+      );
+
+      const data = getResponseData(res);
+      setMonthCheckIns(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.log("Attendance summary error", {
+        message: error?.message,
+        status: error?.response?.status,
+        data: error?.response?.data,
+        url: error?.config?.url,
+        baseURL: error?.config?.baseURL,
+      });
+      setMonthCheckIns([]);
+    } finally {
+      setLoadingAttendance(false);
+    }
+  }, [currentYear, currentMonth]);
+
+  const loadDashboardData = useCallback(async () => {
     await Promise.all([
       fetchMyReservation(),
       fetchLeaveBalance(),
@@ -283,56 +537,102 @@ const DashboardScreen = () => {
       fetchPendingLeaveApprovals(),
       fetchPendingUserApprovals(),
       fetchAnnouncements(),
+      fetchMonthCheckIns(),
     ]);
-  };
+  }, [
+    fetchMyReservation,
+    fetchLeaveBalance,
+    fetchUpcomingEvent,
+    fetchPendingLeaveApprovals,
+    fetchPendingUserApprovals,
+    fetchAnnouncements,
+    fetchMonthCheckIns,
+  ]);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
       await loadDashboardData();
     } finally {
       setRefreshing(false);
     }
-  };
+  }, [loadDashboardData]);
 
-  const seatLabel =
-    myReservation?.seatLabel || myReservation?.SeatLabel || null;
+  useEffect(() => {
+    loadDashboardData();
+  }, [loadDashboardData]);
 
-  const today = new Date().toLocaleDateString("fr-FR", {
+  useEffect(() => {
+    Animated.stagger(130, [
+      Animated.timing(heroFadeAnim, {
+        toValue: 1,
+        duration: 450,
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentFadeAnim, {
+        toValue: 1,
+        duration: 450,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [heroFadeAnim, contentFadeAnim]);
+
+  const attendanceSummary = useMemo(
+    () => buildAttendanceSummary(monthCheckIns, currentYear, currentMonth),
+    [monthCheckIns, currentYear, currentMonth],
+  );
+
+  const seatLabel = myReservation?.seatLabel ?? myReservation?.SeatLabel ?? null;
+
+  const todayLabel = new Date().toLocaleDateString("fr-FR", {
     weekday: "long",
     month: "short",
     day: "numeric",
   });
 
-  const emoji = greeting.includes("Morning")
-    ? "🌅"
-    : greeting.includes("Evening")
-      ? "🌙"
-      : "👋";
-  const hour = new Date().getHours();
-  const greeting =
-    hour < 12 ? "Bonjour 👋" : hour < 18 ? "Bon après-midi 👋" : "Bonsoir 👋";
+  const { greeting, emoji } = getGreeting();
 
-  const heroDeskLine = loadingDesk
-    ? "Vérification de votre bureau…"
+  const deskChipText = loadingDesk
+    ? "Vérification…"
     : seatLabel
-      ? `Bureau ${seatLabel} réservé pour aujourd'hui`
-      : "Aucun bureau réservé pour aujourd'hui";
+      ? `Bureau ${seatLabel}`
+      : "Aucune réservation";
+
+  const deskChipColor = loadingDesk
+    ? colors.textOnPrimary
+    : seatLabel
+      ? "#4ade80"
+      : "#fb923c";
+
+  const attendanceChipText = loadingAttendance
+    ? "Chargement…"
+    : attendanceSummary.checkedInToday
+      ? "Check-in effectué"
+      : "Pas encore pointé";
+
+  const attendanceChipColor = loadingAttendance
+    ? colors.textOnPrimary
+    : attendanceSummary.checkedInToday
+      ? "#4ade80"
+      : "#fb923c";
 
   const balanceKnown = leaveBalance !== null;
   const balanceNum = balanceKnown ? Number(leaveBalance) : NaN;
+
   const noLeaveDaysLeft =
     !loadingBalance &&
     balanceKnown &&
     !Number.isNaN(balanceNum) &&
     balanceNum <= 0;
+
   const balanceLoadFailed = !loadingBalance && leaveBalance === null;
 
-  const showLeaveApprovalsCard =
-    canReviewLeave && !loadingPendingLeave && pendingLeaveCount > 0;
+  const firstAnnouncement = announcements[0];
+  const announcementTitle = firstAnnouncement?.title ?? firstAnnouncement?.Title;
+  const announcementContent =
+    firstAnnouncement?.content ?? firstAnnouncement?.Content ?? "";
 
-  const showAdminApprovalsCard =
-    isAdmin && !loadingPendingUsers && pendingUserCount > 0;
+  const { day: eventDay, month: eventMonth } = getEventDateParts(upcomingEvent);
 
   return (
     <ScrollView
@@ -354,7 +654,7 @@ const DashboardScreen = () => {
             {
               translateY: heroFadeAnim.interpolate({
                 inputRange: [0, 1],
-                outputRange: [20, 0],
+                outputRange: [18, 0],
               }),
             },
           ],
@@ -368,25 +668,118 @@ const DashboardScreen = () => {
         >
           <View style={styles.heroTopRow}>
             <View style={styles.heroTextWrap}>
+              <Text style={styles.heroEyebrow}>Tableau de bord</Text>
               <Text style={styles.heroTitle}>
                 {greeting}
                 {userName ? ` ${userName.split(" ")[0]}` : ""} {emoji}
               </Text>
-              <Text style={styles.heroSubtitle}>{today}</Text>
+              <Text style={styles.heroDate}>{todayLabel}</Text>
             </View>
 
-            <View style={styles.heroIconWrap}>
+            <View style={styles.heroIconBadge}>
               <Ionicons
                 name="sparkles-outline"
-                size={22}
+                size={18}
                 color={colors.textOnPrimary}
               />
             </View>
           </View>
 
-          <View style={styles.heroStatusCard}>
-            <Text style={styles.heroStatusLabel}>Aujourd&apos;hui</Text>
-            <Text style={styles.heroStatusText}>{heroDeskLine}</Text>
+          <View style={styles.heroChipRow}>
+            <StatusChip
+              text={deskChipText}
+              dotColor={deskChipColor}
+              styles={styles}
+            />
+            <StatusChip
+              text={attendanceChipText}
+              dotColor={attendanceChipColor}
+              styles={styles}
+            />
+          </View>
+
+          <View style={styles.attendanceCard}>
+            <View style={styles.attendanceHeaderRow}>
+              <View style={styles.attendanceTitleRow}>
+                <Ionicons
+                  name="checkmark-done-circle-outline"
+                  size={15}
+                  color={colors.textOnPrimary}
+                />
+                <Text style={styles.attendanceCardTitle}>
+                  Présence du mois
+                </Text>
+              </View>
+
+              {loadingAttendance ? (
+                <ActivityIndicator size="small" color={colors.textOnPrimary} />
+              ) : (
+                <Text style={styles.attendanceMeta}>
+                  {attendanceSummary.checkedInCount}✓ ·{" "}
+                  {attendanceSummary.missedCount}✗
+                </Text>
+              )}
+            </View>
+
+            {!loadingAttendance && (
+              <>
+                <View style={styles.attDayRow}>
+                  {attendanceSummary.recentDays.map((item) => {
+                    const backgroundColor =
+                      item.type === "checked"
+                        ? "rgba(74,222,128,0.18)"
+                        : item.type === "missed"
+                          ? "rgba(251,146,60,0.22)"
+                          : item.type === "today"
+                            ? "rgba(255,255,255,0.18)"
+                            : "rgba(255,255,255,0.06)";
+
+                    const borderColor =
+                      item.type === "checked"
+                        ? "rgba(74,222,128,0.45)"
+                        : item.type === "missed"
+                          ? "rgba(251,146,60,0.55)"
+                          : item.type === "today"
+                            ? "rgba(255,255,255,0.38)"
+                            : "rgba(255,255,255,0.08)";
+
+                    return (
+                      <View
+                        key={item.key}
+                        style={[
+                          styles.attDay,
+                          { backgroundColor, borderColor },
+                          item.type === "today" && styles.attDayToday,
+                        ]}
+                      >
+                        {item.type === "checked" ? (
+                          <Ionicons
+                            name="checkmark"
+                            size={14}
+                            color="#4ade80"
+                          />
+                        ) : item.type === "missed" ? (
+                          <Ionicons name="close" size={14} color="#fb923c" />
+                        ) : (
+                          <Text
+                            style={[
+                              styles.attDayLabel,
+                              item.type === "empty" && { opacity: 0 },
+                            ]}
+                          >
+                            {item.label}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+
+                <Text style={styles.attLegend}>
+                  Vert = validé · orange = manqué · blanc = aujourd&apos;hui
+                </Text>
+              </>
+            )}
           </View>
         </LinearGradient>
       </Animated.View>
@@ -398,26 +791,26 @@ const DashboardScreen = () => {
             {
               translateY: contentFadeAnim.interpolate({
                 inputRange: [0, 1],
-                outputRange: [20, 0],
+                outputRange: [18, 0],
               }),
             },
           ],
         }}
       >
-        <Text style={styles.sectionTitle}>Espace de travail</Text>
+        <SectionHeader title="Espace de travail" styles={styles} />
 
-        <Card style={styles.primaryCard}>
-          <View style={styles.summaryTopRow}>
-            <Ionicons name="desktop-outline" size={20} color={colors.primary} />
-            <Text style={styles.summaryTitle}>
-              Votre bureau aujourd&apos;hui
-            </Text>
-          </View>
+        <Card style={styles.card}>
+          <CardHeader
+            icon="desktop-outline"
+            title="Votre bureau aujourd'hui"
+            styles={styles}
+            colors={colors}
+          />
 
           {loadingDesk ? (
-            <View style={styles.loadingInline}>
+            <View style={styles.inlineLoader}>
               <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={styles.summaryMuted}>
+              <Text style={styles.loaderText}>
                 Chargement de la réservation…
               </Text>
             </View>
@@ -426,221 +819,303 @@ const DashboardScreen = () => {
               <View style={styles.successPill}>
                 <Ionicons
                   name="checkmark-circle"
-                  size={18}
+                  size={15}
                   color={colors.success}
                 />
                 <Text style={styles.successPillText}>
-                  Le poste {seatLabel} est réservé pour aujourd&apos;hui
+                  Poste {seatLabel} réservé pour aujourd&apos;hui
                 </Text>
               </View>
 
-              <Text style={styles.summarySubtitle}>
-                Ouvrez le plan des bureaux pour voir votre réservation.
+              <Text style={styles.cardBody}>
+                Ouvrez le plan des bureaux pour voir votre emplacement.
               </Text>
 
               <Button
                 title="Ouvrir le plan des bureaux"
                 variant="secondary"
                 onPress={() => navigation.navigate("Desk")}
-                style={styles.summaryButton}
+                style={styles.cardBtn}
               />
             </>
           ) : (
             <>
-              <Text style={styles.summaryEmptyValue}>Aucune réservation</Text>
-              <Text style={styles.summarySubtitle}>
-                Choisissez un poste sur le plan si vous prévoyez de travailler
-                au bureau aujourd&apos;hui.
+              <Text style={styles.cardEmptyTitle}>Aucune réservation</Text>
+              <Text style={styles.cardBody}>
+                Choisissez un poste si vous prévoyez de venir au bureau
+                aujourd&apos;hui.
               </Text>
 
               <Button
                 title="Réserver un bureau"
                 onPress={() => navigation.navigate("Desk")}
-                style={styles.summaryButton}
+                style={styles.cardBtn}
               />
             </>
           )}
         </Card>
 
-        <Text style={styles.sectionTitle}>Solde de congés</Text>
+        <SectionHeader title="Solde de congés" styles={styles} />
 
-        <Card style={styles.infoCard}>
-          <View style={styles.infoCardRow}>
-            <View style={styles.infoIconWrap}>
-              <Ionicons
-                name="wallet-outline"
-                size={20}
-                color={colors.primary}
-              />
+        <Card style={styles.card}>
+          <CardHeader
+            icon="wallet-outline"
+            title="Jours disponibles"
+            styles={styles}
+            colors={colors}
+          />
+
+          {loadingBalance ? (
+            <View style={styles.inlineLoader}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.loaderText}>Chargement du solde…</Text>
             </View>
-
-            <View style={styles.infoTextWrap}>
-              {loadingBalance ? (
-                <View style={styles.loadingInline}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={styles.infoSubtitle}>Chargement du solde…</Text>
-                </View>
-              ) : balanceLoadFailed ? (
-                <Text style={styles.infoSubtitle}>
-                  Impossible de charger votre solde de congés pour le moment.
-                  Faites glisser pour actualiser.
+          ) : balanceLoadFailed ? (
+            <Text style={styles.cardBody}>
+              Impossible de charger votre solde. Faites glisser pour actualiser.
+            </Text>
+          ) : (
+            <>
+              <Text style={styles.balanceBigNum}>
+                {balanceNum}
+                <Text style={styles.balanceUnit}>
+                  {" "}
+                  {balanceNum === 1 ? "jour" : "jours"}
                 </Text>
-              ) : (
-                <>
-                  <Text style={styles.balanceValue}>
-                    {balanceNum} {balanceNum === 1 ? "jour" : "jours"} restant
-                    {balanceNum === 1 ? "" : "s"}
-                  </Text>
+              </Text>
 
-                  <Text style={styles.infoSubtitle}>
-                    {balanceNum > 0
-                      ? "Vous pouvez soumettre une nouvelle demande de congé ou consulter vos demandes précédentes."
-                      : "Vous n'avez plus de jours de congé. Vous pouvez tout de même consulter vos demandes précédentes."}
-                  </Text>
-
-                  {noLeaveDaysLeft && (
-                    <Text style={styles.balanceWarningTextSmall}>
-                      Vous n&apos;avez actuellement plus de jours de congé.
-                    </Text>
-                  )}
-
-                  <Button
-                    title={
-                      balanceNum > 0
-                        ? "Créer une demande de congé"
-                        : "Voir les demandes précédentes"
-                    }
-                    variant={balanceNum > 0 ? "primary" : "secondary"}
-                    onPress={() =>
-                      navigation.navigate("LeaveRequest", {
-                        openCreateModal: balanceNum > 0,
-                      })
-                    }
-                    style={styles.infoButton}
-                  />
-                </>
+              {noLeaveDaysLeft && (
+                <Text style={styles.balanceWarning}>
+                  Vous n&apos;avez plus de jours de congé disponibles.
+                </Text>
               )}
-            </View>
-          </View>
+
+              <Text style={styles.cardBody}>
+                {balanceNum > 0
+                  ? "Vous pouvez soumettre une nouvelle demande de congé."
+                  : "Consultez vos demandes précédentes ci-dessous."}
+              </Text>
+
+              <Button
+                title={
+                  balanceNum > 0
+                    ? "Créer une demande de congé"
+                    : "Voir les demandes précédentes"
+                }
+                variant={balanceNum > 0 ? "primary" : "secondary"}
+                onPress={() =>
+                  navigation.navigate("LeaveRequest", {
+                    openCreateModal: balanceNum > 0,
+                  })
+                }
+                style={styles.cardBtn}
+              />
+            </>
+          )}
         </Card>
 
-        <Text style={styles.sectionTitle}>Next event</Text>
+        <SectionHeader title="Prochain événement" styles={styles} />
 
-        <Card style={styles.infoCard}>
-          <View style={styles.infoCardRow}>
-            <View style={styles.infoIconWrap}>
-              <Ionicons
-                name="calendar-clear-outline"
-                size={20}
-                color={colors.primary}
-              />
-            </View>
+        <Card style={styles.card}>
+          <CardHeader
+            icon="calendar-clear-outline"
+            title="Agenda"
+            styles={styles}
+            colors={colors}
+          />
 
-            <View style={styles.infoTextWrap}>
-              {loadingEvent ? (
-                <View style={styles.loadingInline}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={styles.infoSubtitle}>
-                    Chargement du calendrier…
-                  </Text>
-                </View>
-              ) : upcomingEvent ? (
-                <>
-                  <Text style={styles.eventTitle} numberOfLines={2}>
-                    {upcomingEvent.title ??
-                      upcomingEvent.Title ??
-                      "Événement sans titre"}
-                  </Text>
-                  <Text style={styles.eventCompact}>
-                    {formatEventCompact(upcomingEvent)}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.infoTitle}>Aucun événement prévu</Text>
-                  <Text style={styles.infoSubtitle}>
-                    Aucun événement dans les 7 prochains jours.
-                  </Text>
-                </>
-              )}
+          {loadingEvent ? (
+            <View style={styles.inlineLoader}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.loaderText}>Chargement du calendrier…</Text>
             </View>
-          </View>
+          ) : upcomingEvent ? (
+            <View style={styles.eventRow}>
+              <View style={styles.eventDateBadge}>
+                <Text style={styles.eventDateDay}>{eventDay}</Text>
+                <Text style={styles.eventDateMon}>{eventMonth}</Text>
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Text style={styles.eventTitle} numberOfLines={2}>
+                  {upcomingEvent?.title ??
+                    upcomingEvent?.Title ??
+                    "Événement sans titre"}
+                </Text>
+                <Text style={styles.eventTime}>
+                  {formatEventCompact(upcomingEvent)}
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.cardEmptyTitle}>Aucun événement prévu</Text>
+              <Text style={styles.cardBody}>Rien dans les 7 prochains jours.</Text>
+            </>
+          )}
+
+          <View style={styles.divider} />
 
           <Button
             title="Voir les événements"
             variant={upcomingEvent ? "secondary" : "primary"}
             onPress={() => navigation.navigate("Events")}
-            style={styles.infoButton}
+            style={styles.cardBtn}
           />
         </Card>
 
-        <Text style={styles.sectionTitle}>Annonces</Text>
+        {canManageRooms && (
+          <Card style={styles.card}>
+            <CardHeader
+              icon="library-outline"
+              title="Réserver une salle"
+              styles={styles}
+              colors={colors}
+            />
+            <Text style={styles.cardEmptyTitle}>Gérez les salles</Text>
+            <Text style={styles.cardBody}>
+              Consultez les disponibilités et soumettez une demande de réservation (validation requise).
+            </Text>
+            <Button
+              title="Réserver une salle"
+              variant="primary"
+              onPress={() => navigation.navigate("Rooms")}
+              style={styles.cardBtn}
+            />
+          </Card>
+        )}
 
-        <Card style={styles.infoCard}>
-          <View style={styles.infoCardRow}>
-            <View style={styles.infoIconWrap}>
-              <Ionicons
-                name="megaphone-outline"
-                size={20}
-                color={colors.primary}
-              />
+        <SectionHeader title="Annonces" styles={styles} />
+
+        <Card style={styles.card}>
+          <CardHeader
+            icon="megaphone-outline"
+            title="Dernière annonce"
+            styles={styles}
+            colors={colors}
+          />
+
+          {loadingAnnouncements ? (
+            <View style={styles.inlineLoader}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.loaderText}>Chargement des annonces…</Text>
             </View>
-
-            <View style={styles.infoTextWrap}>
-              {loadingAnnouncements ? (
-                <View style={styles.loadingInline}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={styles.infoSubtitle}>
-                    Chargement des annonces…
-                  </Text>
-                </View>
-              ) : announcements.length > 0 ? (
-                <>
-                  <Text style={styles.infoTitle}>
-                    {announcements[0]?.title ??
-                      announcements[0]?.Title ??
-                      "Annonce"}
-                  </Text>
-
-                  <Text style={styles.infoSubtitle}>
-                    {(
-                      announcements[0]?.content ??
-                      announcements[0]?.Content ??
-                      ""
-                    ).length > 140
-                      ? `${(
-                          announcements[0]?.content ??
-                          announcements[0]?.Content ??
-                          ""
-                        ).slice(0, 140)}...`
-                      : (announcements[0]?.content ??
-                        announcements[0]?.Content ??
-                        "")}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.infoTitle}>
-                    Actualités de l&apos;entreprise
-                  </Text>
-                  <Text style={styles.infoSubtitle}>
-                    Aucune annonce disponible pour le moment.
-                  </Text>
-                </>
-              )}
+          ) : announcements.length > 0 ? (
+            <View style={styles.announcementStrip}>
+              <Text style={styles.announcementTitle}>
+                {announcementTitle ?? "Annonce"}
+              </Text>
+              <Text style={styles.announcementBody}>
+                {announcementContent.length > 140
+                  ? `${announcementContent.slice(0, 140)}…`
+                  : announcementContent}
+              </Text>
             </View>
-          </View>
+          ) : (
+            <Text style={styles.cardBody}>
+              Aucune annonce disponible pour le moment.
+            </Text>
+          )}
 
           {(isHr || isAdmin) && (
             <Button
               title="Gérer les annonces"
-              icon="megaphone-outline"
               variant="primary"
               onPress={() => navigation.navigate("ManageAnnouncements")}
-              style={styles.infoButton}
+              style={styles.cardBtn}
             />
           )}
         </Card>
+
+        {canReviewLeave && (
+          <>
+            <SectionHeader title="Administration" styles={styles} />
+
+            <View style={styles.adminRow}>
+              <AdminStatChip
+                label="Congés en attente"
+                count={pendingLeaveCount}
+                loading={loadingPendingLeave}
+                badgeText="À valider"
+                onPress={() => navigation.navigate("LeaveRequest")}
+                styles={styles}
+                colors={colors}
+              />
+
+              {isAdmin && (
+                <AdminStatChip
+                  label="Comptes en attente"
+                  count={pendingUserCount}
+                  loading={loadingPendingUsers}
+                  badgeText="À approuver"
+                  onPress={() => navigation.navigate("Approvals")}
+                  styles={styles}
+                  colors={colors}
+                />
+              )}
+            </View>
+
+            {isAdmin && (
+              <Card style={styles.card}>
+                <CardHeader
+                  icon="people-outline"
+                  title="Gestion des utilisateurs"
+                  styles={styles}
+                  colors={colors}
+                />
+                <Text style={styles.cardBody}>
+                  Consultez tous les utilisateurs, modifiez leurs informations, attribuez des rôles ou supprimez des comptes.
+                </Text>
+                <Button
+                  title="Gérer les utilisateurs"
+                  variant="primary"
+                  onPress={() => navigation.navigate("UserManagement")}
+                  style={styles.cardBtn}
+                />
+              </Card>
+            )}
+            
+            {(isAdmin || isHr) && (
+              <>
+                <Card style={styles.card}>
+                  <CardHeader
+                    icon="business-outline"
+                    title="Gestion des salles"
+                    styles={styles}
+                    colors={colors}
+                  />
+                  <Text style={styles.cardBody}>
+                    Gérez les salles de réunion, leur capacité et leur statut.
+                  </Text>
+                  <Button
+                    title="Gérer les salles"
+                    variant="secondary"
+                    onPress={() => navigation.navigate("RoomManagement")}
+                    style={styles.cardBtn}
+                  />
+                </Card>
+                
+                <Card style={styles.card}>
+                  <CardHeader
+                    icon="desktop-outline"
+                    title="Gestion des sièges et tables"
+                    styles={styles}
+                    colors={colors}
+                  />
+                  <Text style={styles.cardBody}>
+                    Gérez la disposition des tables et les sièges du bureau.
+                  </Text>
+                  <Button
+                    title="Gérer les sièges"
+                    variant="secondary"
+                    onPress={() => navigation.navigate("SeatManagement")}
+                    style={styles.cardBtn}
+                  />
+                </Card>
+              </>
+            )}
+          </>
+        )}
       </Animated.View>
     </ScrollView>
   );
@@ -659,7 +1134,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     },
 
     hero: {
-      backgroundColor: colors.primary,
       borderRadius: borderRadius.xl,
       padding: spacing.xl,
       marginBottom: spacing.xl,
@@ -670,216 +1144,362 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       flexDirection: "row",
       alignItems: "flex-start",
       justifyContent: "space-between",
-      marginBottom: spacing.md,
       gap: spacing.md,
+      marginBottom: spacing.md,
     },
 
     heroTextWrap: {
       flex: 1,
     },
 
+    heroEyebrow: {
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.textOnPrimary,
+      opacity: 0.78,
+      marginBottom: 4,
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+    },
+
     heroTitle: {
       fontSize: typography.xxl,
       fontFamily: typography.fontFamily?.bold,
       color: colors.textOnPrimary,
+      lineHeight: typography.xxl * 1.2,
     },
 
-    heroSubtitle: {
+    heroDate: {
       marginTop: 4,
       fontSize: typography.sm,
       fontFamily: typography.fontFamily?.regular,
       color: colors.textOnPrimary,
-      opacity: 0.88,
+      opacity: 0.78,
     },
 
-    heroIconWrap: {
-      width: 42,
-      height: 42,
+    heroIconBadge: {
+      width: 38,
+      height: 38,
       borderRadius: borderRadius.full,
-      backgroundColor: "rgba(255,255,255,0.14)",
+      backgroundColor: "rgba(255,255,255,0.15)",
       alignItems: "center",
       justifyContent: "center",
     },
 
-    heroStatusCard: {
-      backgroundColor: "rgba(255,255,255,0.14)",
+    heroChipRow: {
+      flexDirection: "row",
+      gap: spacing.sm,
+      marginBottom: spacing.md,
+    },
+
+    heroChip: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: "rgba(255,255,255,0.12)",
+      borderRadius: borderRadius.md,
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+    },
+
+    heroChipDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+    },
+
+    heroChipText: {
+      flex: 1,
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.medium,
+      color: colors.textOnPrimary,
+      opacity: 0.92,
+    },
+
+    attendanceCard: {
+      backgroundColor: "rgba(255,255,255,0.1)",
       borderRadius: borderRadius.lg,
       padding: spacing.md,
     },
 
-    heroStatusLabel: {
-      fontSize: typography.xs,
-      fontFamily: typography.fontFamily?.semibold,
-      color: colors.textOnPrimary,
-      opacity: 0.85,
-      marginBottom: 4,
+    attendanceHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: spacing.sm,
     },
 
-    heroStatusText: {
+    attendanceTitleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+
+    attendanceCardTitle: {
       fontSize: typography.sm,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.textOnPrimary,
+    },
+
+    attendanceMeta: {
+      fontSize: typography.xs,
       fontFamily: typography.fontFamily?.medium,
       color: colors.textOnPrimary,
-      lineHeight: 20,
+      opacity: 0.84,
+    },
+
+    attDayRow: {
+      flexDirection: "row",
+      gap: 5,
+    },
+
+    attDay: {
+      flex: 1,
+      height: 34,
+      borderRadius: 8,
+      borderWidth: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    attDayToday: {
+      transform: [{ scale: 1.05 }],
+    },
+
+    attDayLabel: {
+      fontSize: 11,
+      fontWeight: "600",
+      color: colors.textOnPrimary,
+    },
+
+    attLegend: {
+      marginTop: 8,
+      fontSize: 10,
+      fontFamily: typography.fontFamily?.regular,
+      color: colors.textOnPrimary,
+      opacity: 0.68,
     },
 
     sectionTitle: {
-      marginBottom: spacing.xs,
-      fontSize: typography.base,
+      fontSize: typography.xs,
       fontFamily: typography.fontFamily?.bold,
-      color: colors.text,
+      color: colors.textSecondary,
+      letterSpacing: 0.7,
+      textTransform: "uppercase",
+      marginTop: spacing.xs,
+      marginBottom: spacing.sm,
     },
 
-    primaryCard: {
+    card: {
       backgroundColor: colors.surface,
       padding: spacing.lg,
-      marginBottom: spacing.xl,
+      marginBottom: spacing.lg,
     },
 
-    summaryTopRow: {
+    cardHeader: {
       flexDirection: "row",
       alignItems: "center",
       gap: spacing.sm,
       marginBottom: spacing.md,
     },
 
-    summaryTitle: {
-      fontSize: typography.lg,
-      fontFamily: typography.fontFamily?.bold,
+    cardHeaderIconWrap: {
+      width: 36,
+      height: 36,
+      borderRadius: borderRadius.md,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    cardHeaderTitle: {
+      flex: 1,
+      fontSize: typography.base,
+      fontFamily: typography.fontFamily?.semibold,
       color: colors.text,
     },
 
-    summaryEmptyValue: {
-      fontSize: typography.lg,
-      fontFamily: typography.fontFamily?.bold,
-      color: colors.text,
+    inlineLoader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.xs,
     },
 
-    summarySubtitle: {
-      marginTop: spacing.sm,
+    loaderText: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+    },
+
+    cardEmptyTitle: {
+      fontSize: typography.base,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.text,
+      marginBottom: spacing.xs,
+    },
+
+    cardBody: {
+      marginTop: spacing.xs,
       fontSize: typography.sm,
       fontFamily: typography.fontFamily?.regular,
       color: colors.textSecondary,
       lineHeight: 20,
     },
 
-    summaryMuted: {
-      fontSize: typography.sm,
-      color: colors.textSecondary,
-    },
-
-    summaryButton: {
+    cardBtn: {
       marginTop: spacing.md,
     },
 
     successPill: {
       flexDirection: "row",
       alignItems: "center",
-      gap: spacing.sm,
+      gap: 6,
       backgroundColor: colors.successLight,
-      paddingVertical: spacing.sm,
+      paddingVertical: 7,
       paddingHorizontal: spacing.md,
       borderRadius: borderRadius.md,
       alignSelf: "flex-start",
+      marginBottom: spacing.xs,
     },
 
     successPillText: {
       fontSize: typography.sm,
       fontFamily: typography.fontFamily?.semibold,
       color: colors.success,
-      flex: 1,
     },
 
-    loadingInline: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
+    balanceBigNum: {
+      fontSize: 38,
+      fontFamily: typography.fontFamily?.bold,
+      color: colors.primary,
+      lineHeight: 44,
+      marginVertical: spacing.xs,
     },
 
-    infoCard: {
-      backgroundColor: colors.surface,
-      padding: spacing.lg,
-      marginBottom: spacing.xl,
+    balanceUnit: {
+      fontSize: typography.base,
+      fontFamily: typography.fontFamily?.regular,
+      color: colors.textSecondary,
     },
 
-    attentionCard: {
-      backgroundColor: colors.surface,
-      padding: spacing.lg,
-      marginBottom: spacing.lg,
-      borderWidth: 1,
-      borderColor: colors.border,
+    balanceWarning: {
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.medium,
+      color: colors.warning,
+      marginBottom: spacing.xs,
     },
 
-    infoCardRow: {
+    eventRow: {
       flexDirection: "row",
       alignItems: "flex-start",
       gap: spacing.md,
+      marginBottom: spacing.xs,
     },
 
-    infoIconWrap: {
-      width: 42,
-      height: 42,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.surfaceMuted,
+    eventDateBadge: {
+      minWidth: 48,
+      paddingVertical: 8,
+      paddingHorizontal: 10,
+      borderRadius: borderRadius.md,
       alignItems: "center",
-      justifyContent: "center",
+      backgroundColor: colors.surfaceMuted ?? colors.background,
     },
 
-    attentionIconWrap: {
-      width: 42,
-      height: 42,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.surfaceMuted,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
-    infoTextWrap: {
-      flex: 1,
-    },
-
-    infoTitle: {
-      fontSize: typography.lg,
-      fontFamily: typography.fontFamily?.semibold,
-      color: colors.text,
-      marginBottom: 4,
-    },
-
-    balanceValue: {
-      fontSize: 32,
+    eventDateDay: {
+      fontSize: 22,
       fontFamily: typography.fontFamily?.bold,
       color: colors.primary,
-      marginTop: 2,
+      lineHeight: 26,
     },
 
-    infoSubtitle: {
-      fontSize: typography.sm,
-      fontFamily: typography.fontFamily?.regular,
+    eventDateMon: {
+      fontSize: 9,
+      fontFamily: typography.fontFamily?.semibold,
       color: colors.textSecondary,
-      lineHeight: 20,
-    },
-
-    balanceWarningTextSmall: {
-      marginTop: spacing.sm,
-      fontSize: typography.xs,
-      color: colors.warning,
-      fontWeight: typography.semibold,
+      letterSpacing: 0.5,
     },
 
     eventTitle: {
       fontSize: typography.base,
-      fontWeight: typography.semibold,
+      fontFamily: typography.fontFamily?.semibold,
       color: colors.text,
-      marginBottom: 4,
+      marginBottom: 3,
     },
 
-    eventCompact: {
+    eventTime: {
       fontSize: typography.sm,
+      fontFamily: typography.fontFamily?.regular,
       color: colors.textSecondary,
-      fontWeight: typography.medium,
     },
 
-    infoButton: {
-      marginTop: spacing.md,
+    divider: {
+      height: 1,
+      backgroundColor: colors.border ?? `${colors.text}12`,
+      marginVertical: spacing.md,
+    },
+
+    announcementStrip: {
+      borderLeftWidth: 2,
+      borderLeftColor: colors.primary,
+      paddingLeft: spacing.md,
+      marginVertical: spacing.sm,
+    },
+
+    announcementTitle: {
+      fontSize: typography.sm,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.text,
+      marginBottom: 3,
+    },
+
+    announcementBody: {
+      fontSize: typography.sm,
+      fontFamily: typography.fontFamily?.regular,
+      color: colors.textSecondary,
+      lineHeight: 19,
+    },
+
+    adminRow: {
+      flexDirection: "row",
+      gap: spacing.md,
+      marginBottom: spacing.xl,
+    },
+
+    adminChip: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.lg,
+      padding: spacing.md,
+      ...shadows.sm,
+    },
+
+    adminChipNum: {
+      fontSize: 28,
+      fontFamily: typography.fontFamily?.bold,
+      color: colors.text,
+      lineHeight: 34,
+    },
+
+    adminChipLabel: {
+      marginTop: 2,
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.regular,
+      color: colors.textSecondary,
+    },
+
+    adminChipBadge: {
+      marginTop: 6,
+      alignSelf: "flex-start",
+      backgroundColor: colors.warningLight ?? "#fef9c3",
+      borderRadius: borderRadius.full,
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+    },
+
+    adminChipBadgeText: {
+      fontSize: 10,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.warning ?? "#92400e",
     },
   });
 

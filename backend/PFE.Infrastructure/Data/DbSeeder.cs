@@ -139,7 +139,6 @@ public static class DbSeeder
                     Name = "Conference Room A",
                     Type = RoomType.Conference,
                     Capacity = 20,
-                    Location = "Main floor",
                     IsActive = true
                 },
                 new Room
@@ -147,7 +146,6 @@ public static class DbSeeder
                     Name = "Meeting Room B",
                     Type = RoomType.Meeting,
                     Capacity = 10,
-                    Location = "Main floor",
                     IsActive = true
                 },
                 new Room
@@ -155,7 +153,6 @@ public static class DbSeeder
                     Name = "Training Room",
                     Type = RoomType.Training,
                     Capacity = 30,
-                    Location = "Main floor",
                     IsActive = true
                 }
             };

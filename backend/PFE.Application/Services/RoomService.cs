@@ -6,6 +6,7 @@ using PFE.Application.Abstractions;
 using PFE.Application.DTOs.RoomReservation;
 using PFE.Domain.Enums;
 using PFE.Application.Common.Exceptions;
+using QRCoder;
 
 namespace PFE.Application.Services;
 
@@ -20,17 +21,81 @@ public class RoomService : IRoomService
         _mapper = mapper;
     }
 
-    public async Task<List<RoomDto>> GetAllRoomsAsync()
+    // ===== Methods required by IRoomService =====
+
+    public async Task<List<RoomDto>> GetAllAsync()
     {
-        var rooms = await _context.Rooms
-            .Where(r => r.IsActive)
-            .ToListAsync();
+        var rooms = await _context.Rooms.ToListAsync();
         return _mapper.Map<List<RoomDto>>(rooms);
     }
 
+    public async Task<RoomDto?> GetByIdAsync(int id)
+    {
+        var room = await _context.Rooms.FindAsync(id);
+        if (room == null) return null;
+        return _mapper.Map<RoomDto>(room);
+    }
+
+    public async Task<RoomDto> CreateAsync(CreateRoomDto dto)
+    {
+        var room = _mapper.Map<Room>(dto);
+        room.IsActive = true;
+
+        _context.Rooms.Add(room);
+        await _context.SaveChangesAsync();
+
+        return _mapper.Map<RoomDto>(room);
+    }
+
+    public async Task<RoomDto?> UpdateAsync(int id, UpdateRoomDto dto)
+    {
+        var room = await _context.Rooms.FindAsync(id);
+        if (room == null) return null;
+
+        _mapper.Map(dto, room);
+        _context.Rooms.Update(room);
+        await _context.SaveChangesAsync();
+
+        return _mapper.Map<RoomDto>(room);
+    }
+
+    public async Task<bool> DeleteAsync(int id)
+    {
+        var room = await _context.Rooms.FindAsync(id);
+        if (room == null) return false;
+
+        room.IsActive = false; // Soft delete
+        _context.Rooms.Update(room);
+        await _context.SaveChangesAsync();
+
+        return true;
+    }
+
+    public async Task<RoomDto> GeneratePermanentQrAsync(int roomId)
+    {
+        var room = await _context.Rooms.FindAsync(roomId);
+        if (room == null)
+            throw new NotFoundException($"Room {roomId} not found.");
+
+        string qrContent = $"room:{roomId}";
+
+        using var qrGenerator = new QRCodeGenerator();
+        var qrCodeData = qrGenerator.CreateQrCode(qrContent, QRCodeGenerator.ECCLevel.Q);
+        using var qrCode = new PngByteQRCode(qrCodeData);
+
+        byte[] qrCodeBytes = qrCode.GetGraphic(20);
+        room.QrData = Convert.ToBase64String(qrCodeBytes);
+
+        _context.Rooms.Update(room);
+        await _context.SaveChangesAsync();
+
+        return _mapper.Map<RoomDto>(room);
+    }
+
+    // ===== Extra room reservation methods you already use elsewhere =====
+
     public async Task<List<RoomReservationDto>> GetAvailableTimeSlotsAsync(int roomId, DateTime date)
     {
-        // ✅ Check if room exists and is active
         var roomExists = await _context.Rooms
             .AnyAsync(r => r.Id == roomId && r.IsActive);
 
@@ -48,21 +113,18 @@ public class RoomService : IRoomService
         return _mapper.Map<List<RoomReservationDto>>(reservations);
     }
 
-
     public async Task<RoomReservationDto?> CreateReservationAsync(int userId, CreateRoomReservationDto dto)
     {
-        // Check if room exists and is active
         var room = await _context.Rooms.FindAsync(dto.RoomId);
         if (room == null || !room.IsActive)
         {
             return null;
         }
 
-        // Check for overlapping reservations
         var overlapping = await _context.RoomReservations
             .AnyAsync(r => r.RoomId == dto.RoomId &&
                           r.Status == ReservationStatus.Active &&
-                          ((r.StartDateTime < dto.EndDateTime && r.EndDateTime > dto.StartDateTime)));
+                          (r.StartDateTime < dto.EndDateTime && r.EndDateTime > dto.StartDateTime));
 
         if (overlapping)
         {
@@ -119,45 +181,4 @@ public class RoomService : IRoomService
 
         await _context.SaveChangesAsync();
     }
-
-    public async Task<RoomDto?> GetRoomByIdAsync(int id)
-    {
-        var room = await _context.Rooms.FindAsync(id);
-        if (room == null) return null;
-        return _mapper.Map<RoomDto>(room);
-    }
-
-    public async Task<RoomDto> CreateRoomAsync(CreateRoomDto dto)
-    {
-        var room = _mapper.Map<Room>(dto);
-        room.IsActive = true;
-        _context.Rooms.Add(room);
-        await _context.SaveChangesAsync();
-        return _mapper.Map<RoomDto>(room);
-    }
-
-    public async Task<RoomDto?> UpdateRoomAsync(int id, UpdateRoomDto dto)
-    {
-        var room = await _context.Rooms.FindAsync(id);
-        if (room == null) return null;
-
-        _mapper.Map(dto, room);
-        _context.Rooms.Update(room);
-        await _context.SaveChangesAsync();
-
-        return _mapper.Map<RoomDto>(room);
-    }
-
-    public async Task<bool> DeleteRoomAsync(int id)
-    {
-        var room = await _context.Rooms.FindAsync(id);
-        if (room == null) return false;
-
-        room.IsActive = false; // Soft delete
-        _context.Rooms.Update(room);
-        await _context.SaveChangesAsync();
-
-        return true;
-    }
 }
-

@@ -44,7 +44,10 @@ public class OfficeTableService : IOfficeTableService
 
     public async Task<OfficeTableDto?> UpdateOfficeTableAsync(int id, UpdateOfficeTableDto dto)
     {
-        var table = await _context.OfficeTables.FindAsync(id);
+        var table = await _context.OfficeTables
+            .Include(t => t.Seats)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
         if (table == null) return null;
 
         _mapper.Map(dto, table);

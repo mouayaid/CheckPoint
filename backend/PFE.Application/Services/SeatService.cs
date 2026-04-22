@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using PFE.Application.DTOs.Seat;
 using PFE.Domain.Enums;
 using PFE.Application.Abstractions;
+using PFE.Domain.Entities;
 
 namespace PFE.Application.Services;
 
@@ -71,6 +72,16 @@ public class SeatService : ISeatService
     {
         var seats = await _context.Seats
             .Include(s => s.OfficeTable)
+            .ToListAsync();
+        return _mapper.Map<List<SeatDto>>(seats);
+    }
+
+    public async Task<List<SeatDto>> GetSeatsByTableAsync(int officeTableId)
+    {
+        var seats = await _context.Seats
+            .Include(s => s.OfficeTable)
+            .Where(s => s.OfficeTableId == officeTableId)
+            .OrderBy(s => s.Label)
             .ToListAsync();
         return _mapper.Map<List<SeatDto>>(seats);
     }

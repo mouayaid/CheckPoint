@@ -22,5 +22,7 @@ public class RoomReservation
     public string Purpose { get; set; } = string.Empty;
 
     public ReservationStatus Status { get; set; } = ReservationStatus.Active;
+public DateTime? StartedAt { get; set; }
+    public DateTime? EndedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

@@ -8,8 +8,8 @@ public class Room
     public string Name { get; set; } = string.Empty;
     public RoomType Type { get; set; }
     public int Capacity { get; set; }
-    public string Location { get; set; } = string.Empty;
-    public bool IsActive { get; set; } = true;
+public bool IsActive { get; set; } = true;
+    public string QrData { get; set; } = string.Empty;
     
     // Navigation properties
     public ICollection<RoomReservation> Reservations { get; set; } = new List<RoomReservation>();

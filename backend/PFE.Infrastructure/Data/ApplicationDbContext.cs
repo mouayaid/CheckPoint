@@ -442,10 +442,6 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
                 .HasDefaultValue(10)
                 .HasComment("Maximum number of people");
 
-            entity.Property(e => e.Location)
-                .IsRequired()
-                .HasMaxLength(200);
-
             entity.Property(e => e.IsActive)
                 .IsRequired()
                 .HasDefaultValue(true);

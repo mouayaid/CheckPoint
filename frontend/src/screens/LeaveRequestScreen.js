@@ -1,4 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import {
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
 import {
   View,
   Text,
@@ -9,7 +14,6 @@ import {
   TextInput,
   Modal,
   Pressable,
-  Platform,
   RefreshControl,
   LayoutAnimation,
   UIManager,
@@ -573,8 +577,19 @@ export default function LeaveRequestScreen() {
         </ScrollView>
 
         {loadingRequests ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Chargement des demandes...</Text>
+          <View style={[styles.emptyCard, { paddingVertical: spacing.xl }]}>
+            <View style={{ flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md }}>
+              <View style={{ height: 50, width: 50, borderRadius: borderRadius.lg, backgroundColor: colors.surfaceMuted }} />
+              <View style={{ flex: 1, gap: spacing.sm }}>
+                <View style={{ height: 16, width: '70%', backgroundColor: colors.surfaceMuted, borderRadius: 4 }} />
+                <View style={{ height: 14, width: '50%', backgroundColor: colors.surfaceMuted, borderRadius: 4 }} />
+              </View>
+            </View>
+            <View style={{ height: 12, width: 100, backgroundColor: colors.surfaceMuted, borderRadius: 4, alignSelf: 'flex-start' }} />
+            <View style={{ gap: spacing.sm, marginTop: spacing.lg }}>
+              <View style={{ height: 80, backgroundColor: colors.surfaceMuted, borderRadius: borderRadius.md }} />
+              <View style={{ height: 80, backgroundColor: colors.surfaceMuted, borderRadius: borderRadius.md }} />
+            </View>
           </View>
         ) : filteredRequests.length === 0 ? (
           <View style={styles.emptyCard}>
@@ -681,7 +696,7 @@ export default function LeaveRequestScreen() {
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.modalScrollContent}
             >
-              <Text style={styles.modalTitle}>Create Leave Request</Text>
+              <Text style={styles.modalTitle}>Nouvelle demande de congé</Text>
               <Text style={styles.modalSubtitle}>
                 Renseignez les détails de votre demande
               </Text>

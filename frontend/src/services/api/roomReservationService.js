@@ -29,4 +29,18 @@ export const roomReservationService = {
     });
     return response.data;
   },
+
+  async scanStart(resId, roomId) {
+    const response = await axiosInstance.post(`/RoomReservations/${resId}/scan-start`, {
+      scannedRoomId: roomId
+    });
+    return response.data;
+  },
+
+  async scanFinish(resId, roomId) {
+    const response = await axiosInstance.post(`/RoomReservations/${resId}/scan-finish`, {
+      scannedRoomId: roomId
+    });
+    return response.data;
+  },
 };

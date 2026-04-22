@@ -12,5 +12,6 @@ export const adminRoomService = {
   createRoom: (dto) => api.post('/admin/rooms', dto),
   updateRoom: (id, dto) => api.put(`/admin/rooms/${id}`, dto),
   deleteRoom: (id) => api.delete(`/admin/rooms/${id}`),
+  generateQr: (id) => api.post(`/rooms/${id}/generate-qr`),
   extractData,
 };

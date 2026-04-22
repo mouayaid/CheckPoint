@@ -66,7 +66,7 @@ public class RoomReservationsController : ControllerBase
 
         return Ok(ApiResponse<RoomReservationDto>.SuccessResponse(
             reservation!,
-            "Room reservation created successfully. Pending approval."
+            "Room reservation created successfully."
         ));
     }
 
@@ -78,5 +78,29 @@ public class RoomReservationsController : ControllerBase
         var pending = await _roomReservationService.GetPendingReservationsAsync(managerId);
 
         return Ok(ApiResponse<List<RoomReservationDto>>.SuccessResponse(pending));
+    }
+
+    [HttpPost("{id}/scan-start")]
+    public async Task<ActionResult<ApiResponse<object>>> ScanStart([FromRoute] int id, [FromBody] ScanRoomDto dto)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        await _roomReservationService.StartMeetingViaQrAsync(id, dto.ScannedRoomId, userId);
+
+        return Ok(ApiResponse<object>.SuccessResponse(
+            new { message = "Meeting started successfully." }
+        ));
+    }
+
+    [HttpPost("{id}/scan-finish")]
+    public async Task<ActionResult<ApiResponse<object>>> ScanFinish([FromRoute] int id, [FromBody] ScanRoomDto dto)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        await _roomReservationService.FinishMeetingViaQrAsync(id, dto.ScannedRoomId, userId);
+
+        return Ok(ApiResponse<object>.SuccessResponse(
+            new { message = "Meeting completed successfully." }
+        ));
     }
 }

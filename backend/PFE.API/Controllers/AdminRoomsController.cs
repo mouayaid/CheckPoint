@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PFE.Application.Common;
 using PFE.Application.DTOs.Room;
-using PFE.Application.Services;
+using PFE.Application.Abstractions;
 
 namespace PFE.API.Controllers;
 
@@ -21,14 +21,14 @@ public class AdminRoomsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<ApiResponse<List<RoomDto>>>> GetAllRooms()
     {
-        var rooms = await _roomService.GetAllRoomsAsync();
+        var rooms = await _roomService.GetAllAsync();
         return Ok(ApiResponse<List<RoomDto>>.SuccessResponse(rooms));
     }
 
     [HttpGet("{id}")]
     public async Task<ActionResult<ApiResponse<RoomDto>>> GetRoomById(int id)
     {
-        var room = await _roomService.GetRoomByIdAsync(id);
+        var room = await _roomService.GetByIdAsync(id);
         if (room == null)
             return NotFound(ApiResponse<RoomDto>.ErrorResponse("Room not found"));
 
@@ -38,14 +38,19 @@ public class AdminRoomsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<ApiResponse<RoomDto>>> CreateRoom([FromBody] CreateRoomDto dto)
     {
-        var room = await _roomService.CreateRoomAsync(dto);
-        return CreatedAtAction(nameof(GetRoomById), new { id = room.Id }, ApiResponse<RoomDto>.SuccessResponse(room, "Room created successfully"));
+        var room = await _roomService.CreateAsync(dto);
+
+        return CreatedAtAction(
+            nameof(GetRoomById),
+            new { id = room.Id },
+            ApiResponse<RoomDto>.SuccessResponse(room, "Room created successfully")
+        );
     }
 
     [HttpPut("{id}")]
     public async Task<ActionResult<ApiResponse<RoomDto>>> UpdateRoom(int id, [FromBody] UpdateRoomDto dto)
     {
-        var room = await _roomService.UpdateRoomAsync(id, dto);
+        var room = await _roomService.UpdateAsync(id, dto);
         if (room == null)
             return NotFound(ApiResponse<RoomDto>.ErrorResponse("Room not found"));
 
@@ -55,7 +60,7 @@ public class AdminRoomsController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<ActionResult<ApiResponse<object>>> DeleteRoom(int id)
     {
-        var deleted = await _roomService.DeleteRoomAsync(id);
+        var deleted = await _roomService.DeleteAsync(id);
         if (!deleted)
             return NotFound(ApiResponse<object>.ErrorResponse("Room not found"));
 

@@ -50,6 +50,7 @@ import ApprovalsScreen from "./src/screens/approvals/ApprovalsScreen";
 import UserManagementScreen from "./src/screens/admin/UserManagementScreen";
 import RoomManagementScreen from "./src/screens/admin/RoomManagementScreen";
 import SeatManagementScreen from "./src/screens/admin/SeatManagementScreen";
+import SplashScreen from "./src/screens/SplashScreen";
 import { DepartmentChannelProvider } from "./src/context/DepartmentChannelContext";
 import { useDepartmentChannel } from "./src/context/DepartmentChannelContext";
 
@@ -245,9 +246,10 @@ function AppNavigator() {
         },
       }}
     >
-      <Stack.Navigator>
+    <Stack.Navigator initialRouteName="Splash">
         {!isAuthenticated ? (
           <>
+            <Stack.Screen name="Splash" component={SplashScreen} options={{headerShown: false}} />
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
           </>
@@ -306,7 +308,7 @@ function AppNavigator() {
             <Stack.Screen
               name="SeatManagement"
               component={SeatManagementScreen}
-              options={{ title: "Gestion des Sièges" }}
+              options={{ title: "Tables et Sièges" }}
             />
           </>
         )}

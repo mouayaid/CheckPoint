@@ -17,7 +17,7 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 
 import { seatService, profileService, eventService } from "../services/api";
 import api from "../services/api/axiosInstance";
@@ -557,6 +557,12 @@ const DashboardScreen = () => {
       setRefreshing(false);
     }
   }, [loadDashboardData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchMyReservation();
+    }, [fetchMyReservation])
+  );
 
   useEffect(() => {
     loadDashboardData();

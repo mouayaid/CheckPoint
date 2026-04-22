@@ -2,10 +2,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PFE.Application.Common;
 using PFE.Application.DTOs.Room;
-using PFE.Application.Services;
+using PFE.Application.Abstractions;
 using System.Security.Claims;
 using PFE.Application.DTOs.RoomReservation;
-
 
 namespace PFE.API.Controllers;
 
@@ -15,24 +14,31 @@ namespace PFE.API.Controllers;
 public class RoomController : ControllerBase
 {
     private readonly IRoomService _roomService;
+    private readonly IRoomReservationService _roomReservationService;
 
-    public RoomController(IRoomService roomService)
+    public RoomController(
+        IRoomService roomService,
+        IRoomReservationService roomReservationService)
     {
         _roomService = roomService;
+        _roomReservationService = roomReservationService;
     }
 
     [HttpGet]
     public async Task<ActionResult<ApiResponse<List<RoomDto>>>> GetAllRooms()
     {
-        var rooms = await _roomService.GetAllRoomsAsync();
+        var rooms = await _roomService.GetAllAsync();
         return Ok(ApiResponse<List<RoomDto>>.SuccessResponse(rooms));
     }
 
     [HttpGet("{roomId}/availability")]
-    public async Task<ActionResult<ApiResponse<List<RoomReservationDto>>>> GetAvailableTimeSlots(int roomId, [FromQuery] DateTime date)
+    public async Task<ActionResult<ApiResponse<List<RoomReservationForDayDto>>>> GetAvailableTimeSlots(
+        int roomId,
+        [FromQuery] DateTime date)
     {
-        var reservations = await _roomService.GetAvailableTimeSlotsAsync(roomId, date);
-        return Ok(ApiResponse<List<RoomReservationDto>>.SuccessResponse(reservations));
+        var reservations = await _roomReservationService.GetReservationsForDayAsync(roomId, date);
+
+        return Ok(ApiResponse<List<RoomReservationForDayDto>>.SuccessResponse(reservations));
     }
 
     [HttpGet("reservations/my")]
@@ -40,6 +46,7 @@ public class RoomController : ControllerBase
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         var reservations = await _roomService.GetUserReservationsAsync(userId);
+
         return Ok(ApiResponse<List<RoomReservationDto>>.SuccessResponse(reservations));
     }
 
@@ -55,6 +62,4 @@ public class RoomController : ControllerBase
             "Reservation cancelled successfully"
         ));
     }
-
 }
-

@@ -111,7 +111,7 @@ public class RoomReservationService : IRoomReservationService
             UserId = userId,
             StartDateTime = start,
             EndDateTime = end,
-            Status = ReservationStatus.Pending,
+            Status = ReservationStatus.Active,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -123,34 +123,62 @@ public class RoomReservationService : IRoomReservationService
             .Include(r => r.User)
             .FirstOrDefaultAsync(r => r.Id == reservation.Id);
 
-        if (savedReservation == null)
-            throw new Exception("Reservation was created but could not be reloaded.");
-
-        var managers = await _context.Users
-            .Where(u =>
-                (u.Role == Role.Manager || u.Role == Role.Admin) &&
-                u.DepartmentId == user.DepartmentId)
-            .ToListAsync();
-
-        if (!managers.Any())
-        {
-            managers = await _context.Users
-                .Where(u => u.Role == Role.Manager || u.Role == Role.Admin)
-                .ToListAsync();
-        }
-
-        foreach (var manager in managers)
-        {
-            await _notificationService.CreateNotificationAsync(
-                manager.Id,
-                "New Room Reservation Request",
-                $"{user.FullName} ({user.Department.Name}) has requested to reserve {room.Name} from {start:yyyy-MM-dd HH:mm} to {end:yyyy-MM-dd HH:mm}",
-                "Info",
-                "RoomReservation",
-                reservation.Id
-            );
-        }
-
         return _mapper.Map<RoomReservationDto>(savedReservation);
+    }
+
+    public async Task StartMeetingViaQrAsync(int resId, int scannedRoomId, int userId)
+    {
+        var reservation = await _context.RoomReservations
+            .Include(r => r.Room)
+            .Include(r => r.User)
+            .FirstOrDefaultAsync(r => r.Id == resId);
+
+        if (reservation == null)
+            throw new NotFoundException("Reservation not found.");
+
+        if (reservation.UserId != userId)
+            throw new UnauthorizedAccessException("Not your reservation.");
+
+        if (reservation.Status != ReservationStatus.Active)
+            throw new ConflictException("Reservation not active.");
+
+        if (reservation.RoomId != scannedRoomId)
+            throw new BadRequestException("Scanned room does not match reservation room.");
+
+        if (reservation.StartDateTime < DateTime.UtcNow)
+            throw new BadRequestException("Reservation has expired.");
+
+        if (reservation.StartedAt.HasValue)
+            throw new ConflictException("Meeting already started.");
+
+        reservation.StartedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task FinishMeetingViaQrAsync(int resId, int scannedRoomId, int userId)
+    {
+        var reservation = await _context.RoomReservations
+            .Include(r => r.Room)
+            .Include(r => r.User)
+            .FirstOrDefaultAsync(r => r.Id == resId);
+
+        if (reservation == null)
+            throw new NotFoundException("Reservation not found.");
+
+        if (reservation.UserId != userId)
+            throw new UnauthorizedAccessException("Not your reservation.");
+
+        if (reservation.Status != ReservationStatus.Active)
+            throw new ConflictException("Reservation not active.");
+
+        if (reservation.RoomId != scannedRoomId)
+            throw new BadRequestException("Scanned room does not match reservation room.");
+
+        if (!reservation.StartedAt.HasValue)
+            throw new ConflictException("Meeting not started.");
+
+        reservation.Status = ReservationStatus.Completed;
+        reservation.EndedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
     }
 }

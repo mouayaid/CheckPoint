@@ -17,6 +17,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../context/ThemeContext";
 import { adminRoomService } from "../../services/api/adminRoomService";
+import QrCode from 'react-native-qrcode-svg';
 
 /* ══════════════════════════════════
    Edit/Add Modal
@@ -25,25 +26,30 @@ const EditRoomModal = ({ visible, room, onClose, onSave, colors, spacing, typogr
   const [name, setName] = useState("");
   const [type, setType] = useState("1");
   const [capacity, setCapacity] = useState("");
-  const [location, setLocation] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const getTypeFromString = (typeStr) => {
+    switch((typeStr || '').toLowerCase()) {
+      case 'meeting': return 1;
+      case 'conference': return 2;
+      case 'training': case 'formation': return 3;
+      case 'break': return 4;
+      case 'office': return 5;
+      default: return 1;
+    }
+  };
 
   React.useEffect(() => {
     if (visible) {
       setName(room?.name ?? room?.Name ?? "");
-      setType(String(room?.type ?? room?.Type ?? "1"));
+      setType(String(getTypeFromString(room?.type ?? room?.Type ?? 'meeting')));
       setCapacity(String(room?.capacity ?? room?.Capacity ?? ""));
-      setLocation(room?.location ?? room?.Location ?? "");
       setIsActive(room ? (room?.isActive ?? room?.IsActive ?? true) : true);
     }
   }, [visible, room]);
 
   const handleSave = async () => {
-    if (!name.trim() || !location.trim()) {
-      Alert.alert("Validation", "Le nom et l'emplacement sont obligatoires.");
-      return;
-    }
     const cap = Number(capacity);
     if (isNaN(cap) || cap <= 0) {
       Alert.alert("Validation", "Capacité invalide.");
@@ -51,13 +57,13 @@ const EditRoomModal = ({ visible, room, onClose, onSave, colors, spacing, typogr
     }
     setSaving(true);
     try {
-      const dto = {
+    const dto = {
         name: name.trim(),
         type: Number(type),
         capacity: cap,
-        location: location.trim(),
         isActive,
       };
+      console.log('📤 Update DTO:', dto, 'ID:', room?.id ?? room?.Id);
       await onSave(room?.id ?? room?.Id, dto);
       onClose();
     } catch {
@@ -93,8 +99,6 @@ const EditRoomModal = ({ visible, room, onClose, onSave, colors, spacing, typogr
           <Text style={s.label}>Nom de la salle</Text>
           <TextInput style={s.input} value={name} onChangeText={setName} placeholder="Ex: Salle de conférence A" placeholderTextColor={colors.placeholder} editable={!saving} />
 
-          <Text style={s.label}>Emplacement</Text>
-          <TextInput style={s.input} value={location} onChangeText={setLocation} placeholder="Ex: 1er étage" placeholderTextColor={colors.placeholder} editable={!saving} />
 
           <Text style={s.label}>Capacité (personnes)</Text>
           <TextInput style={s.input} value={capacity} onChangeText={setCapacity} keyboardType="numeric" placeholder="ex. 10" placeholderTextColor={colors.placeholder} editable={!saving} />
@@ -138,7 +142,8 @@ const RoomManagementScreen = () => {
     try {
       isRefresh ? setRefreshing(true) : setLoading(true);
       const res = await adminRoomService.getAllRooms();
-      setRooms(adminRoomService.extractData(res) || []);
+      const loadedRooms = adminRoomService.extractData(res) || [];
+      setRooms(loadedRooms);
     } catch {
       Alert.alert("Erreur", "Impossible de charger les salles.");
     } finally {
@@ -187,13 +192,31 @@ const RoomManagementScreen = () => {
     );
   };
 
+  const [qrModalVisible, setQrModalVisible] = useState(false);
+  const [selectedQrRoom, setSelectedQrRoom] = useState(null);
+
+  const handleGenerateQr = async (roomId) => {
+    try {
+      await adminRoomService.generateQr(roomId);
+      Alert.alert("QR généré", "QR permanent de la salle généré et sauvegardé.");
+      loadRooms(true);
+    } catch (error) {
+      Alert.alert("Erreur", "Impossible de générer le QR.");
+    }
+  };
+
+  const showQr = (room) => {
+    setSelectedQrRoom(room);
+    setQrModalVisible(true);
+  };
+
   const renderRoomCard = (room) => {
     const id = room.id ?? room.Id;
     const name = room.name ?? room.Name ?? "—";
     const capacity = room.capacity ?? room.Capacity ?? "—";
-    const location = room.location ?? room.Location ?? "—";
     const isActive = room.isActive ?? room.IsActive ?? false;
     const isDeleting = deletingId === id;
+    const hasQr = room.qrData || room.QrData;
 
     return (
       <View key={id} style={styles.card}>
@@ -203,7 +226,6 @@ const RoomManagementScreen = () => {
           </View>
           <View style={styles.cardHeaderText}>
             <Text style={styles.roomName} numberOfLines={1}>{name}</Text>
-            <Text style={styles.roomLocation} numberOfLines={1}>{location}</Text>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: isActive ? "#D1FAE5" : "#FEE2E2" }]}>
             <Text style={[styles.statusText, { color: isActive ? "#065F46" : "#991B1B" }]}>
@@ -217,6 +239,12 @@ const RoomManagementScreen = () => {
             <Ionicons name="people" size={14} color={colors.textSecondary} />
             <Text style={styles.infoText}>Capacité: {capacity}</Text>
           </View>
+          {hasQr && (
+            <View style={styles.infoItem}>
+              <Ionicons name="qr-code" size={14} color={colors.success} />
+              <Text style={[styles.infoText, { color: colors.success }]}>QR prêt</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.actionsRow}>
@@ -224,6 +252,17 @@ const RoomManagementScreen = () => {
             <Ionicons name="create-outline" size={16} color={colors.primary} />
             <Text style={[styles.actionBtnText, { color: colors.primary }]}>Modifier</Text>
           </TouchableOpacity>
+          {!hasQr ? (
+            <TouchableOpacity style={styles.editBtn} onPress={() => handleGenerateQr(id)}>
+              <Ionicons name="qr-code-outline" size={16} color={colors.warning} />
+              <Text style={[styles.actionBtnText, { color: colors.warning }]}>QR</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.editBtn} onPress={() => showQr(room)}>
+              <Ionicons name="qr-code" size={16} color={colors.success} />
+              <Text style={[styles.actionBtnText, { color: colors.success }]}>Voir QR</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={[styles.deleteBtn, isDeleting && { opacity: 0.5 }]} onPress={() => handleDelete(room)} disabled={isDeleting}>
             {isDeleting ? <ActivityIndicator size="small" color="#EF4444" /> : <Ionicons name="trash-outline" size={16} color="#EF4444" />}
             <Text style={[styles.actionBtnText, { color: "#EF4444" }]}>Supprimer</Text>
@@ -232,6 +271,7 @@ const RoomManagementScreen = () => {
       </View>
     );
   };
+
 
   return (
     <View style={styles.container}>
@@ -267,6 +307,29 @@ const RoomManagementScreen = () => {
         typography={typography}
         borderRadius={borderRadius}
       />
+
+      <Modal visible={qrModalVisible} transparent animationType="slide">
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setQrModalVisible(false)} />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.8)' }}>
+          <View style={{ backgroundColor: 'white', padding: 20, borderRadius: 16, alignItems: 'center' }}>
+            <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 10 }}>
+              QR Permanent - {selectedQrRoom?.name}
+            </Text>
+            {selectedQrRoom?.qrData && (
+              <QrCode
+                value={selectedQrRoom.qrData.split(',')[1] || ''}
+                size={200}
+              />
+            )}
+            <Text style={{ marginTop: 10, fontSize: 12, textAlign: 'center' }}>
+              Imprimez ou partagez ce QR. Il identifie la salle #{selectedQrRoom?.id}.
+            </Text>
+            <TouchableOpacity style={{ marginTop: 15, padding: 10, backgroundColor: '#007AFF', borderRadius: 8 }} onPress={() => setQrModalVisible(false)}>
+              <Text style={{ color: 'white', fontWeight: 'bold' }}>Fermer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };

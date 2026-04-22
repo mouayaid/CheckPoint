@@ -24,7 +24,11 @@ if (
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import roomService from "../services/api/roomService";
+import { roomReservationService } from "../services/api/roomReservationService";
+import { BarCodeScanner } from 'expo-barcode-scanner';
+import { usePermissions, requestPermissionsAsync } from 'expo-barcode-scanner';
 import { useTheme } from "../context/ThemeContext";
+import QrCode from 'react-native-qrcode-svg';
 
 const QUICK_DURATIONS = [
   { label: "30 min", minutes: 30 },
@@ -230,6 +234,14 @@ export default function RoomReservationScreen() {
   const [reserving, setReserving] = useState(false);
   const [reservationFilter, setReservationFilter] = useState("All");
 
+  // Scanner state
+  const [scannerVisible, setScannerVisible] = useState(false);
+  const [scanningResId, setScanningResId] = useState(null);
+  const [scanningAction, setScanningAction] = useState(null); // 'start' or 'finish'
+  const [hasPermission, setHasPermission] = useState(false);
+  const [scanning, setScanning] = useState(false);
+
+
   const workDays = useMemo(() => getWorkWeekDays(weekStartDate), [weekStartDate]);
 
   useEffect(() => {
@@ -302,6 +314,52 @@ export default function RoomReservationScreen() {
     } finally {
       setLoadingMyReservations(false);
     }
+  };
+
+  const requestCameraPermission = async () => {
+    const { status } = await BarCodeScanner.requestPermissionsAsync();
+    setHasPermission(status === 'granted');
+    if (status !== 'granted') {
+      Alert.alert('Permission refusée', 'Accès caméra nécessaire pour scanner QR.');
+    }
+    return status === 'granted';
+  };
+
+  const handleScanPress = (resId, action) => {
+    setScanningResId(resId);
+    setScanningAction(action);
+    requestCameraPermission().then((granted) => {
+      if (granted) setScannerVisible(true);
+    });
+  };
+
+  const handleBarCodeScanned = async ({ data }) => {
+    if (scanning) return;
+    setScanning(true);
+
+    // Parse room:123
+    const match = data.match(/^room:(\\d+)$/);
+    if (!match) {
+      Alert.alert('QR invalide', 'Scanner le QR permanent de la salle.');
+      setScanning(false);
+      return;
+    }
+
+    const roomId = parseInt(match[1]);
+    try {
+      if (scanningAction === 'start') {
+        await roomReservationService.scanStart(scanningResId, roomId);
+        Alert.alert('Réunion démarrée', 'Réunion démarrée avec succès!');
+      } else {
+        await roomReservationService.scanFinish(scanningResId, roomId);
+        Alert.alert('Réunion terminée', 'Réunion terminée avec succès!');
+      }
+      setScannerVisible(false);
+      loadMyReservations(); // Refresh
+    } catch (error) {
+      Alert.alert('Erreur', error.message || 'Action impossible.');
+    }
+    setScanning(false);
   };
 
   const fetchReservationsForRoomAndDate = async (roomId, date) => {
@@ -811,26 +869,49 @@ export default function RoomReservationScreen() {
     combinedEnd > combinedStart &&
     !modalScheduleError;
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.stickyHeader}>
-        <Text style={styles.screenTitle}>Demandes de salle</Text>
-        <Text style={styles.screenSubtitle}>
-          Choisissez une plage horaire et envoyez une demande — les réservations nécessitent une validation
-        </Text>
-      </View>
+    return (
+      <View style={styles.container}>
+        <View style={styles.stickyHeader}>
+          <Text style={styles.screenTitle}>Demandes de salle</Text>
+          <Text style={styles.screenSubtitle}>
+            Réservez instantanément (Active). Scanner QR salle pour démarrer/terminer réunion.
+          </Text>
+        </View>
 
-      <ScrollView
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-          />
-        }
-      >
+        <ScrollView
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+            />
+          }
+        >
+
+          {scannerVisible && (
+            <Modal visible={scannerVisible} style={styles.scannerModal}>
+              <View style={styles.scannerOverlay}>
+                <View style={styles.scannerHeader}>
+                  <Text style={styles.scannerTitle}>
+                    Scanner QR {scanningAction === 'finish' ? 'fin' : 'début'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setScannerVisible(false)}>
+                    <Ionicons name="close" size={24} color="white" />
+                  </TouchableOpacity>
+                </View>
+                <BarCodeScanner
+                  style={styles.scanner}
+                  onBarCodeScanned={handleBarCodeScanned}
+                />
+                <View style={styles.scannerFooter}>
+                  <Text style={styles.scannerHint}>Scanner le QR permanent de la salle</Text>
+                </View>
+              </View>
+            </Modal>
+          )}
+
         <View style={styles.calendarCard}>
           <View style={styles.sectionHeader}>
             <Text style={styles.blockTitle}>Sélectionner un jour ouvré</Text>
@@ -1016,6 +1097,11 @@ export default function RoomReservationScreen() {
               const statusStyle = getStatusStyle(
                 reservation.status ?? reservation.Status
               );
+              const key = normalizeStatusKey(reservation.status ?? reservation.Status);
+              const isActive = key === 'active';
+              const isStarted = reservation.startedAt || reservation.StartedAt;
+
+              const handleAction = () => handleScanPress(reservation.id, isStarted ? 'finish' : 'start');
 
               return (
                 <View key={reservation.id} style={styles.myReservationCard}>
@@ -1061,6 +1147,14 @@ export default function RoomReservationScreen() {
                         {reservation.managerComment}
                       </Text>
                     </View>
+                  )}
+
+                  {isActive && (
+                    <TouchableOpacity style={styles.actionButton} onPress={handleAction} disabled={!hasPermission}>
+                      <Text style={styles.actionButtonText}>
+                        {isStarted ? 'Scanner QR pour terminer' : 'Scanner QR pour démarrer'}
+                      </Text>
+                    </TouchableOpacity>
                   )}
                 </View>
               );
@@ -1888,6 +1982,47 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
     muted: {
       color: colors.textSecondary,
       fontSize: typography.sm,
+    },
+    scannerModal: {
+      flex: 1,
+    },
+    scannerOverlay: {
+      flex: 1,
+      backgroundColor: 'black',
+    },
+    scannerHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 20,
+      paddingTop: 50,
+    },
+    scannerTitle: {
+      color: 'white',
+      fontSize: 18,
+      fontWeight: 'bold',
+    },
+    scanner: {
+      flex: 1,
+    },
+    scannerFooter: {
+      padding: 20,
+      alignItems: 'center',
+    },
+    scannerHint: {
+      color: 'white',
+      fontSize: 16,
+    },
+    actionButton: {
+      marginTop: 10,
+      padding: 12,
+      backgroundColor: colors.primary,
+      borderRadius: borderRadius.md,
+      alignItems: 'center',
+    },
+    actionButtonText: {
+      color: 'white',
+      fontWeight: 'bold',
     },
     modalContainer: {
       flex: 1,

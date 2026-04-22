@@ -25,6 +25,13 @@ public class AdminSeatsController : ControllerBase
         return Ok(ApiResponse<List<SeatDto>>.SuccessResponse(seats));
     }
 
+    [HttpGet("by-table/{tableId}")]
+    public async Task<ActionResult<ApiResponse<List<SeatDto>>>> GetSeatsByTable(int tableId)
+    {
+        var seats = await _seatService.GetSeatsByTableAsync(tableId);
+        return Ok(ApiResponse<List<SeatDto>>.SuccessResponse(seats));
+    }
+
     [HttpGet("{id}")]
     public async Task<ActionResult<ApiResponse<SeatDto>>> GetSeatById(int id)
     {

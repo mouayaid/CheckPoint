@@ -6,5 +6,7 @@ public class RoomDto
     public string Name { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
     public int Capacity { get; set; }
-    public string Location { get; set; } = string.Empty;
+public bool IsActive { get; set; }
+    public string QrData { get; set; } = string.Empty;
 }
+

@@ -1,6 +1,7 @@
 using PFE.Application.DTOs.Seat;
 
 namespace PFE.Application.Services;
+using PFE.Application.DTOs.Layout;
 
 public interface ISeatService
 {
@@ -11,5 +12,8 @@ public interface ISeatService
     Task<SeatDto> CreateSeatAsync(CreateSeatDto dto);
     Task<SeatDto?> UpdateSeatAsync(int id, UpdateSeatDto dto);
     Task<bool> DeleteSeatAsync(int id);
+
+    Task<SeatDto?> UpdateSeatPositionAsync(int id, UpdatePositionDto dto);
 }
+
 

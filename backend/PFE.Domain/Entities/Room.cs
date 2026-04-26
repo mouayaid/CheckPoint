@@ -10,6 +10,7 @@ public class Room
     public int Capacity { get; set; }
 public bool IsActive { get; set; } = true;
     public string QrData { get; set; } = string.Empty;
+
     
     // Navigation properties
     public ICollection<RoomReservation> Reservations { get; set; } = new List<RoomReservation>();

@@ -75,6 +75,10 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddScoped<IOfficeLayoutService, OfficeLayoutService>();
+
+builder.Services.AddScoped<IOfficeLayoutService, OfficeLayoutService>();
+
 // Database - EF Core with SQL Server
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(

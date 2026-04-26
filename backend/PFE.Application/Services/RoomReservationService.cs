@@ -70,89 +70,30 @@ public class RoomReservationService : IRoomReservationService
         return _mapper.Map<List<RoomReservationDto>>(pending);
     }
 
-    public async Task<RoomReservationDto?> CreateReservationAsync(int userId, CreateRoomReservationDto dto)
+    public async Task<RoomReservationDto> CreateReservationAsync(int creatorId, CreateRoomReservationDto dto)
     {
-        var start = dto.StartDateTime;
-        var end = dto.EndDateTime;
-
-        var room = await _context.Rooms.FindAsync(dto.RoomId);
-        if (room == null || !room.IsActive)
-            throw new NotFoundException($"Room with id {dto.RoomId} not found or inactive.");
-
-        if (end <= start)
-            throw new BadRequestException("End time must be after start time.");
-
-        if (start.Date != end.Date)
-            throw new BadRequestException("Room reservation must start and end on the same day.");
-
-        if (start < DateTime.Now)
-            throw new BadRequestException("You cannot create a reservation in the past.");
-
-        var overlapping = await _context.RoomReservations
-            .AnyAsync(r =>
-                r.RoomId == dto.RoomId &&
-                r.Status == ReservationStatus.Active &&
-                r.StartDateTime < end &&
-                r.EndDateTime > start);
-
-        if (overlapping)
-            throw new ConflictException("This time slot overlaps with an existing reservation.");
-
-        var user = await _context.Users
-            .Include(u => u.Department)
-            .FirstOrDefaultAsync(u => u.Id == userId);
-
-        if (user == null)
-            throw new NotFoundException($"User with id {userId} not found.");
-
         var reservation = new RoomReservation
         {
             RoomId = dto.RoomId,
-            UserId = userId,
-            StartDateTime = start,
-            EndDateTime = end,
+            StartDateTime = dto.StartDateTime,
+            EndDateTime = dto.EndDateTime,
+            Purpose = dto.Purpose,
             Status = ReservationStatus.Active,
+            UserId = creatorId,
+            CreatedById = creatorId,
             CreatedAt = DateTime.UtcNow
         };
 
         _context.RoomReservations.Add(reservation);
         await _context.SaveChangesAsync();
 
-        var savedReservation = await _context.RoomReservations
+        var createdReservation = await _context.RoomReservations
             .Include(r => r.Room)
             .Include(r => r.User)
-            .FirstOrDefaultAsync(r => r.Id == reservation.Id);
+                .ThenInclude(u => u.Department)
+            .FirstAsync(r => r.Id == reservation.Id);
 
-        return _mapper.Map<RoomReservationDto>(savedReservation);
-    }
-
-    public async Task StartMeetingViaQrAsync(int resId, int scannedRoomId, int userId)
-    {
-        var reservation = await _context.RoomReservations
-            .Include(r => r.Room)
-            .Include(r => r.User)
-            .FirstOrDefaultAsync(r => r.Id == resId);
-
-        if (reservation == null)
-            throw new NotFoundException("Reservation not found.");
-
-        if (reservation.UserId != userId)
-            throw new UnauthorizedAccessException("Not your reservation.");
-
-        if (reservation.Status != ReservationStatus.Active)
-            throw new ConflictException("Reservation not active.");
-
-        if (reservation.RoomId != scannedRoomId)
-            throw new BadRequestException("Scanned room does not match reservation room.");
-
-        if (reservation.StartDateTime < DateTime.UtcNow)
-            throw new BadRequestException("Reservation has expired.");
-
-        if (reservation.StartedAt.HasValue)
-            throw new ConflictException("Meeting already started.");
-
-        reservation.StartedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
+        return _mapper.Map<RoomReservationDto>(createdReservation);
     }
 
     public async Task FinishMeetingViaQrAsync(int resId, int scannedRoomId, int userId)
@@ -165,11 +106,8 @@ public class RoomReservationService : IRoomReservationService
         if (reservation == null)
             throw new NotFoundException("Reservation not found.");
 
-        if (reservation.UserId != userId)
-            throw new UnauthorizedAccessException("Not your reservation.");
-
-        if (reservation.Status != ReservationStatus.Active)
-            throw new ConflictException("Reservation not active.");
+        if (reservation.Status != ReservationStatus.InProgress)
+            throw new ConflictException("Reservation is not in progress.");
 
         if (reservation.RoomId != scannedRoomId)
             throw new BadRequestException("Scanned room does not match reservation room.");
@@ -179,6 +117,30 @@ public class RoomReservationService : IRoomReservationService
 
         reservation.Status = ReservationStatus.Completed;
         reservation.EndedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task StartMeetingViaQrAsync(int reservationId, int scannedRoomId, int scannerUserId)
+    {
+        var reservation = await _context.RoomReservations.FindAsync(reservationId);
+
+        if (reservation == null)
+            throw new Exception("Reservation not found.");
+
+        if (reservation.RoomId != scannedRoomId)
+            throw new Exception("QR does not match this room.");
+
+        if (reservation.Status != ReservationStatus.Active)
+            throw new Exception("Only active reservations can be started.");
+
+        if (reservation.StartedAt != null)
+            throw new Exception("Meeting already started.");
+
+        reservation.StartedAt = DateTime.UtcNow;
+        reservation.StartedById = scannerUserId;
+        reservation.Status = ReservationStatus.InProgress;
+
         await _context.SaveChangesAsync();
     }
 }

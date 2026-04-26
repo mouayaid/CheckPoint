@@ -20,49 +20,42 @@ public class RoomReservationsController : ControllerBase
     }
 
     [HttpGet("for-day")]
+    [Authorize(Roles = "HR,Manager,Admin")]
     public async Task<ActionResult<ApiResponse<List<RoomReservationForDayDto>>>> GetReservationsForDay(
         [FromQuery] int roomId,
         [FromQuery] DateTime? date)
     {
         try
         {
-            Console.WriteLine($"[for-day] START roomId={roomId}, date={date}");
-
             if (roomId <= 0)
             {
-                Console.WriteLine("[for-day] invalid roomId");
                 return BadRequest(
                     ApiResponse<List<RoomReservationForDayDto>>.ErrorResponse("Invalid roomId.")
                 );
             }
 
             var requestedDate = (date ?? DateTime.Today).Date;
-            Console.WriteLine($"[for-day] requestedDate={requestedDate:yyyy-MM-dd}");
-
             var reservations = await _roomReservationService.GetReservationsForDayAsync(roomId, requestedDate);
-
-            Console.WriteLine($"[for-day] SUCCESS roomId={roomId}, count={reservations.Count}");
 
             return Ok(ApiResponse<List<RoomReservationForDayDto>>.SuccessResponse(reservations));
         }
         catch (Exception ex)
         {
-            Console.WriteLine("[for-day] ERROR:");
-            Console.WriteLine(ex.ToString());
-
-            return StatusCode(500,
-                ApiResponse<List<RoomReservationForDayDto>>.ErrorResponse($"DEBUG: {ex.Message}")
+            return StatusCode(
+                500,
+                ApiResponse<List<RoomReservationForDayDto>>.ErrorResponse(ex.Message)
             );
         }
     }
 
     [HttpPost]
+    [Authorize(Roles = "HR,Manager,Admin")]
     public async Task<ActionResult<ApiResponse<RoomReservationDto>>> CreateReservation(
         [FromBody] CreateRoomReservationDto dto)
     {
-        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var creatorUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-        var reservation = await _roomReservationService.CreateReservationAsync(userId, dto);
+        var reservation = await _roomReservationService.CreateReservationAsync(creatorUserId, dto);
 
         return Ok(ApiResponse<RoomReservationDto>.SuccessResponse(
             reservation!,
@@ -70,22 +63,15 @@ public class RoomReservationsController : ControllerBase
         ));
     }
 
-    [HttpGet("pending")]
-    [Authorize(Policy = "ManagerOrAdmin")]
-    public async Task<ActionResult<ApiResponse<List<RoomReservationDto>>>> GetPending()
-    {
-        var managerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        var pending = await _roomReservationService.GetPendingReservationsAsync(managerId);
-
-        return Ok(ApiResponse<List<RoomReservationDto>>.SuccessResponse(pending));
-    }
-
     [HttpPost("{id}/scan-start")]
-    public async Task<ActionResult<ApiResponse<object>>> ScanStart([FromRoute] int id, [FromBody] ScanRoomDto dto)
+    [Authorize(Roles = "HR,Manager,Admin")]
+    public async Task<ActionResult<ApiResponse<object>>> ScanStart(
+        [FromRoute] int id,
+        [FromBody] ScanRoomDto dto)
     {
-        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var scannerUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-        await _roomReservationService.StartMeetingViaQrAsync(id, dto.ScannedRoomId, userId);
+        await _roomReservationService.StartMeetingViaQrAsync(id, dto.ScannedRoomId, scannerUserId);
 
         return Ok(ApiResponse<object>.SuccessResponse(
             new { message = "Meeting started successfully." }
@@ -93,11 +79,14 @@ public class RoomReservationsController : ControllerBase
     }
 
     [HttpPost("{id}/scan-finish")]
-    public async Task<ActionResult<ApiResponse<object>>> ScanFinish([FromRoute] int id, [FromBody] ScanRoomDto dto)
+    [Authorize(Roles = "HR,Manager,Admin")]
+    public async Task<ActionResult<ApiResponse<object>>> ScanFinish(
+        [FromRoute] int id,
+        [FromBody] ScanRoomDto dto)
     {
-        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var scannerUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-        await _roomReservationService.FinishMeetingViaQrAsync(id, dto.ScannedRoomId, userId);
+        await _roomReservationService.FinishMeetingViaQrAsync(id, dto.ScannedRoomId, scannerUserId);
 
         return Ok(ApiResponse<object>.SuccessResponse(
             new { message = "Meeting completed successfully." }

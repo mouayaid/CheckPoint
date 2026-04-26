@@ -4,6 +4,7 @@ using PFE.Application.DTOs.Seat;
 using PFE.Domain.Enums;
 using PFE.Application.Abstractions;
 using PFE.Domain.Entities;
+using PFE.Application.DTOs.Layout;
 
 namespace PFE.Application.Services;
 
@@ -63,7 +64,7 @@ public class SeatService : ISeatService
 
             return dto;
         }).ToList();
-        
+
 
         return seatMapDtos;
     }
@@ -101,7 +102,7 @@ public class SeatService : ISeatService
         seat.IsActive = true;
         _context.Seats.Add(seat);
         await _context.SaveChangesAsync();
-        
+
         // Reload to get OfficeTable for DTO mapping
         var createdSeat = await _context.Seats
             .Include(s => s.OfficeTable)
@@ -136,6 +137,28 @@ public class SeatService : ISeatService
         await _context.SaveChangesAsync();
 
         return true;
+    }
+    public async Task<SeatDto?> UpdateSeatPositionAsync(int id, UpdatePositionDto dto)
+    {
+        var seat = await _context.Seats.FindAsync(id);
+
+        if (seat == null)
+            return null;
+
+        seat.PositionX = dto.PositionX;
+        seat.PositionY = dto.PositionY;
+
+        await _context.SaveChangesAsync();
+
+        return new SeatDto
+        {
+            Id = seat.Id,
+            Label = seat.Label,
+            OfficeTableId = seat.OfficeTableId,
+            PositionX = seat.PositionX,
+            PositionY = seat.PositionY,
+            IsActive = seat.IsActive
+        };
     }
 }
 

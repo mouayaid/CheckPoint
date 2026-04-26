@@ -53,6 +53,8 @@ import SeatManagementScreen from "./src/screens/admin/SeatManagementScreen";
 import SplashScreen from "./src/screens/SplashScreen";
 import { DepartmentChannelProvider } from "./src/context/DepartmentChannelContext";
 import { useDepartmentChannel } from "./src/context/DepartmentChannelContext";
+import CustomBottomTabBar from "./src/components/CustomBottomTabBar";
+import AnimatedTabScreen from "./src/components/AnimatedTabScreen";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -108,47 +110,10 @@ function HomeTabs() {
 
   return (
     <Tab.Navigator
-      screenOptions={({ route }) => ({
-        headerRight: () => <HeaderActions />,
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName;
-
-          switch (route.name) {
-            case "Home":
-              iconName = focused ? "home" : "home-outline";
-              break;
-            case "Channel":
-              iconName = focused ? "chatbubbles" : "chatbubbles-outline";
-              break;
-            case "Approvals":
-              iconName = focused
-                ? "checkmark-circle"
-                : "checkmark-circle-outline";
-              break;
-            default:
-              iconName = "help-outline";
-          }
-
-          return (
-            <View style={styles.tabIconWrapper}>
-              <Ionicons name={iconName} size={size} color={color} />
-              {route.name === "Channel" && channelUnreadCount > 0 ? (
-                <View style={styles.tabDot} />
-              ) : null}
-            </View>
-          );
-        },
-        tabBarActiveTintColor: colors.tabActive,
-        tabBarInactiveTintColor: colors.tabInactive,
-        tabBarStyle: {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: typography.medium,
-        },
+      tabBar={(props) => <CustomBottomTabBar {...props} />}
+      screenOptions={{
         headerShown: true,
+        headerRight: () => <HeaderActions />,
         headerStyle: {
           backgroundColor: colors.surface,
         },
@@ -158,28 +123,36 @@ function HomeTabs() {
           fontSize: typography.lg,
         },
         headerShadowVisible: false,
-      })}
+        sceneStyle: {
+          backgroundColor: colors.background,
+        },
+        lazy: false,
+      }}
     >
-      <Tab.Screen
-        name="Home"
-        component={DashboardScreen}
-        options={{ title: "Accueil" }}
-      />
+      <Tab.Screen name="Home" options={{ title: "Accueil" }}>
+        {() => (
+          <AnimatedTabScreen>
+            <DashboardScreen />
+          </AnimatedTabScreen>
+        )}
+      </Tab.Screen>
 
-      <Tab.Screen
-        name="Channel"
-        component={DepartmentChannelScreen}
-        options={{
-          title: "Canal"
-        }}
-      />
+      <Tab.Screen name="Channel" options={{ title: "Canal" }}>
+        {() => (
+          <AnimatedTabScreen>
+            <DepartmentChannelScreen />
+          </AnimatedTabScreen>
+        )}
+      </Tab.Screen>
 
       {canReviewRequests && (
-        <Tab.Screen
-          name="Approvals"
-          component={ApprovalsScreen}
-          options={{ title: "Approbations" }}
-        />
+        <Tab.Screen name="Approvals" options={{ title: "Approbations" }}>
+          {() => (
+            <AnimatedTabScreen>
+              <ApprovalsScreen />
+            </AnimatedTabScreen>
+          )}
+        </Tab.Screen>
       )}
 
       <Tab.Screen
@@ -246,10 +219,14 @@ function AppNavigator() {
         },
       }}
     >
-    <Stack.Navigator initialRouteName="Splash">
+      <Stack.Navigator initialRouteName="Splash">
         {!isAuthenticated ? (
           <>
-            <Stack.Screen name="Splash" component={SplashScreen} options={{headerShown: false}} />
+            <Stack.Screen
+              name="Splash"
+              component={SplashScreen}
+              options={{ headerShown: false }}
+            />
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
           </>
@@ -284,6 +261,13 @@ function AppNavigator() {
               name="ManageAnnouncements"
               component={ManageAnnouncementsScreen}
               options={{ title: "Gérer Annonces" }}
+            />
+            <Stack.Screen
+              name="EventManagement"
+              component={
+                require("./src/screens/admin/EventManagementScreen").default
+              }
+              options={{ title: "Gestion des Événements" }}
             />
             <Stack.Screen
               name="ManageEvents"

@@ -1136,7 +1136,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     content: {
       padding: spacing.lg,
-      paddingBottom: spacing.xxl,
+      paddingBottom: spacing.xxl + 90,
     },
 
     hero: {

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using PFE.Application.Common;
 using PFE.Application.DTOs.OfficeTable;
 using PFE.Application.Services;
+using PFE.Application.DTOs.Layout;
 
 namespace PFE.API.Controllers;
 
@@ -40,6 +41,19 @@ public class AdminOfficeTablesController : ControllerBase
     {
         var table = await _officeTableService.CreateOfficeTableAsync(dto);
         return CreatedAtAction(nameof(GetOfficeTableById), new { id = table.Id }, ApiResponse<OfficeTableDto>.SuccessResponse(table, "OfficeTable created successfully"));
+    }
+
+    [HttpPatch("{id}/position")]
+    public async Task<ActionResult<ApiResponse<OfficeTableDto>>> UpdatePosition(
+    int id,
+    [FromBody] UpdatePositionDto dto)
+    {
+        var table = await _officeTableService.UpdateOfficeTablePositionAsync(id, dto);
+
+        if (table == null)
+            return NotFound(ApiResponse<OfficeTableDto>.ErrorResponse("OfficeTable not found"));
+
+        return Ok(ApiResponse<OfficeTableDto>.SuccessResponse(table, "Position updated successfully"));
     }
 
     [HttpPut("{id}")]

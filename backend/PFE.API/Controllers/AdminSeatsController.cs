@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using PFE.Application.Common;
 using PFE.Application.DTOs.Seat;
 using PFE.Application.Services;
+using PFE.Application.DTOs.Layout;
 
 namespace PFE.API.Controllers;
 
@@ -23,6 +24,19 @@ public class AdminSeatsController : ControllerBase
     {
         var seats = await _seatService.GetAllSeatsAsync();
         return Ok(ApiResponse<List<SeatDto>>.SuccessResponse(seats));
+    }
+
+    [HttpPatch("{id}/position")]
+    public async Task<ActionResult<ApiResponse<SeatDto>>> UpdatePosition(
+    int id,
+    [FromBody] UpdatePositionDto dto)
+    {
+        var seat = await _seatService.UpdateSeatPositionAsync(id, dto);
+
+        if (seat == null)
+            return NotFound(ApiResponse<SeatDto>.ErrorResponse("Seat not found"));
+
+        return Ok(ApiResponse<SeatDto>.SuccessResponse(seat, "Position updated successfully"));
     }
 
     [HttpGet("by-table/{tableId}")]

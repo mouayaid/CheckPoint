@@ -246,9 +246,9 @@ const EventsScreen = () => {
           {canManageEvents && (
             <TouchableOpacity
               style={styles.addButton}
-              onPress={() => navigation.navigate("ManageEvents")}
+              onPress={() => navigation.navigate("EventManagement")}
               activeOpacity={0.85}
-              accessibilityLabel="Créer un événement"
+              accessibilityLabel="Gérer les événements"
             >
               <Ionicons name="add" size={18} color={colors.textOnPrimary} />
               <Text style={styles.addButtonText}>Créer</Text>

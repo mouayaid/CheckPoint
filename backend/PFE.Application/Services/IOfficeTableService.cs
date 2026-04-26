@@ -1,6 +1,7 @@
 using PFE.Application.DTOs.OfficeTable;
 
 namespace PFE.Application.Services;
+using PFE.Application.DTOs.Layout;
 
 public interface IOfficeTableService
 {
@@ -9,4 +10,6 @@ public interface IOfficeTableService
     Task<OfficeTableDto> CreateOfficeTableAsync(CreateOfficeTableDto dto);
     Task<OfficeTableDto?> UpdateOfficeTableAsync(int id, UpdateOfficeTableDto dto);
     Task<bool> DeleteOfficeTableAsync(int id);
+
+    Task<OfficeTableDto?> UpdateOfficeTablePositionAsync(int id, UpdatePositionDto dto);
 }

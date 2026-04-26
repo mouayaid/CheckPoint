@@ -17,7 +17,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<OfficeTable> OfficeTables { get; set; }
 
     public DbSet<InternalRequest> InternalRequests { get; set; }
-    
+
 
     public DbSet<Seat> Seats { get; set; }
     public DbSet<SeatReservation> SeatReservations { get; set; }
@@ -51,6 +51,36 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             .HasOne(v => v.Poll)
             .WithMany(p => p.Votes)
             .HasForeignKey(v => v.PollId);
+
+        modelBuilder.Entity<RoomReservation>()
+.HasOne(r => r.User)
+.WithMany()
+.HasForeignKey(r => r.UserId)
+.OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<RoomReservation>()
+            .HasOne(r => r.Manager)
+            .WithMany()
+            .HasForeignKey(r => r.ManagerId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<RoomReservation>()
+            .HasOne(r => r.CreatedBy)
+            .WithMany()
+            .HasForeignKey(r => r.CreatedById)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<RoomReservation>()
+            .HasOne(r => r.StartedBy)
+            .WithMany()
+            .HasForeignKey(r => r.StartedById)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<RoomReservation>()
+            .HasOne(r => r.EndedBy)
+            .WithMany()
+            .HasForeignKey(r => r.EndedById)
+            .OnDelete(DeleteBehavior.Restrict);
 
         ConfigureDepartment(modelBuilder);
         ConfigureUser(modelBuilder);

@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using PFE.Application.Abstractions;
 using PFE.Application.DTOs.OfficeTable;
 using PFE.Domain.Entities;
-
+using PFE.Application.DTOs.Layout;
 namespace PFE.Application.Services;
 
 public class OfficeTableService : IOfficeTableService
@@ -66,4 +66,20 @@ public class OfficeTableService : IOfficeTableService
         await _context.SaveChangesAsync();
         return true;
     }
+
+    public async Task<OfficeTableDto?> UpdateOfficeTablePositionAsync(int id, UpdatePositionDto dto)
+    {
+        var table = await _context.OfficeTables
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (table == null) return null;
+
+        table.PositionX = dto.PositionX;
+        table.PositionY = dto.PositionY;
+
+        await _context.SaveChangesAsync();
+
+        return _mapper.Map<OfficeTableDto>(table);
+    }
 }
+

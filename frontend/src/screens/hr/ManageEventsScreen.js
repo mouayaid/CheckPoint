@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -26,54 +26,80 @@ const EVENT_TYPES = [
 
 export default function ManageEventsScreen() {
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
-
-  const styles = useMemo(
-    () => createStyles(colors, spacing, typography, borderRadius, shadows),
-    [colors, spacing, typography, borderRadius, shadows],
+  const styles = createStyles(
+    colors,
+    spacing,
+    typography,
+    borderRadius,
+    shadows
   );
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [type, setType] = useState(1);
+
   const [startDateTime, setStartDateTime] = useState(() => {
     const d = new Date();
     d.setMinutes(0, 0, 0);
     d.setHours(d.getHours() + 1);
     return d;
   });
+
   const [endDateTime, setEndDateTime] = useState(() => {
     const d = new Date();
     d.setMinutes(0, 0, 0);
     d.setHours(d.getHours() + 2);
     return d;
   });
+
   const [isMandatory, setIsMandatory] = useState(false);
   const [rsvpEnabled, setRsvpEnabled] = useState(true);
 
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
-  const [startPickerMode, setStartPickerMode] = useState("date"); // android: date -> time
-  const [endPickerMode, setEndPickerMode] = useState("date"); // android: date -> time
+  const [startPickerMode, setStartPickerMode] = useState("date");
+  const [endPickerMode, setEndPickerMode] = useState("date");
   const [saving, setSaving] = useState(false);
 
   const validate = () => {
-    const t = title.trim();
-    if (!t) return "Veuillez saisir un titre.";
+    const trimmedTitle = title.trim();
+
+    if (!trimmedTitle) return "Veuillez saisir un titre.";
     if (!startDateTime || !endDateTime)
       return "Veuillez sélectionner les horaires.";
     if (endDateTime <= startDateTime)
       return "L'heure de fin doit être après l'heure de début.";
+
     return null;
+  };
+
+  const resetForm = () => {
+    const start = new Date();
+    start.setMinutes(0, 0, 0);
+    start.setHours(start.getHours() + 1);
+
+    const end = new Date(start);
+    end.setHours(end.getHours() + 1);
+
+    setTitle("");
+    setDescription("");
+    setType(1);
+    setStartDateTime(start);
+    setEndDateTime(end);
+    setIsMandatory(false);
+    setRsvpEnabled(true);
   };
 
   const handleSave = async () => {
     const error = validate();
+
     if (error) {
       Alert.alert("Validation", error);
       return;
     }
 
     setSaving(true);
+
     try {
       const payload = {
         title: title.trim(),
@@ -91,31 +117,125 @@ export default function ManageEventsScreen() {
       if (!res?.success) {
         Alert.alert(
           "Erreur",
-          res?.message || "Impossible de créer l'événement.",
+          res?.message || "Impossible de créer l'événement."
         );
         return;
       }
 
-      Alert.alert("Succès", "Événement créé.");
-      setTitle("");
-      setDescription("");
-      setType(1);
-      setIsMandatory(false);
-      setRsvpEnabled(true);
+      Alert.alert("Succès", "Événement créé avec succès.");
+      resetForm();
     } catch (e) {
-      Alert.alert("Erreur", e?.message || "Impossible de créer l'événement.");
+      Alert.alert(
+        "Erreur",
+        e?.response?.data?.message ||
+          e?.message ||
+          "Impossible de créer l'événement."
+      );
     } finally {
       setSaving(false);
     }
   };
 
-  const typeLabel = EVENT_TYPES.find((t) => t.value === type)?.label ?? "—";
+  const typeLabel =
+    EVENT_TYPES.find((eventType) => eventType.value === type)?.label || "—";
+
+  const formatDateTime = (date) =>
+    date.toLocaleString("fr-FR", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+  const handleStartPickerChange = (event, selectedDate) => {
+    if (Platform.OS === "ios") {
+      if (event?.type === "dismissed" || !selectedDate) return;
+
+      setStartDateTime(selectedDate);
+
+      if (selectedDate >= endDateTime) {
+        const newEnd = new Date(selectedDate);
+        newEnd.setHours(newEnd.getHours() + 1);
+        setEndDateTime(newEnd);
+      }
+      return;
+    }
+
+    if (event?.type === "dismissed") {
+      setShowStartPicker(false);
+      setStartPickerMode("date");
+      return;
+    }
+
+    if (!selectedDate) return;
+
+    if (startPickerMode === "date") {
+      const next = new Date(startDateTime);
+      next.setFullYear(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        selectedDate.getDate()
+      );
+      setStartDateTime(next);
+      setStartPickerMode("time");
+      return;
+    }
+
+    const next = new Date(startDateTime);
+    next.setHours(selectedDate.getHours(), selectedDate.getMinutes(), 0, 0);
+    setStartDateTime(next);
+    setShowStartPicker(false);
+    setStartPickerMode("date");
+
+    if (next >= endDateTime) {
+      const newEnd = new Date(next);
+      newEnd.setHours(newEnd.getHours() + 1);
+      setEndDateTime(newEnd);
+    }
+  };
+
+  const handleEndPickerChange = (event, selectedDate) => {
+    if (Platform.OS === "ios") {
+      if (event?.type === "dismissed" || !selectedDate) return;
+      setEndDateTime(selectedDate);
+      return;
+    }
+
+    if (event?.type === "dismissed") {
+      setShowEndPicker(false);
+      setEndPickerMode("date");
+      return;
+    }
+
+    if (!selectedDate) return;
+
+    if (endPickerMode === "date") {
+      const next = new Date(endDateTime);
+      next.setFullYear(
+        selectedDate.getFullYear(),
+        selectedDate.getMonth(),
+        selectedDate.getDate()
+      );
+      setEndDateTime(next);
+      setEndPickerMode("time");
+      return;
+    }
+
+    const next = new Date(endDateTime);
+    next.setHours(selectedDate.getHours(), selectedDate.getMinutes(), 0, 0);
+    setEndDateTime(next);
+    setShowEndPicker(false);
+    setEndPickerMode("date");
+  };
 
   return (
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
     >
       <Card style={styles.headerCard}>
         <View style={styles.headerRow}>
@@ -126,7 +246,8 @@ export default function ManageEventsScreen() {
               color={colors.primary}
             />
           </View>
-          <View style={{ flex: 1 }}>
+
+          <View style={styles.headerTextWrap}>
             <Text style={styles.headerTitle}>Créer un événement</Text>
             <Text style={styles.headerSubtitle}>
               Admin / RH : créez un événement visible dans l’application.
@@ -140,7 +261,7 @@ export default function ManageEventsScreen() {
           label="Titre"
           value={title}
           onChangeText={setTitle}
-          placeholder="ex. Réunion mensuelle"
+          placeholder="Ex. Réunion mensuelle"
           editable={!saving}
         />
 
@@ -155,13 +276,17 @@ export default function ManageEventsScreen() {
 
         <Text style={styles.sectionLabel}>Type</Text>
         <View style={styles.typeRow}>
-          {EVENT_TYPES.map((opt) => {
-            const selected = opt.value === type;
+          {EVENT_TYPES.map((option) => {
+            const selected = option.value === type;
+
             return (
               <TouchableOpacity
-                key={opt.value}
-                style={[styles.typeChip, selected && styles.typeChipSelected]}
-                onPress={() => setType(opt.value)}
+                key={option.value}
+                style={[
+                  styles.typeChip,
+                  selected && styles.typeChipSelected,
+                ]}
+                onPress={() => setType(option.value)}
                 activeOpacity={0.85}
                 disabled={saving}
               >
@@ -171,7 +296,7 @@ export default function ManageEventsScreen() {
                     selected && styles.typeChipTextSelected,
                   ]}
                 >
-                  {opt.label}
+                  {option.label}
                 </Text>
               </TouchableOpacity>
             );
@@ -189,15 +314,7 @@ export default function ManageEventsScreen() {
             activeOpacity={0.85}
             disabled={saving}
           >
-            <Text style={styles.timeValue}>
-              {startDateTime.toLocaleString("fr-FR", {
-                weekday: "short",
-                day: "2-digit",
-                month: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </Text>
+            <Text style={styles.timeValue}>{formatDateTime(startDateTime)}</Text>
             <Text style={styles.timeLabel}>Début</Text>
           </TouchableOpacity>
 
@@ -210,23 +327,18 @@ export default function ManageEventsScreen() {
             activeOpacity={0.85}
             disabled={saving}
           >
-            <Text style={styles.timeValue}>
-              {endDateTime.toLocaleString("fr-FR", {
-                weekday: "short",
-                day: "2-digit",
-                month: "short",
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </Text>
+            <Text style={styles.timeValue}>{formatDateTime(endDateTime)}</Text>
             <Text style={styles.timeLabel}>Fin</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.flagsRow}>
           <TouchableOpacity
-            style={[styles.flagChip, isMandatory && styles.flagChipSelected]}
-            onPress={() => setIsMandatory((v) => !v)}
+            style={[
+              styles.flagChip,
+              isMandatory && styles.flagChipSelected,
+            ]}
+            onPress={() => setIsMandatory((prev) => !prev)}
             activeOpacity={0.85}
             disabled={saving}
           >
@@ -246,14 +358,19 @@ export default function ManageEventsScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.flagChip, rsvpEnabled && styles.flagChipSelected]}
-            onPress={() => setRsvpEnabled((v) => !v)}
+            style={[
+              styles.flagChip,
+              rsvpEnabled && styles.flagChipSelected,
+            ]}
+            onPress={() => setRsvpEnabled((prev) => !prev)}
             activeOpacity={0.85}
             disabled={saving}
           >
             <Ionicons
               name={
-                rsvpEnabled ? "checkmark-circle" : "checkmark-circle-outline"
+                rsvpEnabled
+                  ? "checkmark-circle"
+                  : "checkmark-circle-outline"
               }
               size={16}
               color={rsvpEnabled ? colors.textOnPrimary : colors.textSecondary}
@@ -270,8 +387,9 @@ export default function ManageEventsScreen() {
         </View>
 
         <Text style={styles.previewText}>
-          Type : {typeLabel} • {isMandatory ? "Obligatoire" : "Non obligatoire"}{" "}
-          • {rsvpEnabled ? "RSVP activé" : "RSVP désactivé"}
+          Type : {typeLabel} •{" "}
+          {isMandatory ? "Obligatoire" : "Non obligatoire"} •{" "}
+          {rsvpEnabled ? "RSVP activé" : "RSVP désactivé"}
         </Text>
 
         <Button
@@ -288,51 +406,7 @@ export default function ManageEventsScreen() {
           value={startDateTime}
           mode={Platform.OS === "ios" ? "datetime" : startPickerMode}
           display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={(event, date) => {
-            // iOS: single picker "datetime"
-            if (Platform.OS === "ios") {
-              if (event?.type === "dismissed") return;
-              if (!date) return;
-              setStartDateTime(date);
-              if (endDateTime && date >= endDateTime) {
-                const next = new Date(date);
-                next.setHours(next.getHours() + 1);
-                setEndDateTime(next);
-              }
-              return;
-            }
-
-            // Android: two-step (date -> time)
-            if (event?.type === "dismissed") {
-              setShowStartPicker(false);
-              return;
-            }
-            if (!date) return;
-
-            if (startPickerMode === "date") {
-              const next = new Date(startDateTime);
-              next.setFullYear(
-                date.getFullYear(),
-                date.getMonth(),
-                date.getDate(),
-              );
-              setStartDateTime(next);
-              setStartPickerMode("time");
-              return;
-            }
-
-            const next = new Date(startDateTime);
-            next.setHours(date.getHours(), date.getMinutes(), 0, 0);
-            setStartDateTime(next);
-            setShowStartPicker(false);
-            setStartPickerMode("date");
-
-            if (endDateTime && next >= endDateTime) {
-              const newEnd = new Date(next);
-              newEnd.setHours(newEnd.getHours() + 1);
-              setEndDateTime(newEnd);
-            }
-          }}
+          onChange={handleStartPickerChange}
         />
       )}
 
@@ -341,40 +415,7 @@ export default function ManageEventsScreen() {
           value={endDateTime}
           mode={Platform.OS === "ios" ? "datetime" : endPickerMode}
           display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={(event, date) => {
-            // iOS: single picker "datetime"
-            if (Platform.OS === "ios") {
-              if (event?.type === "dismissed") return;
-              if (!date) return;
-              setEndDateTime(date);
-              return;
-            }
-
-            // Android: two-step (date -> time)
-            if (event?.type === "dismissed") {
-              setShowEndPicker(false);
-              return;
-            }
-            if (!date) return;
-
-            if (endPickerMode === "date") {
-              const next = new Date(endDateTime);
-              next.setFullYear(
-                date.getFullYear(),
-                date.getMonth(),
-                date.getDate(),
-              );
-              setEndDateTime(next);
-              setEndPickerMode("time");
-              return;
-            }
-
-            const next = new Date(endDateTime);
-            next.setHours(date.getHours(), date.getMinutes(), 0, 0);
-            setEndDateTime(next);
-            setShowEndPicker(false);
-            setEndPickerMode("date");
-          }}
+          onChange={handleEndPickerChange}
         />
       )}
     </ScrollView>
@@ -383,15 +424,32 @@ export default function ManageEventsScreen() {
 
 const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
   StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
 
-    headerCard: { padding: spacing.lg, backgroundColor: colors.surface },
+    content: {
+      padding: spacing.lg,
+      paddingBottom: spacing.xxxl,
+    },
+
+    headerCard: {
+      padding: spacing.lg,
+      backgroundColor: colors.surface,
+      ...(shadows?.sm || {}),
+    },
+
     headerRow: {
       flexDirection: "row",
-      gap: spacing.md,
       alignItems: "flex-start",
+      gap: spacing.md,
     },
+
+    headerTextWrap: {
+      flex: 1,
+    },
+
     iconWrap: {
       width: 44,
       height: 44,
@@ -402,12 +460,14 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       borderWidth: 1,
       borderColor: colors.border,
     },
+
     headerTitle: {
       fontSize: typography.lg,
       fontWeight: typography.bold,
       color: colors.text,
       marginBottom: 4,
     },
+
     headerSubtitle: {
       fontSize: typography.sm,
       color: colors.textSecondary,
@@ -418,7 +478,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       marginTop: spacing.lg,
       padding: spacing.lg,
       backgroundColor: colors.surface,
-      ...shadows.sm,
+      ...(shadows?.sm || {}),
     },
 
     sectionLabel: {
@@ -429,7 +489,12 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       color: colors.text,
     },
 
-    typeRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+    typeRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm,
+    },
+
     typeChip: {
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
@@ -438,18 +503,27 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       borderColor: colors.border,
       backgroundColor: colors.background,
     },
+
     typeChipSelected: {
       backgroundColor: colors.primary,
       borderColor: colors.primary,
     },
+
     typeChipText: {
       color: colors.text,
       fontWeight: typography.semibold,
       fontSize: typography.sm,
     },
-    typeChipTextSelected: { color: colors.textOnPrimary },
 
-    timeRow: { flexDirection: "row", gap: spacing.sm },
+    typeChipTextSelected: {
+      color: colors.textOnPrimary,
+    },
+
+    timeRow: {
+      flexDirection: "row",
+      gap: spacing.sm,
+    },
+
     timeField: {
       flex: 1,
       backgroundColor: colors.background,
@@ -458,18 +532,26 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       borderRadius: borderRadius.lg,
       padding: spacing.md,
     },
+
     timeValue: {
       color: colors.text,
       fontWeight: typography.semibold,
       fontSize: typography.sm,
     },
+
     timeLabel: {
       marginTop: 4,
       color: colors.textSecondary,
       fontSize: typography.xs,
     },
 
-    flagsRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
+    flagsRow: {
+      flexDirection: "row",
+      gap: spacing.sm,
+      marginTop: spacing.md,
+      flexWrap: "wrap",
+    },
+
     flagChip: {
       flexDirection: "row",
       alignItems: "center",
@@ -481,16 +563,21 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       borderColor: colors.border,
       backgroundColor: colors.background,
     },
+
     flagChipSelected: {
       backgroundColor: colors.primary,
       borderColor: colors.primary,
     },
+
     flagChipText: {
       color: colors.text,
       fontWeight: typography.semibold,
       fontSize: typography.sm,
     },
-    flagChipTextSelected: { color: colors.textOnPrimary },
+
+    flagChipTextSelected: {
+      color: colors.textOnPrimary,
+    },
 
     previewText: {
       marginTop: spacing.md,
@@ -499,5 +586,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       lineHeight: 18,
     },
 
-    saveButton: { marginTop: spacing.lg },
+    saveButton: {
+      marginTop: spacing.lg,
+    },
   });

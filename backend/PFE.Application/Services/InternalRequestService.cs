@@ -41,7 +41,7 @@ public class InternalRequestService : IInternalRequestService
 
         // Notify admins (Role is enum, and your User doesn't have IsActive)
         var admins = await _context.Users
-            .Where(u => u.Role == Role.Admin)
+            .Where(u => u.Role.Name == "Admin")
             .ToListAsync();
 
         foreach (var admin in admins)

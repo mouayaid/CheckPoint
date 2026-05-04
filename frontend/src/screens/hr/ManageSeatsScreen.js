@@ -17,6 +17,8 @@ import {
   RefreshControl,
   Animated,
   Switch,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
@@ -241,6 +243,7 @@ function FormModal({ visible, title, fields, values, onChange, onSave, onClose, 
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <View style={{
         flex: 1, justifyContent: "flex-end",
         backgroundColor: "rgba(0,0,0,0.45)",
@@ -337,6 +340,7 @@ function FormModal({ visible, title, fields, values, onChange, onSave, onClose, 
           </View>
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

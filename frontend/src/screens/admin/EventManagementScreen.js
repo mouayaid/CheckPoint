@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect , useRoute } from "@react-navigation/native";
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { eventService } from "../../services/api";
@@ -129,7 +129,7 @@ const EditEventModal = ({ visible, event, onClose, onSave, colors, spacing, typo
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={s.overlay}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={s.overlay}>
         <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
         <View style={s.sheet}>
           <View style={s.handle} />
@@ -218,6 +218,7 @@ const EditEventModal = ({ visible, event, onClose, onSave, colors, spacing, typo
 const EventManagementScreen = () => {
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
   const { user } = useAuth();
+  const route = useRoute();
   const role = user?.role;
 
   const canManage = role === 2 || role === 3 || role === 4 || role === "manager" || role === "hr" || role === "admin";
@@ -237,6 +238,13 @@ const EventManagementScreen = () => {
   const [editEvent, setEditEvent] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+
+  React.useEffect(() => {
+    if (route.params?.openCreateModal) {
+      setEditEvent(null);
+      setModalVisible(true);
+    }
+  }, [route.params?.openCreateModal]);
 
   const loadEvents = useCallback(async (isRefresh = false) => {
     try {

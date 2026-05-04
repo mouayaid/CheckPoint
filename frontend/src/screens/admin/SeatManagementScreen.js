@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState , useEffect } from "react";
 import {
   View,
   Text,
@@ -15,11 +15,13 @@ import {
   LayoutAnimation,
   UIManager,
 } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../context/ThemeContext";
 import { adminSeatService } from "../../services/api/adminSeatService";
 import { adminOfficeTableService } from "../../services/api/adminOfficeTableService";
+import { adminLayoutService } from "../../services/api/adminLayoutService";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import StatsBanner from "../../components/StatsBanner";
 
 if (
   Platform.OS === "android" &&
@@ -28,236 +30,7 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-/* ══════════════════════════════════
-   Mini Table Preview
-══════════════════════════════════ */
-const TableMiniPreview = ({ table, seats = [], colors, spacing, borderRadius }) => {
-  const previewWidth = 260;
-  const previewHeight = 130;
 
-  const tableWidth = Math.max(60, Number(table?.width ?? table?.Width ?? 100));
-  const tableHeight = Math.max(40, Number(table?.height ?? table?.Height ?? 100));
-
-  const normalizedTable = {
-    left: 86,
-    top: 43,
-    width: Math.min(Math.max(tableWidth * 0.5, 72), 110),
-    height: Math.min(Math.max(tableHeight * 0.35, 42), 55),
-  };
-
-  const seatSize = 10;
-  const gap = 7;
-
-  const distributedSeats = seats.map((seat, index) => {
-    const perSide = Math.ceil(seats.length / 4) || 1;
-    const side = Math.floor(index / perSide);
-    const offsetIndex = index % perSide;
-    let left = 0, top = 0;
-    if (side === 0) { left = normalizedTable.left - 16 + offsetIndex * (seatSize + gap); top = normalizedTable.top - 16; }
-    else if (side === 1) { left = normalizedTable.left + normalizedTable.width + 10; top = normalizedTable.top + offsetIndex * (seatSize + gap); }
-    else if (side === 2) { left = normalizedTable.left - 16 + offsetIndex * (seatSize + gap); top = normalizedTable.top + normalizedTable.height + 10; }
-    else { left = normalizedTable.left - 16; top = normalizedTable.top + offsetIndex * (seatSize + gap); }
-    return { seat, left: Math.max(6, Math.min(left, previewWidth - 16)), top: Math.max(6, Math.min(top, previewHeight - 16)) };
-  });
-
-  return (
-    <View
-      style={{
-        backgroundColor: colors.surfaceMuted,
-        borderRadius: borderRadius.md,
-        overflow: "hidden",
-        marginBottom: spacing.md,
-      }}
-    >
-      <View style={{ width: previewWidth, height: previewHeight, alignSelf: "center", position: "relative" }}>
-        <View
-          style={{
-            position: "absolute",
-            left: normalizedTable.left,
-            top: normalizedTable.top,
-            width: normalizedTable.width,
-            height: normalizedTable.height,
-            backgroundColor: colors.surface,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: colors.border,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Text style={{ fontSize: 9, color: colors.textSecondary, fontWeight: "600" }}>
-            {table?.name ?? table?.Name ?? "Table"}
-          </Text>
-        </View>
-
-        {distributedSeats.map(({ seat, left, top }, index) => {
-          const isActive = seat?.isActive ?? seat?.IsActive ?? false;
-          return (
-            <View
-              key={`preview-seat-${seat?.id ?? seat?.Id ?? index}`}
-              style={{
-                position: "absolute",
-                left,
-                top,
-                width: seatSize,
-                height: seatSize,
-                borderRadius: seatSize / 2,
-                backgroundColor: isActive ? colors.primary : "#94A3B8",
-                borderWidth: 1.5,
-                borderColor: colors.surfaceMuted,
-              }}
-            />
-          );
-        })}
-      </View>
-    </View>
-  );
-};
-
-/* ══════════════════════════════════
-   Seat Chip (grid item)
-══════════════════════════════════ */
-const SeatChip = ({ seat, tableId, onEdit, onDelete, deletingSeatId, colors, spacing, borderRadius, typography }) => {
-  const id = seat.id ?? seat.Id;
-  const label = seat.label ?? seat.Label ?? "—";
-  const isActive = seat.isActive ?? seat.IsActive ?? false;
-  const isDeleting = deletingSeatId === id;
-
-  return (
-    <View
-      style={{
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: isActive ? colors.border : `${colors.border}80`,
-        borderStyle: isActive ? "solid" : "dashed",
-        borderRadius: borderRadius.md,
-        padding: 10,
-        opacity: isActive ? 1 : 0.65,
-      }}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
-        <View
-          style={{
-            width: 7,
-            height: 7,
-            borderRadius: 3.5,
-            backgroundColor: isActive ? colors.primary : "#94A3B8",
-            marginRight: 6,
-          }}
-        />
-        <Text
-          style={{ fontSize: typography.sm, fontWeight: typography.semibold, color: colors.text, flex: 1 }}
-          numberOfLines={1}
-        >
-          {label}
-        </Text>
-      </View>
-
-      <Text style={{ fontSize: 10, color: colors.textSecondary, marginBottom: 8 }}>
-        {isActive ? "Actif" : "Inactif"}
-      </Text>
-
-      <View style={{ flexDirection: "row", gap: 6 }}>
-        <TouchableOpacity
-          style={{
-            flex: 1,
-            alignItems: "center",
-            paddingVertical: 5,
-            borderRadius: 6,
-            backgroundColor: colors.surfaceMuted,
-          }}
-          onPress={() => onEdit(seat, tableId)}
-        >
-          <Ionicons name="create-outline" size={13} color={colors.textSecondary} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={{
-            flex: 1,
-            alignItems: "center",
-            paddingVertical: 5,
-            borderRadius: 6,
-            backgroundColor: "#FEF2F2",
-          }}
-          onPress={() => onDelete(seat, tableId)}
-          disabled={isDeleting}
-        >
-          {isDeleting ? (
-            <ActivityIndicator size="small" color="#EF4444" />
-          ) : (
-            <Ionicons name="trash-outline" size={13} color="#EF4444" />
-          )}
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
-
-/* ══════════════════════════════════
-   Stats Banner
-══════════════════════════════════ */
-const StatsBanner = ({ tables, seatsByTableId, colors, spacing, borderRadius, typography }) => {
-  const totalSeats = Object.values(seatsByTableId).flat().length;
-  const activeSeats = Object.values(seatsByTableId).flat().filter((s) => s.isActive ?? s.IsActive).length;
-  const inactiveSeats = totalSeats - activeSeats;
-
-  const stats = [
-    { label: "Tables", value: tables.length, icon: "grid-outline" },
-    { label: "Sièges actifs", value: activeSeats, icon: "checkmark-circle-outline", color: colors.primary },
-    { label: "Inactifs", value: inactiveSeats, icon: "close-circle-outline", color: "#94A3B8" },
-  ];
-
-  return (
-    <View style={{ flexDirection: "row", gap: spacing.sm, marginBottom: spacing.md }}>
-      {stats.map((stat) => (
-        <View
-          key={stat.label}
-          style={{
-            flex: 1,
-            backgroundColor: colors.surface,
-            borderRadius: borderRadius.md,
-            borderWidth: 1,
-            borderColor: colors.border,
-            padding: 12,
-          }}
-        >
-          <Ionicons
-            name={stat.icon}
-            size={16}
-            color={stat.color ?? colors.textSecondary}
-            style={{ marginBottom: 6 }}
-          />
-          <Text style={{ fontSize: 20, fontWeight: typography.bold, color: colors.text }}>{stat.value}</Text>
-          <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 2 }}>{stat.label}</Text>
-        </View>
-      ))}
-    </View>
-  );
-};
-
-/* ══════════════════════════════════
-   Occupancy Bar
-══════════════════════════════════ */
-const OccupancyBar = ({ seats, colors, typography }) => {
-  const total = seats.length;
-  const active = seats.filter((s) => s.isActive ?? s.IsActive).length;
-  const pct = total > 0 ? Math.round((active / total) * 100) : 0;
-  const color = pct >= 75 ? colors.primary : pct >= 40 ? "#F59E0B" : "#94A3B8";
-
-  return (
-    <View style={{ paddingHorizontal: 14, paddingBottom: 10 }}>
-      <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
-        <Text style={{ fontSize: 10, color: colors.textSecondary }}>Occupation</Text>
-        <Text style={{ fontSize: 10, fontWeight: "600", color: colors.textSecondary }}>
-          {active} / {total}
-        </Text>
-      </View>
-      <View style={{ height: 4, backgroundColor: colors.surfaceMuted, borderRadius: 99, overflow: "hidden" }}>
-        <View style={{ height: "100%", width: `${pct}%`, backgroundColor: color, borderRadius: 99 }} />
-      </View>
-    </View>
-  );
-};
 
 /* ══════════════════════════════════
    Edit/Add Seat Modal
@@ -304,17 +77,28 @@ const EditSeatModal = ({
     const posX = Number(positionX);
     const posY = Number(positionY);
     if (isNaN(posX) || isNaN(posY)) {
-      Alert.alert("Validation", "Les positions X et Y doivent être numériques.");
+      Alert.alert(
+        "Validation",
+        "Les positions X et Y doivent être numériques.",
+      );
       return;
     }
     setSaving(true);
     try {
-      const baseDto = { label: label.trim(), officeTableId: tableId, positionX: posX, positionY: posY };
+      const baseDto = {
+        label: label.trim(),
+        officeTableId: tableId,
+        positionX: posX,
+        positionY: posY,
+      };
       const dto = seat ? { ...baseDto, isActive } : baseDto;
       await onSave(seat?.id ?? seat?.Id, dto);
       onClose();
     } catch (err) {
-      Alert.alert("Erreur", err?.response?.data?.message || "Impossible de sauvegarder le siège.");
+      Alert.alert(
+        "Erreur",
+        err?.response?.data?.message || "Impossible de sauvegarder le siège.",
+      );
     } finally {
       setSaving(false);
     }
@@ -323,7 +107,11 @@ const EditSeatModal = ({
   const s = useMemo(
     () =>
       StyleSheet.create({
-        overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+        overlay: {
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.5)",
+          justifyContent: "flex-end",
+        },
         sheet: {
           backgroundColor: colors.surface,
           borderTopLeftRadius: 24,
@@ -333,66 +121,129 @@ const EditSeatModal = ({
           maxHeight: "80%",
         },
         handle: {
-          width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border,
-          alignSelf: "center", marginBottom: spacing.lg,
+          width: 40,
+          height: 4,
+          borderRadius: 2,
+          backgroundColor: colors.border,
+          alignSelf: "center",
+          marginBottom: spacing.lg,
         },
-        title: { fontSize: typography.lg, fontWeight: typography.semibold, color: colors.text, marginBottom: 4 },
+        title: {
+          fontSize: typography.lg,
+          fontWeight: typography.semibold,
+          color: colors.text,
+          marginBottom: 4,
+        },
         tableCtx: {
-          flexDirection: "row", alignItems: "center", gap: 6,
-          backgroundColor: colors.surfaceMuted, borderRadius: borderRadius.md,
-          paddingHorizontal: 10, paddingVertical: 6, marginBottom: spacing.lg,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          backgroundColor: colors.surfaceMuted,
+          borderRadius: borderRadius.md,
+          paddingHorizontal: 10,
+          paddingVertical: 6,
+          marginBottom: spacing.lg,
           alignSelf: "flex-start",
         },
         tableCtxText: { fontSize: typography.xs, color: colors.textSecondary },
         label: {
-          fontSize: typography.sm, fontWeight: typography.medium,
-          color: colors.textSecondary, marginBottom: 6,
+          fontSize: typography.sm,
+          fontWeight: typography.medium,
+          color: colors.textSecondary,
+          marginBottom: 6,
         },
         input: {
-          backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.border,
-          borderRadius: borderRadius.md, paddingHorizontal: 14, paddingVertical: 12,
-          fontSize: typography.base, color: colors.text, marginBottom: spacing.md,
+          backgroundColor: colors.surfaceMuted,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: borderRadius.md,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          fontSize: typography.base,
+          color: colors.text,
+          marginBottom: spacing.md,
         },
         advancedToggle: {
-          flexDirection: "row", alignItems: "center", gap: 6,
-          paddingVertical: 8, marginBottom: spacing.sm,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingVertical: 8,
+          marginBottom: spacing.sm,
         },
         advancedText: { fontSize: typography.sm, color: colors.textSecondary },
         statusToggle: {
-          flexDirection: "row", alignItems: "center", marginBottom: spacing.md,
-          gap: 10, paddingVertical: 10,
+          flexDirection: "row",
+          alignItems: "center",
+          marginBottom: spacing.md,
+          gap: 10,
+          paddingVertical: 10,
         },
         statusLabel: { fontSize: typography.sm, color: colors.text, flex: 1 },
         row: { flexDirection: "row", gap: spacing.md },
         col: { flex: 1 },
         btnRow: { flexDirection: "row", gap: 10, marginTop: spacing.md },
         cancel: {
-          flex: 1, alignItems: "center", justifyContent: "center",
-          paddingVertical: 14, borderRadius: borderRadius.lg,
-          borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface,
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingVertical: 14,
+          borderRadius: borderRadius.lg,
+          borderWidth: 1.5,
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
         },
-        cancelTxt: { fontSize: typography.base, fontWeight: typography.semibold, color: colors.textSecondary },
+        cancelTxt: {
+          fontSize: typography.base,
+          fontWeight: typography.semibold,
+          color: colors.textSecondary,
+        },
         save: {
-          flex: 2, alignItems: "center", justifyContent: "center",
-          paddingVertical: 14, borderRadius: borderRadius.lg, backgroundColor: colors.primary,
+          flex: 2,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingVertical: 14,
+          borderRadius: borderRadius.lg,
+          backgroundColor: colors.primary,
         },
-        saveTxt: { fontSize: typography.base, fontWeight: typography.semibold, color: "#fff" },
+        saveTxt: {
+          fontSize: typography.base,
+          fontWeight: typography.semibold,
+          color: "#fff",
+        },
       }),
-    [colors, spacing, typography, borderRadius]
+    [colors, spacing, typography, borderRadius],
   );
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={s.overlay}>
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={s.overlay}
+      >
+        <TouchableOpacity
+          style={{ flex: 1 }}
+          activeOpacity={1}
+          onPress={onClose}
+        />
         <View style={s.sheet}>
           <ScrollView showsVerticalScrollIndicator={false}>
             <View style={s.handle} />
-            <Text style={s.title}>{seat ? "Modifier le siège" : "Ajouter un siège"}</Text>
+            <Text style={s.title}>
+              {seat ? "Modifier le siège" : "Ajouter un siège"}
+            </Text>
 
             {tableName && (
               <View style={s.tableCtx}>
-                <Ionicons name="grid-outline" size={12} color={colors.textSecondary} />
+                <Ionicons
+                  name="grid-outline"
+                  size={12}
+                  color={colors.textSecondary}
+                />
                 <Text style={s.tableCtxText}>{tableName}</Text>
               </View>
             )}
@@ -409,7 +260,10 @@ const EditSeatModal = ({
             />
 
             {seat && (
-              <TouchableOpacity style={s.statusToggle} onPress={() => setIsActive(!isActive)}>
+              <TouchableOpacity
+                style={s.statusToggle}
+                onPress={() => setIsActive(!isActive)}
+              >
                 <Ionicons
                   name={isActive ? "checkbox" : "square-outline"}
                   size={22}
@@ -419,13 +273,22 @@ const EditSeatModal = ({
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity style={s.advancedToggle} onPress={() => setShowAdvanced(!showAdvanced)}>
+            <TouchableOpacity
+              style={s.advancedToggle}
+              onPress={() => setShowAdvanced(!showAdvanced)}
+            >
               <Ionicons
-                name={showAdvanced ? "chevron-down-outline" : "chevron-forward-outline"}
+                name={
+                  showAdvanced
+                    ? "chevron-down-outline"
+                    : "chevron-forward-outline"
+                }
                 size={14}
                 color={colors.textSecondary}
               />
-              <Text style={s.advancedText}>Paramètres avancés (coordonnées)</Text>
+              <Text style={s.advancedText}>
+                Paramètres avancés (coordonnées)
+              </Text>
             </TouchableOpacity>
 
             {showAdvanced && (
@@ -458,11 +321,23 @@ const EditSeatModal = ({
             )}
 
             <View style={s.btnRow}>
-              <TouchableOpacity style={s.cancel} onPress={onClose} disabled={saving}>
+              <TouchableOpacity
+                style={s.cancel}
+                onPress={onClose}
+                disabled={saving}
+              >
                 <Text style={s.cancelTxt}>Annuler</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.save} onPress={handleSave} disabled={saving}>
-                {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveTxt}>Enregistrer</Text>}
+              <TouchableOpacity
+                style={s.save}
+                onPress={handleSave}
+                disabled={saving}
+              >
+                {saving ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={s.saveTxt}>Enregistrer</Text>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -521,7 +396,10 @@ const EditTableModal = ({
       await onSave(table?.id ?? table?.Id, dto);
       onClose();
     } catch (err) {
-      Alert.alert("Erreur", err?.response?.data?.message || "Impossible de sauvegarder la table.");
+      Alert.alert(
+        "Erreur",
+        err?.response?.data?.message || "Impossible de sauvegarder la table.",
+      );
     } finally {
       setSaving(false);
     }
@@ -530,7 +408,11 @@ const EditTableModal = ({
   const s = useMemo(
     () =>
       StyleSheet.create({
-        overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+        overlay: {
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.5)",
+          justifyContent: "flex-end",
+        },
         sheet: {
           backgroundColor: colors.surface,
           borderTopLeftRadius: 24,
@@ -540,50 +422,100 @@ const EditTableModal = ({
           maxHeight: "80%",
         },
         handle: {
-          width: 40, height: 4, borderRadius: 2,
-          backgroundColor: colors.border, alignSelf: "center", marginBottom: spacing.lg,
+          width: 40,
+          height: 4,
+          borderRadius: 2,
+          backgroundColor: colors.border,
+          alignSelf: "center",
+          marginBottom: spacing.lg,
         },
-        title: { fontSize: typography.lg, fontWeight: typography.semibold, color: colors.text, marginBottom: spacing.lg },
+        title: {
+          fontSize: typography.lg,
+          fontWeight: typography.semibold,
+          color: colors.text,
+          marginBottom: spacing.lg,
+        },
         label: {
-          fontSize: typography.sm, fontWeight: typography.medium,
-          color: colors.textSecondary, marginBottom: 6,
+          fontSize: typography.sm,
+          fontWeight: typography.medium,
+          color: colors.textSecondary,
+          marginBottom: 6,
         },
         input: {
-          backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.border,
-          borderRadius: borderRadius.md, paddingHorizontal: 14, paddingVertical: 12,
-          fontSize: typography.base, color: colors.text, marginBottom: spacing.md,
+          backgroundColor: colors.surfaceMuted,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: borderRadius.md,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          fontSize: typography.base,
+          color: colors.text,
+          marginBottom: spacing.md,
         },
         advancedToggle: {
-          flexDirection: "row", alignItems: "center", gap: 6,
-          paddingVertical: 8, marginBottom: spacing.sm,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingVertical: 8,
+          marginBottom: spacing.sm,
         },
         advancedText: { fontSize: typography.sm, color: colors.textSecondary },
         row: { flexDirection: "row", gap: spacing.md },
         col: { flex: 1 },
         btnRow: { flexDirection: "row", gap: 10, marginTop: spacing.md },
         cancel: {
-          flex: 1, alignItems: "center", justifyContent: "center",
-          paddingVertical: 14, borderRadius: borderRadius.lg,
-          borderWidth: 1.5, borderColor: colors.border,
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingVertical: 14,
+          borderRadius: borderRadius.lg,
+          borderWidth: 1.5,
+          borderColor: colors.border,
         },
-        cancelTxt: { fontSize: typography.base, fontWeight: typography.semibold, color: colors.textSecondary },
+        cancelTxt: {
+          fontSize: typography.base,
+          fontWeight: typography.semibold,
+          color: colors.textSecondary,
+        },
         save: {
-          flex: 2, alignItems: "center", justifyContent: "center",
-          paddingVertical: 14, borderRadius: borderRadius.lg, backgroundColor: colors.primary,
+          flex: 2,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingVertical: 14,
+          borderRadius: borderRadius.lg,
+          backgroundColor: colors.primary,
         },
-        saveTxt: { fontSize: typography.base, fontWeight: typography.semibold, color: "#fff" },
+        saveTxt: {
+          fontSize: typography.base,
+          fontWeight: typography.semibold,
+          color: "#fff",
+        },
       }),
-    [colors, spacing, typography, borderRadius]
+    [colors, spacing, typography, borderRadius],
   );
 
   return (
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={s.overlay}>
-        <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={onClose} />
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={s.overlay}
+      >
+        <TouchableOpacity
+          style={{ flex: 1 }}
+          activeOpacity={1}
+          onPress={onClose}
+        />
         <View style={s.sheet}>
           <ScrollView showsVerticalScrollIndicator={false}>
             <View style={s.handle} />
-            <Text style={s.title}>{table ? "Modifier la table" : "Ajouter une table"}</Text>
+            <Text style={s.title}>
+              {table ? "Modifier la table" : "Ajouter une table"}
+            </Text>
 
             <Text style={s.label}>Nom de la table</Text>
             <TextInput
@@ -596,13 +528,22 @@ const EditTableModal = ({
               autoFocus
             />
 
-            <TouchableOpacity style={s.advancedToggle} onPress={() => setShowAdvanced(!showAdvanced)}>
+            <TouchableOpacity
+              style={s.advancedToggle}
+              onPress={() => setShowAdvanced(!showAdvanced)}
+            >
               <Ionicons
-                name={showAdvanced ? "chevron-down-outline" : "chevron-forward-outline"}
+                name={
+                  showAdvanced
+                    ? "chevron-down-outline"
+                    : "chevron-forward-outline"
+                }
                 size={14}
                 color={colors.textSecondary}
               />
-              <Text style={s.advancedText}>Paramètres avancés (position & dimensions)</Text>
+              <Text style={s.advancedText}>
+                Paramètres avancés (position & dimensions)
+              </Text>
             </TouchableOpacity>
 
             {showAdvanced && (
@@ -663,11 +604,23 @@ const EditTableModal = ({
             )}
 
             <View style={s.btnRow}>
-              <TouchableOpacity style={s.cancel} onPress={onClose} disabled={saving}>
+              <TouchableOpacity
+                style={s.cancel}
+                onPress={onClose}
+                disabled={saving}
+              >
                 <Text style={s.cancelTxt}>Annuler</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.save} onPress={handleSave} disabled={saving}>
-                {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveTxt}>Enregistrer</Text>}
+              <TouchableOpacity
+                style={s.save}
+                onPress={handleSave}
+                disabled={saving}
+              >
+                {saving ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={s.saveTxt}>Enregistrer</Text>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -682,15 +635,15 @@ const EditTableModal = ({
 ══════════════════════════════════ */
 const SeatManagementScreen = () => {
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
+  const navigation = useNavigation();
 
   const styles = useMemo(
     () => createStyles(colors, spacing, typography, borderRadius, shadows),
-    [colors, spacing, typography, borderRadius, shadows]
+    [colors, spacing, typography, borderRadius, shadows],
   );
 
   const [tables, setTables] = useState([]);
   const [seatsByTableId, setSeatsByTableId] = useState({});
-  const [loadingSeatsForTable, setLoadingSeatsForTable] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -703,36 +656,11 @@ const SeatManagementScreen = () => {
 
   const [deletingSeatId, setDeletingSeatId] = useState(null);
   const [deletingTableId, setDeletingTableId] = useState(null);
-  const [expandedTableIds, setExpandedTableIds] = useState(new Set());
-
-  const getTableSeats = (tableId) => seatsByTableId[tableId] ?? [];
 
   const getTableName = (tableId) => {
     const t = tables.find((t) => (t.id ?? t.Id) === tableId);
     return t?.name ?? t?.Name ?? "";
   };
-
-  const getCapacityBadge = (seats) => {
-    const total = seats.length;
-    if (total === 0) return null;
-    const pct = seats.filter((s) => s.isActive ?? s.IsActive).length / total;
-    if (pct >= 0.75) return { label: "Bonne capacité", bg: "#DCFCE7", text: "#166534" };
-    if (pct >= 0.4) return { label: "Capacité moyenne", bg: "#FEF9C3", text: "#854D0E" };
-    return { label: "Faible", bg: "#F1F5F9", text: "#475569" };
-  };
-
-  const loadSeatsForTable = useCallback(async (tableId) => {
-    setLoadingSeatsForTable((prev) => ({ ...prev, [tableId]: true }));
-    try {
-      const res = await adminSeatService.getByTable(tableId);
-      const data = adminSeatService.extractData(res) || [];
-      setSeatsByTableId((prev) => ({ ...prev, [tableId]: data }));
-    } catch {
-      Alert.alert("Erreur", "Impossible de charger les sièges.");
-    } finally {
-      setLoadingSeatsForTable((prev) => ({ ...prev, [tableId]: false }));
-    }
-  }, []);
 
   const loadData = useCallback(async (isRefresh = false) => {
     try {
@@ -740,9 +668,23 @@ const SeatManagementScreen = () => {
       const tablesRes = await adminOfficeTableService.getAllOfficeTables();
       const tableList = adminOfficeTableService.extractData(tablesRes) || [];
       setTables(tableList);
-      if (isRefresh) setSeatsByTableId({});
+
+      const newSeatsMap = {};
+      await Promise.all(
+        tableList.map(async (t) => {
+          const tId = t.id ?? t.Id;
+          try {
+            const res = await adminSeatService.getByTable(tId);
+            const data = adminSeatService.extractData(res) || [];
+            newSeatsMap[tId] = data;
+          } catch {
+            newSeatsMap[tId] = [];
+          }
+        })
+      );
+      setSeatsByTableId(newSeatsMap);
     } catch {
-      Alert.alert("Erreur", "Impossible de charger les tables.");
+      Alert.alert("Erreur", "Impossible de charger les données.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -752,30 +694,21 @@ const SeatManagementScreen = () => {
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [loadData])
+    }, [loadData]),
   );
-
-  const toggleTable = (tableId) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const newSet = new Set(expandedTableIds);
-    if (newSet.has(tableId)) {
-      newSet.delete(tableId);
-    } else {
-      newSet.add(tableId);
-      if (!seatsByTableId[tableId]) loadSeatsForTable(tableId);
-    }
-    setExpandedTableIds(newSet);
-  };
 
   const handleSaveTable = async (id, dto) => {
     if (id) {
       const res = await adminOfficeTableService.updateOfficeTable(id, dto);
       const updated = adminOfficeTableService.extractData(res);
-      setTables((prev) => prev.map((t) => ((t.id ?? t.Id) === id ? { ...t, ...updated } : t)));
+      setTables((prev) =>
+        prev.map((t) => ((t.id ?? t.Id) === id ? { ...t, ...updated } : t)),
+      );
     } else {
       const res = await adminOfficeTableService.createOfficeTable(dto);
       const created = adminOfficeTableService.extractData(res);
       setTables((prev) => [...prev, created]);
+      setSeatsByTableId((prev) => ({ ...prev, [created.id ?? created.Id]: [] }));
     }
   };
 
@@ -795,8 +728,11 @@ const SeatManagementScreen = () => {
             try {
               await adminOfficeTableService.deleteOfficeTable(id);
               setTables((prev) => prev.filter((t) => (t.id ?? t.Id) !== id));
-              setSeatsByTableId((prev) => { const next = { ...prev }; delete next[id]; return next; });
-              setExpandedTableIds((prev) => { const s = new Set(prev); s.delete(id); return s; });
+              setSeatsByTableId((prev) => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+              });
             } catch {
               Alert.alert("Erreur", "Impossible de supprimer la table.");
             } finally {
@@ -804,7 +740,7 @@ const SeatManagementScreen = () => {
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -815,12 +751,17 @@ const SeatManagementScreen = () => {
       const updated = adminSeatService.extractData(res);
       setSeatsByTableId((prev) => ({
         ...prev,
-        [tableId]: (prev[tableId] ?? []).map((s) => ((s.id ?? s.Id) === id ? { ...s, ...updated } : s)),
+        [tableId]: (prev[tableId] ?? []).map((s) =>
+          (s.id ?? s.Id) === id ? { ...s, ...updated } : s,
+        ),
       }));
     } else {
       const res = await adminSeatService.createSeat(dto);
       const created = adminSeatService.extractData(res);
-      setSeatsByTableId((prev) => ({ ...prev, [tableId]: [...(prev[tableId] ?? []), created] }));
+      setSeatsByTableId((prev) => ({
+        ...prev,
+        [tableId]: [...(prev[tableId] ?? []), created],
+      }));
     }
   };
 
@@ -838,7 +779,9 @@ const SeatManagementScreen = () => {
             await adminSeatService.deleteSeat(id);
             setSeatsByTableId((prev) => ({
               ...prev,
-              [tableId]: (prev[tableId] ?? []).filter((s) => (s.id ?? s.Id) !== id),
+              [tableId]: (prev[tableId] ?? []).filter(
+                (s) => (s.id ?? s.Id) !== id,
+              ),
             }));
           } catch {
             Alert.alert("Erreur", "Impossible de supprimer le siège.");
@@ -850,138 +793,160 @@ const SeatManagementScreen = () => {
     ]);
   };
 
+  const getTableLayout = (tableSeats) => {
+    const count = tableSeats.length;
+    if (count === 11) {
+      return {
+        type: "eleven",
+        leftSeats: tableSeats.slice(0, 5),
+        rightSeats: tableSeats.slice(5, 10),
+        endSeat: tableSeats[10],
+      };
+    }
+    if (count === 8) {
+      return {
+        type: "eight",
+        leftSeats: tableSeats.slice(0, 4),
+        rightSeats: tableSeats.slice(4, 8),
+      };
+    }
+    const middle = Math.ceil(count / 2);
+    return {
+      type: "generic",
+      leftSeats: tableSeats.slice(0, middle),
+      rightSeats: tableSeats.slice(middle),
+    };
+  };
+
+  const renderSeat = (seat, tableId) => {
+    const isActive = seat.isActive ?? seat.IsActive;
+    const isDeleting = deletingSeatId === (seat.id ?? seat.Id);
+
+    return (
+      <TouchableOpacity
+        key={`seat-${seat.id ?? seat.Id}`}
+        style={[
+          styles.seatBox,
+          {
+            backgroundColor: isActive ? colors.primary : "#94A3B8",
+            borderColor: "transparent",
+          },
+        ]}
+        onPress={() => {
+          setEditSeat(seat);
+          setDefaultTableIdForSeat(tableId);
+          setSeatModalVisible(true);
+        }}
+        onLongPress={() => handleDeleteSeat(seat, tableId)}
+        delayLongPress={500}
+        activeOpacity={0.8}
+      >
+        {isDeleting ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <>
+            <Ionicons
+              name={isActive ? "desktop-outline" : "close-circle-outline"}
+              size={14}
+              color="#fff"
+            />
+            <Text style={styles.seatLabel}>{seat.label ?? seat.Label}</Text>
+          </>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderSeatColumn = (seatList, tableId) => (
+    <View style={styles.seatColumn}>
+      {seatList.map((seat) => renderSeat(seat, tableId))}
+    </View>
+  );
+
   const renderTableCard = (table) => {
     const id = table.id ?? table.Id;
     const name = table.name ?? table.Name ?? "—";
-    const isExpanded = expandedTableIds.has(id);
-    const tableSeats = getTableSeats(id);
-    const isLoadingSeats = loadingSeatsForTable[id];
     const isDeleting = deletingTableId === id;
-    const badge = getCapacityBadge(tableSeats);
-    const activeCount = tableSeats.filter((s) => s.isActive ?? s.IsActive).length;
+    
+    const tableSeats = seatsByTableId[id] || [];
+    
+    const sortedSeats = [...tableSeats].sort((a, b) => {
+      const n = (l) => {
+        const m = String(l).match(/\d+/);
+        return m ? parseInt(m[0], 10) : 999;
+      };
+      return n(a.label ?? a.Label) - n(b.label ?? b.Label);
+    });
+
+    const layout = getTableLayout(sortedSeats);
+    const isEleven = layout.type === "eleven";
 
     return (
       <View key={`table-${id}`} style={styles.tableCard}>
-        {/* Header */}
-        <TouchableOpacity style={styles.tableHeader} activeOpacity={0.8} onPress={() => toggleTable(id)}>
-          <View style={styles.tableIcon}>
-            <Ionicons name="grid-outline" size={18} color={colors.primary} />
-          </View>
+        <View style={styles.tableHeaderRow}>
+          <Text style={styles.tableTitle}>{name}</Text>
+          <Text style={styles.tableSubtitle}>{sortedSeats.length} postes</Text>
+        </View>
 
-          <View style={{ flex: 1 }}>
-            <Text style={styles.tableTitle} numberOfLines={1}>{name}</Text>
-            <Text style={styles.tableMeta}>
-              {isLoadingSeats
-                ? "Chargement…"
-                : `${tableSeats.length} siège${tableSeats.length !== 1 ? "s" : ""} · ${activeCount} actif${activeCount !== 1 ? "s" : ""}`}
-            </Text>
-          </View>
+        <View style={styles.tableWrap}>
+          <View style={styles.tableRow}>
+            {renderSeatColumn(layout.leftSeats, id)}
 
-          {badge && !isLoadingSeats && (
-            <View style={[styles.badge, { backgroundColor: badge.bg }]}>
-              <Text style={[styles.badgeText, { color: badge.text }]}>{badge.label}</Text>
-            </View>
-          )}
-
-          <Ionicons
-            name={isExpanded ? "chevron-up" : "chevron-down"}
-            size={18}
-            color={colors.textSecondary}
-            style={{ marginLeft: 8 }}
-          />
-        </TouchableOpacity>
-
-        {/* Occupancy bar — always visible if seats loaded */}
-        {!isLoadingSeats && tableSeats.length > 0 && (
-          <OccupancyBar seats={tableSeats} colors={colors} typography={typography} />
-        )}
-
-        {/* Expanded section */}
-        {isExpanded && (
-          <View style={styles.expandedContent}>
-            {/* Mini preview */}
-            {!isLoadingSeats && tableSeats.length > 0 && (
-              <TableMiniPreview
-                table={table}
-                seats={tableSeats}
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-              />
-            )}
-
-            {/* Table actions */}
-            <View style={styles.tableActionRow}>
-              <TouchableOpacity
-                style={styles.secondaryBtn}
-                onPress={() => { setEditTable(table); setTableModalVisible(true); }}
+            <View style={styles.tableCenter}>
+              <View
+                style={[
+                  styles.tableVisual,
+                  isEleven ? styles.tableVisualLarge : styles.tableVisualMedium,
+                ]}
               >
-                <Ionicons name="create-outline" size={14} color={colors.textSecondary} />
-                <Text style={styles.secondaryText}>Modifier la table</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.deleteBtn}
-                onPress={() => handleDeleteTable(table)}
-                disabled={isDeleting}
-              >
-                {isDeleting ? (
-                  <ActivityIndicator size="small" color="#EF4444" />
-                ) : (
-                  <>
-                    <Ionicons name="trash-outline" size={14} color="#EF4444" />
-                    <Text style={styles.deleteText}>Supprimer</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {/* Add seat CTA */}
-            <TouchableOpacity
-              style={styles.addSeatBtn}
-              onPress={() => {
-                setEditSeat(null);
-                setDefaultTableIdForSeat(id);
-                setSeatModalVisible(true);
-              }}
-            >
-              <Ionicons name="add" size={16} color="#fff" />
-              <Text style={styles.addSeatText}>Ajouter un siège</Text>
-            </TouchableOpacity>
-
-            {/* Seats */}
-            {isLoadingSeats ? (
-              <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 20 }} />
-            ) : tableSeats.length === 0 ? (
-              <View style={styles.emptySeatsBox}>
-                <Ionicons name="desktop-outline" size={26} color={colors.textSecondary} style={{ marginBottom: 6 }} />
-                <Text style={styles.emptySeatsTitle}>Aucun siège</Text>
-                <Text style={styles.emptySeatsText}>Commencez par ajouter un siège à cette table.</Text>
-              </View>
-            ) : (
-              <View style={styles.seatsGrid}>
-                {tableSeats.map((seat) => (
-                  <SeatChip
-                    key={`seat-${seat.id ?? seat.Id}`}
-                    seat={seat}
-                    tableId={id}
-                    onEdit={(s, tId) => {
-                      setEditSeat(s);
-                      setDefaultTableIdForSeat(tId);
+                <View style={styles.tableInnerLine} />
+                <Text style={styles.tableVisualText} numberOfLines={2}>{name}</Text>
+                
+                <View style={styles.tableActions}>
+                  <TouchableOpacity
+                    style={styles.tableActionBtn}
+                    onPress={() => {
+                      setEditTable(table);
+                      setTableModalVisible(true);
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={16} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.tableActionBtn}
+                    onPress={() => {
+                      setEditSeat(null);
+                      setDefaultTableIdForSeat(id);
                       setSeatModalVisible(true);
                     }}
-                    onDelete={handleDeleteSeat}
-                    deletingSeatId={deletingSeatId}
-                    colors={colors}
-                    spacing={spacing}
-                    borderRadius={borderRadius}
-                    typography={typography}
-                  />
-                ))}
+                  >
+                    <Ionicons name="add" size={18} color={colors.primary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.tableActionBtn}
+                    onPress={() => handleDeleteTable(table)}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? (
+                      <ActivityIndicator size="small" color="#EF4444" />
+                    ) : (
+                      <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                    )}
+                  </TouchableOpacity>
+                </View>
+
               </View>
-            )}
+            </View>
+
+            {renderSeatColumn(layout.rightSeats, id)}
           </View>
-        )}
+
+          {layout.type === "eleven" && layout.endSeat && (
+            <View style={styles.endSeatContainer}>
+              {renderSeat(layout.endSeat, id)}
+            </View>
+          )}
+        </View>
       </View>
     );
   };
@@ -992,38 +957,68 @@ const SeatManagementScreen = () => {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Gestion de l'espace</Text>
-          <Text style={styles.headerSubtitle}>Tables et sièges · étage principal</Text>
+          <Text style={styles.headerSubtitle}>
+            Édition des tables et sièges
+          </Text>
         </View>
-        <TouchableOpacity
-          style={styles.addBtn}
-          onPress={() => { setEditTable(null); setTableModalVisible(true); }}
-        >
-          <Ionicons name="add" size={18} color="#fff" />
-          <Text style={styles.addBtnText}>Nouvelle table</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity
+            style={[styles.addBtn, { backgroundColor: colors.surfaceMuted, borderWidth: 1, borderColor: colors.border }]}
+            onPress={() => navigation.navigate("AdminOfficeLayout")}
+          >
+            <Ionicons name="map-outline" size={18} color={colors.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={() => {
+              setEditTable(null);
+              setTableModalVisible(true);
+            }}
+          >
+            <Ionicons name="add" size={18} color="#fff" />
+            <Text style={styles.addBtnText}>Nouvelle table</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
         style={styles.list}
         contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => loadData(true)} tintColor={colors.primary} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => loadData(true)}
+            tintColor={colors.primary}
+          />
         }
       >
         {loading ? (
-          <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 48 }} />
+          <ActivityIndicator
+            size="large"
+            color={colors.primary}
+            style={{ marginTop: 48 }}
+          />
         ) : tables.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={styles.emptyStateIcon}>
-              <Ionicons name="grid-outline" size={32} color={colors.textSecondary} />
+              <Ionicons
+                name="grid-outline"
+                size={32}
+                color={colors.textSecondary}
+              />
             </View>
             <Text style={styles.emptyStateTitle}>Aucune table configurée</Text>
             <Text style={styles.emptyStateText}>
-              Créez une première table pour commencer à organiser les sièges de votre espace.
+              Créez une première table pour commencer à organiser les sièges de
+              votre espace.
             </Text>
             <TouchableOpacity
               style={styles.emptyStateBtn}
-              onPress={() => { setEditTable(null); setTableModalVisible(true); }}
+              onPress={() => {
+                setEditTable(null);
+                setTableModalVisible(true);
+              }}
             >
               <Ionicons name="add" size={16} color="#fff" />
               <Text style={styles.emptyStateBtnText}>Créer une table</Text>
@@ -1031,7 +1026,6 @@ const SeatManagementScreen = () => {
           </View>
         ) : (
           <>
-            {/* Stats banner — only when seats have been loaded for at least one table */}
             {Object.keys(seatsByTableId).length > 0 && (
               <StatsBanner
                 tables={tables}
@@ -1051,7 +1045,11 @@ const SeatManagementScreen = () => {
         visible={isSeatModalVisible}
         seat={editSeat}
         defaultTableId={defaultTableIdForSeat}
-        tableName={defaultTableIdForSeat ? getTableName(defaultTableIdForSeat) : undefined}
+        tableName={
+          defaultTableIdForSeat
+            ? getTableName(defaultTableIdForSeat)
+            : undefined
+        }
         onClose={() => setSeatModalVisible(false)}
         onSave={handleSaveSeat}
         colors={colors}
@@ -1091,8 +1089,16 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
-    headerTitle: { fontSize: typography.lg, fontWeight: typography.bold, color: colors.text },
-    headerSubtitle: { fontSize: typography.sm, color: colors.textSecondary, marginTop: 2 },
+    headerTitle: {
+      fontSize: typography.lg,
+      fontWeight: typography.bold,
+      color: colors.text,
+    },
+    headerSubtitle: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
 
     addBtn: {
       flexDirection: "row",
@@ -1104,95 +1110,134 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       gap: 6,
       ...shadows.sm,
     },
-    addBtnText: { color: "#fff", fontWeight: typography.semibold, fontSize: typography.sm },
+    addBtnText: {
+      color: "#fff",
+      fontWeight: typography.semibold,
+      fontSize: typography.sm,
+    },
 
     list: { flex: 1 },
-    listContent: { padding: spacing.lg, gap: 12, paddingBottom: 48 },
+    listContent: { padding: spacing.lg, gap: 12, paddingBottom: 120 },
 
     tableCard: {
-      backgroundColor: colors.surface,
-      borderRadius: borderRadius.lg,
+      padding: spacing.lg,
+      borderRadius: borderRadius.xl,
       borderWidth: 1,
       borderColor: colors.border,
-      overflow: "hidden",
-      ...shadows.md,
+      backgroundColor: colors.surface,
+      marginBottom: spacing.lg,
     },
-    tableHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingHorizontal: 14,
-      paddingVertical: 13,
-      gap: 10,
-    },
-    tableIcon: {
-      width: 38,
-      height: 38,
-      borderRadius: 10,
-      backgroundColor: `${colors.primary}12`,
-      alignItems: "center",
-      justifyContent: "center",
-      flexShrink: 0,
-    },
-    tableTitle: { fontSize: typography.base, fontWeight: typography.semibold, color: colors.text },
-    tableMeta: { fontSize: typography.xs, color: colors.textSecondary, marginTop: 2 },
-
-    badge: {
-      paddingHorizontal: 8,
-      paddingVertical: 3,
-      borderRadius: 99,
-    },
-    badgeText: { fontSize: 10, fontWeight: "600" },
-
-    expandedContent: {
-      paddingHorizontal: 14,
-      paddingBottom: 14,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-      paddingTop: 12,
-    },
-
-    tableActionRow: {
+    tableHeaderRow: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
-      marginBottom: 10,
+      marginBottom: spacing.lg,
     },
-    secondaryBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 },
-    secondaryText: { color: colors.textSecondary, fontWeight: typography.medium, fontSize: typography.sm },
-    deleteBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6 },
-    deleteText: { color: "#EF4444", fontWeight: typography.medium, fontSize: typography.sm },
-
-    addSeatBtn: {
-      flexDirection: "row",
+    tableTitle: {
+      fontSize: typography.sm,
+      fontWeight: typography.bold,
+      color: colors.text,
+      letterSpacing: 0.3,
+    },
+    tableSubtitle: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      backgroundColor: colors.surfaceMuted,
+      paddingHorizontal: 10,
+      paddingVertical: 3,
+      borderRadius: 999,
+    },
+    tableWrap: {
       alignItems: "center",
-      justifyContent: "center",
-      gap: 6,
-      backgroundColor: colors.primary,
-      paddingVertical: 11,
-      borderRadius: borderRadius.md,
-      marginBottom: 12,
     },
-    addSeatText: { color: "#fff", fontSize: typography.sm, fontWeight: typography.semibold },
-
-    seatsGrid: {
+    tableRow: {
+      flexDirection: "row",
+      justifyContent: "center",
+      alignItems: "stretch",
+      gap: spacing.md,
+      width: "100%",
+    },
+    tableCenter: {
+      justifyContent: "center",
+      alignItems: "center",
+      minWidth: 112,
+      flex: 1,
+    },
+    tableVisual: {
+      width: "100%",
+      maxWidth: 160,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 24,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingHorizontal: spacing.sm,
+      overflow: "hidden",
+      ...shadows.sm,
+    },
+    tableVisualLarge: { minHeight: 280 },
+    tableVisualMedium: { minHeight: 220 },
+    tableInnerLine: {
+      position: "absolute",
+      top: 16,
+      bottom: 16,
+      width: 3,
+      borderRadius: 999,
+      backgroundColor: colors.border,
+      opacity: 0.6,
+    },
+    tableVisualText: {
+      fontSize: typography.xs,
+      fontWeight: typography.semibold,
+      color: colors.textSecondary,
+      letterSpacing: 0.3,
+      marginBottom: spacing.md,
+      textAlign: "center",
+    },
+    tableActions: {
       flexDirection: "row",
       flexWrap: "wrap",
-      gap: 8,
+      justifyContent: "center",
+      gap: spacing.sm,
     },
-    // Each chip takes roughly 1/3 of the available width
-    // SeatChip uses inline styles for per-item logic
-
-    emptySeatsBox: {
+    tableActionBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: colors.surface,
       alignItems: "center",
-      paddingVertical: 28,
-      borderRadius: borderRadius.md,
+      justifyContent: "center",
       borderWidth: 1,
       borderColor: colors.border,
-      borderStyle: "dashed",
-      backgroundColor: colors.surface,
+      ...shadows.sm,
     },
-    emptySeatsTitle: { fontSize: typography.sm, fontWeight: typography.semibold, color: colors.text, marginBottom: 4 },
-    emptySeatsText: { textAlign: "center", color: colors.textSecondary, fontSize: typography.sm, paddingHorizontal: 20 },
+    seatColumn: {
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: 2,
+    },
+    seatBox: {
+      width: 56,
+      height: 50,
+      borderRadius: borderRadius.md,
+      justifyContent: "center",
+      alignItems: "center",
+      borderWidth: 1.5,
+      borderColor: "transparent",
+      ...shadows.sm,
+    },
+    seatLabel: {
+      color: "#fff",
+      fontSize: 11,
+      fontWeight: typography.bold,
+      marginTop: 2,
+    },
+    endSeatContainer: {
+      marginTop: spacing.md,
+      alignItems: "center",
+    },
 
     emptyState: { marginTop: 60, alignItems: "center", paddingHorizontal: 32 },
     emptyStateIcon: {
@@ -1226,7 +1271,11 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       paddingVertical: 12,
       borderRadius: borderRadius.md,
     },
-    emptyStateBtnText: { color: "#fff", fontWeight: typography.semibold, fontSize: typography.sm },
+    emptyStateBtnText: {
+      color: "#fff",
+      fontWeight: typography.semibold,
+      fontSize: typography.sm,
+    },
   });
 
 export default SeatManagementScreen;

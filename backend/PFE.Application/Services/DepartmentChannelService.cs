@@ -27,7 +27,7 @@ public class DepartmentChannelService : IDepartmentChannelService
         if (user == null)
             throw new Exception("User not found.");
 
-        if (user.Role != Role.Manager)
+        if (user.Role.Name != "Manager")
             throw new Exception("Only managers can send department messages.");
 
         if (user.DepartmentId != dto.DepartmentId)
@@ -80,7 +80,7 @@ public class DepartmentChannelService : IDepartmentChannelService
         if (user == null)
             throw new Exception("User not found.");
 
-        if (user.Role != Role.Manager)
+        if (user.Role.Name != "Manager")
             throw new Exception("Only managers can create polls.");
 
         if (user.DepartmentId != dto.DepartmentId)
@@ -284,7 +284,7 @@ public class DepartmentChannelService : IDepartmentChannelService
         if (user == null)
             throw new Exception("User not found.");
 
-        if (user.Role != Role.Employee)
+        if (user.Role.Name != "Employee")
             throw new Exception("Only employees can vote.");
 
         var poll = await _context.DepartmentPolls

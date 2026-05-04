@@ -9,12 +9,24 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
+  FlatList,
+  LayoutAnimation,
+  Platform,
+  UIManager,
+  KeyboardAvoidingView,
 } from "react-native";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Card } from "../../components";
 import { useTheme } from "../../context/ThemeContext";
 import api from "../../services/api/axiosInstance";
+
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const ROLE_OPTIONS = [
   { label: "Employé", value: 1, icon: "person-outline" },
@@ -23,29 +35,48 @@ const ROLE_OPTIONS = [
 ];
 
 const DEFAULT_LEAVE_BALANCE = "18";
-  const DEFAULT_YEARLY_SALARY = "50000";
+const DEFAULT_YEARLY_SALARY = "50000";
 
 const ApprovalsScreen = () => {
+  const route = useRoute();
+
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
 
   const styles = useMemo(
     () => createStyles(colors, spacing, typography, borderRadius, shadows),
-    [colors, spacing, typography, borderRadius, shadows]
+    [colors, spacing, typography, borderRadius, shadows],
   );
 
   const [activeTab, setActiveTab] = useState("all");
-
+  useFocusEffect(
+    useCallback(() => {
+      if (route.params?.filter === "leaves") {
+        setActiveTab("leave");
+      } else if (route.params?.filter === "users") {
+        setActiveTab("users");
+      }
+    }, [route.params?.filter]),
+  );
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [pendingUsers, setPendingUsers] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [expandedItems, setExpandedItems] = useState({});
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [actionLoadingKey, setActionLoadingKey] = useState(null);
-  const [submittingUserId, setSubmittingUserId] = useState(null);
-  const [rejectingUserId, setRejectingUserId] = useState(null);
-
+  const [leaveActionState, setLeaveActionState] = useState({});
+  const [userActionState, setUserActionState] = useState({});
   const [formByUserId, setFormByUserId] = useState({});
+
+  const toggleExpanded = (key) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+
+    setExpandedItems((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
 
   const normalizeDate = (value) => {
     if (!value) return "Date inconnue";
@@ -55,9 +86,7 @@ const ApprovalsScreen = () => {
   };
 
   const normalizeDateRange = (start, end) => {
-    const startDate = normalizeDate(start);
-    const endDate = normalizeDate(end);
-    return `${startDate} → ${endDate}`;
+    return `${normalizeDate(start)} → ${normalizeDate(end)}`;
   };
 
   const extractArray = (res) => {
@@ -68,13 +97,23 @@ const ApprovalsScreen = () => {
   };
 
   const getUserId = (item) => item?.id ?? item?.Id;
+  const getItemId = (item) => item?.id ?? item?.Id;
+
+  const getErrorMessage = (error, fallback) => {
+    return (
+      error?.response?.data?.message || error?.response?.data?.title || fallback
+    );
+  };
 
   const normalizeRoleValue = (role) => {
     if (typeof role === "number") return role;
 
     if (typeof role === "string") {
       const lowered = role.trim().toLowerCase();
-      if (lowered === "employee" || lowered === "user") return 1;
+
+      if (lowered === "employee" || lowered === "employé" || lowered === "user")
+        return 1;
+
       if (lowered === "manager") return 2;
       if (lowered === "admin") return 3;
     }
@@ -83,22 +122,23 @@ const ApprovalsScreen = () => {
   };
 
   const getRoleMeta = (value) => {
-    const found = ROLE_OPTIONS.find((r) => r.value === value);
-    return found || ROLE_OPTIONS[0];
+    return ROLE_OPTIONS.find((r) => r.value === value) || ROLE_OPTIONS[0];
   };
 
-  const loadApprovals = async (isRefresh = false) => {
+  const loadApprovals = useCallback(async (isRefresh = false) => {
     try {
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
 
-      const [leaveRes, usersRes] = await Promise.allSettled([
+      const [leaveRes, usersRes, depsRes] = await Promise.allSettled([
         api.get("/Leave/pending-review"),
         api.get("/admin/users/pending"),
+        api.get("/Departments"),
       ]);
 
       let leaveData = [];
       let usersData = [];
+      let depsData = [];
 
       if (leaveRes.status === "fulfilled") {
         leaveData = extractArray(leaveRes.value);
@@ -108,8 +148,16 @@ const ApprovalsScreen = () => {
         usersData = extractArray(usersRes.value);
       }
 
+      if (depsRes.status === "fulfilled") {
+        depsData = extractArray(depsRes.value).map((d) => ({
+          label: d.name || d.Name || "Inconnu",
+          value: d.id ?? d.Id,
+        }));
+      }
+
       setLeaveRequests(leaveData);
       setPendingUsers(usersData);
+      setDepartments(depsData);
 
       setFormByUserId((prev) => {
         const next = { ...prev };
@@ -122,6 +170,7 @@ const ApprovalsScreen = () => {
               leaveBalance: DEFAULT_LEAVE_BALANCE,
               yearlySalary: DEFAULT_YEARLY_SALARY,
               role: normalizeRoleValue(user?.role ?? user?.Role),
+              departmentId: null,
             };
           }
         });
@@ -129,26 +178,30 @@ const ApprovalsScreen = () => {
         return next;
       });
     } catch (error) {
-      Alert.alert("Erreur", "Impossible de charger les approbations.");
+      Alert.alert(
+        "Erreur",
+        getErrorMessage(error, "Impossible de charger les approbations."),
+      );
+
       setLeaveRequests([]);
       setPendingUsers([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       loadApprovals();
-    }, [])
+    }, [loadApprovals]),
   );
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     await loadApprovals(true);
-  };
+  }, [loadApprovals]);
 
-  const updateForm = (userId, field, value) => {
+  const updateForm = useCallback((userId, field, value) => {
     setFormByUserId((prev) => ({
       ...prev,
       [userId]: {
@@ -156,49 +209,88 @@ const ApprovalsScreen = () => {
         [field]: value,
       },
     }));
+  }, []);
+
+  const setLeaveAction = (requestId, action) => {
+    setLeaveActionState((prev) => ({
+      ...prev,
+      [requestId]: action,
+    }));
+  };
+
+  const clearLeaveAction = (requestId) => {
+    setLeaveActionState((prev) => {
+      const next = { ...prev };
+      delete next[requestId];
+      return next;
+    });
   };
 
   const approveLeave = async (item) => {
-    const requestId = item?.id ?? item?.Id;
-    const key = `leave-${requestId}`;
+    const requestId = getItemId(item);
 
     try {
-      setActionLoadingKey(key);
+      setLeaveAction(requestId, "approving");
 
       await api.put(`/Leave/requests/${requestId}/approve`, {
         comment: "Approved by HR/Admin",
       });
 
-      await loadApprovals();
+      setLeaveRequests((prev) =>
+        prev.filter((request) => getItemId(request) !== requestId),
+      );
     } catch (error) {
-      Alert.alert("Erreur", "Impossible d'approuver la demande de congé.");
+      Alert.alert(
+        "Erreur",
+        getErrorMessage(error, "Impossible d'approuver la demande de congé."),
+      );
     } finally {
-      setActionLoadingKey(null);
+      clearLeaveAction(requestId);
     }
   };
 
   const rejectLeave = async (item) => {
-    const requestId = item?.id ?? item?.Id;
-    const key = `leave-${requestId}`;
+    const requestId = getItemId(item);
 
     try {
-      setActionLoadingKey(key);
+      setLeaveAction(requestId, "rejecting");
 
       await api.put(`/Leave/requests/${requestId}/reject`, {
         comment: "Rejected by HR/Admin",
       });
 
-      await loadApprovals();
+      setLeaveRequests((prev) =>
+        prev.filter((request) => getItemId(request) !== requestId),
+      );
     } catch (error) {
-      Alert.alert("Erreur", "Impossible de rejeter la demande de congé.");
+      Alert.alert(
+        "Erreur",
+        getErrorMessage(error, "Impossible de rejeter la demande de congé."),
+      );
     } finally {
-      setActionLoadingKey(null);
+      clearLeaveAction(requestId);
     }
+  };
+
+  const setUserAction = (userId, action) => {
+    setUserActionState((prev) => ({
+      ...prev,
+      [userId]: action,
+    }));
+  };
+
+  const clearUserAction = (userId) => {
+    setUserActionState((prev) => {
+      const next = { ...prev };
+      delete next[userId];
+      return next;
+    });
   };
 
   const approveUser = async (user) => {
     const userId = getUserId(user);
     const form = formByUserId[userId] || {};
+
     const rawLeaveBalance = String(form.leaveBalance ?? "").trim();
     const leaveBalance = Number(rawLeaveBalance);
 
@@ -223,20 +315,29 @@ const ApprovalsScreen = () => {
       return;
     }
 
+    if (!form.departmentId) {
+      Alert.alert("Validation", "Veuillez sélectionner un département.");
+      return;
+    }
+
     try {
-      setSubmittingUserId(userId);
+      setUserAction(userId, "approving");
 
       await api.put(`/admin/users/${userId}/approve`, {
         leaveBalance,
         yearlySalary,
-        role: form.role,
+        roleId: form.role,
+        departmentId: form.departmentId,
       });
 
-      await loadApprovals();
+      setPendingUsers((prev) => prev.filter((u) => getUserId(u) !== userId));
     } catch (error) {
-      Alert.alert("Erreur", "Impossible d'approuver cet utilisateur.");
+      Alert.alert(
+        "Erreur",
+        getErrorMessage(error, "Impossible d'approuver cet utilisateur."),
+      );
     } finally {
-      setSubmittingUserId(null);
+      clearUserAction(userId);
     }
   };
 
@@ -253,21 +354,29 @@ const ApprovalsScreen = () => {
           style: "destructive",
           onPress: async () => {
             try {
-              setRejectingUserId(userId);
+              setUserAction(userId, "rejecting");
 
               await api.put(`/admin/users/${userId}/reject`, {
                 reason: "Rejeté par RH/Admin",
               });
 
-              await loadApprovals();
+              setPendingUsers((prev) =>
+                prev.filter((u) => getUserId(u) !== userId),
+              );
             } catch (error) {
-              Alert.alert("Erreur", "Impossible de rejeter cet utilisateur.");
+              Alert.alert(
+                "Erreur",
+                getErrorMessage(
+                  error,
+                  "Impossible de rejeter cet utilisateur.",
+                ),
+              );
             } finally {
-              setRejectingUserId(null);
+              clearUserAction(userId);
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -291,6 +400,38 @@ const ApprovalsScreen = () => {
           size={14}
           color={selected ? colors.textOnPrimary : colors.textSecondary}
         />
+
+        <Text
+          style={[styles.roleChipText, selected && styles.roleChipTextSelected]}
+        >
+          {option.label}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderDepartmentOption = (userId, option, selectedDept, disabled) => {
+    const selected = selectedDept === option.value;
+
+    return (
+      <TouchableOpacity
+        key={option.value}
+        activeOpacity={0.85}
+        disabled={disabled}
+        onPress={() => updateForm(userId, "departmentId", option.value)}
+        style={[
+          styles.roleChip,
+          selected && styles.roleChipSelected,
+          disabled && styles.disabledChip,
+          { marginRight: 8 },
+        ]}
+      >
+        <Ionicons
+          name="business-outline"
+          size={14}
+          color={selected ? colors.textOnPrimary : colors.textSecondary}
+        />
+
         <Text
           style={[styles.roleChipText, selected && styles.roleChipTextSelected]}
         >
@@ -301,19 +442,29 @@ const ApprovalsScreen = () => {
   };
 
   const renderLeaveCard = (item) => {
-    const requestId = item?.id ?? item?.Id;
-    const key = `leave-${requestId}`;
-    const isBusy = actionLoadingKey === key;
+    const requestId = getItemId(item);
+    const rowKey = `leave-${requestId}`;
+    const expanded = !!expandedItems[rowKey];
+
+    const action = leaveActionState[requestId];
+    const isApproving = action === "approving";
+    const isRejecting = action === "rejecting";
+    const isBusy = !!action;
 
     const userName =
       item?.userName ?? item?.UserName ?? `Utilisateur #${item?.userId ?? ""}`;
+
     const leaveType = item?.type ?? item?.leaveType ?? item?.Type ?? "Congé";
     const reason = item?.reason ?? item?.Reason ?? "Aucun motif fourni";
     const createdAt = item?.createdAt ?? item?.CreatedAt;
 
     return (
-      <Card key={key} style={styles.card}>
-        <View style={styles.cardTop}>
+      <Card style={[styles.card, !expanded && styles.compactCard]}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => toggleExpanded(rowKey)}
+          style={styles.compactRow}
+        >
           <View style={styles.avatarWrap}>
             <Ionicons
               name="calendar-clear-outline"
@@ -325,123 +476,151 @@ const ApprovalsScreen = () => {
           <View style={styles.headerTextWrap}>
             <Text style={styles.name}>Demande de congé</Text>
             <Text style={styles.email}>{userName}</Text>
-          </View>
-
-          <View style={styles.pendingBadge}>
-            <Ionicons
-              name="time-outline"
-              size={13}
-              color={colors.warning || "#D97706"}
-            />
-            <Text style={styles.pendingBadgeText}>En attente</Text>
-          </View>
-        </View>
-
-        <View style={styles.infoBlock}>
-          <View style={styles.metaRow}>
-            <Ionicons
-              name="calendar-outline"
-              size={16}
-              color={colors.textSecondary}
-            />
-            <Text style={styles.metaText}>
+            <Text style={styles.smallPreview}>
               {normalizeDateRange(item?.startDate, item?.endDate)}
             </Text>
           </View>
 
-          <View style={styles.metaRow}>
+          <View style={styles.rowRight}>
+            <View style={styles.pendingBadge}>
+              <Text style={styles.pendingBadgeText}>En attente</Text>
+            </View>
+
             <Ionicons
-              name="folder-open-outline"
-              size={16}
+              name={expanded ? "chevron-up-outline" : "chevron-down-outline"}
+              size={22}
               color={colors.textSecondary}
             />
-            <Text style={styles.metaText}>Type : {leaveType}</Text>
           </View>
+        </TouchableOpacity>
 
-          <View style={styles.metaRow}>
-            <Ionicons
-              name="chatbox-ellipses-outline"
-              size={16}
-              color={colors.textSecondary}
-            />
-            <Text style={styles.metaText}>{reason}</Text>
-          </View>
-
-          <View style={styles.metaRow}>
-            <Ionicons
-              name="time-outline"
-              size={16}
-              color={colors.textSecondary}
-            />
-            <Text style={styles.metaText}>Soumise le {normalizeDate(createdAt)}</Text>
-          </View>
-        </View>
-
-        <View style={styles.actionsRow}>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => rejectLeave(item)}
-            disabled={isBusy}
-            style={[styles.secondaryButton, isBusy && styles.disabledButton]}
-          >
-            {isBusy ? (
-              <ActivityIndicator size="small" color={colors.text} />
-            ) : (
-              <>
-                <Ionicons name="close-outline" size={18} color={colors.text} />
-                <Text style={styles.secondaryButtonText}>Rejeter</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => approveLeave(item)}
-            disabled={isBusy}
-            style={[styles.primaryButton, isBusy && styles.disabledButton]}
-          >
-            {isBusy ? (
-              <ActivityIndicator size="small" color={colors.textOnPrimary} />
-            ) : (
-              <>
+        {expanded && (
+          <View style={styles.expandedContent}>
+            <View style={styles.infoBlock}>
+              <View style={styles.metaRow}>
                 <Ionicons
-                  name="checkmark-outline"
-                  size={18}
-                  color={colors.textOnPrimary}
+                  name="calendar-outline"
+                  size={16}
+                  color={colors.textSecondary}
                 />
-                <Text style={styles.primaryButtonText}>Approuver</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
+                <Text style={styles.metaText}>
+                  {normalizeDateRange(item?.startDate, item?.endDate)}
+                </Text>
+              </View>
+
+              <View style={styles.metaRow}>
+                <Ionicons
+                  name="folder-open-outline"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.metaText}>Type : {leaveType}</Text>
+              </View>
+
+              <View style={styles.metaRow}>
+                <Ionicons
+                  name="chatbox-ellipses-outline"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.metaText}>{reason}</Text>
+              </View>
+
+              <View style={styles.metaRow}>
+                <Ionicons
+                  name="time-outline"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.metaText}>
+                  Soumise le {normalizeDate(createdAt)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.actionsRow}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => rejectLeave(item)}
+                disabled={isBusy}
+                style={[
+                  styles.secondaryButton,
+                  isBusy && styles.disabledButton,
+                ]}
+              >
+                {isRejecting ? (
+                  <ActivityIndicator size="small" color={colors.text} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="close-outline"
+                      size={18}
+                      color={colors.text}
+                    />
+                    <Text style={styles.secondaryButtonText}>Rejeter</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => approveLeave(item)}
+                disabled={isBusy}
+                style={[styles.primaryButton, isBusy && styles.disabledButton]}
+              >
+                {isApproving ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={colors.textOnPrimary}
+                  />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="checkmark-outline"
+                      size={18}
+                      color={colors.textOnPrimary}
+                    />
+                    <Text style={styles.primaryButtonText}>Approuver</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </Card>
     );
   };
 
   const renderUserCard = (item) => {
     const userId = getUserId(item);
+    const rowKey = `user-${userId}`;
+    const expanded = !!expandedItems[rowKey];
+
+    const form = formByUserId[userId];
+    if (!form) return null;
+
     const fullName = item?.fullName ?? item?.FullName ?? "Utilisateur inconnu";
     const email = item?.email ?? item?.Email ?? "Aucun e-mail";
     const departmentName =
       item?.departmentName ?? item?.DepartmentName ?? "Aucun département";
-    const role = item?.role ?? item?.Role ?? "Employee";
-    const createdAt = item?.createdAt ?? item?.CreatedAt;
 
-        const form = formByUserId[userId] || {
-      leaveBalance: DEFAULT_LEAVE_BALANCE,
-      yearlySalary: DEFAULT_YEARLY_SALARY,
-      role: normalizeRoleValue(role),
-    };
+    const createdAt = item?.createdAt ?? item?.CreatedAt;
 
     const selectedRole = form.role;
     const roleMeta = getRoleMeta(selectedRole);
-    const isSubmitting = submittingUserId === userId;
-    const isRejecting = rejectingUserId === userId;
-    const isBusy = isSubmitting || isRejecting;
+
+    const action = userActionState[userId];
+    const isSubmitting = action === "approving";
+    const isRejecting = action === "rejecting";
+    const isBusy = !!action;
 
     return (
-      <Card key={`user-${userId}`} style={styles.card}>
-        <View style={styles.cardTop}>
+      <Card style={[styles.card, !expanded && styles.compactCard]}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => toggleExpanded(rowKey)}
+          style={styles.compactRow}
+        >
           <View style={styles.avatarWrap}>
             <Ionicons name="person-outline" size={22} color={colors.primary} />
           </View>
@@ -449,139 +628,189 @@ const ApprovalsScreen = () => {
           <View style={styles.headerTextWrap}>
             <Text style={styles.name}>{fullName}</Text>
             <Text style={styles.email}>{email}</Text>
+            <Text style={styles.smallPreview}>{departmentName}</Text>
           </View>
 
-          <View style={styles.pendingBadge}>
-            <Ionicons
-              name="time-outline"
-              size={13}
-              color={colors.warning || "#D97706"}
-            />
-            <Text style={styles.pendingBadgeText}>En attente</Text>
-          </View>
-        </View>
+          <View style={styles.rowRight}>
+            <View style={styles.pendingBadge}>
+              <Text style={styles.pendingBadgeText}>En attente</Text>
+            </View>
 
-        <View style={styles.infoBlock}>
-          <View style={styles.metaRow}>
             <Ionicons
-              name="business-outline"
-              size={16}
+              name={expanded ? "chevron-up-outline" : "chevron-down-outline"}
+              size={22}
               color={colors.textSecondary}
             />
-            <Text style={styles.metaText}>{departmentName}</Text>
           </View>
+        </TouchableOpacity>
 
-          <View style={styles.metaRow}>
-            <Ionicons
-              name="calendar-outline"
-              size={16}
-              color={colors.textSecondary}
-            />
-            <Text style={styles.metaText}>Inscrit le {normalizeDate(createdAt)}</Text>
-          </View>
-
-          <View style={styles.metaRow}>
-            <Ionicons
-              name={roleMeta.icon}
-              size={16}
-              color={colors.textSecondary}
-            />
-            <Text style={styles.metaText}>Rôle sélectionné : {roleMeta.label}</Text>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Solde de congés initial</Text>
-          <View style={styles.inputWrap}>
-            <Ionicons
-              name="calendar-number-outline"
-              size={18}
-              color={colors.textSecondary}
-            />
-            <TextInput
-              value={String(form.leaveBalance)}
-              onChangeText={(text) => updateForm(userId, "leaveBalance", text)}
-              keyboardType="numeric"
-              placeholder="ex. 18"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.input}
-              editable={!isBusy}
-            />
-          </View>
-          <Text style={styles.helperText}>
-            Définissez le solde annuel de congés pour cet employé.
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Salaire annuel</Text>
-          <View style={styles.inputWrap}>
-            <Ionicons
-              name="cash-outline"
-              size={18}
-              color={colors.textSecondary}
-            />
-            <TextInput
-              value={String(form.yearlySalary)}
-              onChangeText={(text) => updateForm(userId, "yearlySalary", text)}
-              keyboardType="numeric"
-              placeholder="ex. 50000"
-              placeholderTextColor={colors.textSecondary}
-              style={styles.input}
-              editable={!isBusy}
-            />
-          </View>
-          <Text style={styles.helperText}>
-            Salaire annuel brut en MAD.
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Attribuer un rôle</Text>
-          <View style={styles.roleRow}>
-            {ROLE_OPTIONS.map((option) =>
-              renderRoleOption(userId, option, selectedRole, isBusy)
-            )}
-          </View>
-        </View>
-
-        <View style={styles.actionsRow}>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => rejectUser(item)}
-            disabled={isBusy}
-            style={[styles.secondaryButton, isBusy && styles.disabledButton]}
-          >
-            {isRejecting ? (
-              <ActivityIndicator size="small" color={colors.text} />
-            ) : (
-              <>
-                <Ionicons name="close-outline" size={18} color={colors.text} />
-                <Text style={styles.secondaryButtonText}>Rejeter</Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => approveUser(item)}
-            disabled={isBusy}
-            style={[styles.primaryButton, isBusy && styles.disabledButton]}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator size="small" color={colors.textOnPrimary} />
-            ) : (
-              <>
+        {expanded && (
+          <View style={styles.expandedContent}>
+            <View style={styles.infoBlock}>
+              <View style={styles.metaRow}>
                 <Ionicons
-                  name="checkmark-outline"
-                  size={18}
-                  color={colors.textOnPrimary}
+                  name="business-outline"
+                  size={16}
+                  color={colors.textSecondary}
                 />
-                <Text style={styles.primaryButtonText}>Approuver l'utilisateur</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
+                <Text style={styles.metaText}>{departmentName}</Text>
+              </View>
+
+              <View style={styles.metaRow}>
+                <Ionicons
+                  name="calendar-outline"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.metaText}>
+                  Inscrit le {normalizeDate(createdAt)}
+                </Text>
+              </View>
+
+              <View style={styles.metaRow}>
+                <Ionicons
+                  name={roleMeta.icon}
+                  size={16}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.metaText}>
+                  Rôle sélectionné : {roleMeta.label}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Solde de congés initial</Text>
+
+              <View style={styles.inputWrap}>
+                <Ionicons
+                  name="calendar-number-outline"
+                  size={18}
+                  color={colors.textSecondary}
+                />
+
+                <TextInput
+                  value={String(form.leaveBalance)}
+                  onChangeText={(text) =>
+                    updateForm(userId, "leaveBalance", text)
+                  }
+                  keyboardType="numeric"
+                  placeholder="ex. 18"
+                  placeholderTextColor={colors.textSecondary}
+                  style={styles.input}
+                  editable={!isBusy}
+                />
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Salaire annuel</Text>
+
+              <View style={styles.inputWrap}>
+                <Ionicons
+                  name="cash-outline"
+                  size={18}
+                  color={colors.textSecondary}
+                />
+
+                <TextInput
+                  value={String(form.yearlySalary)}
+                  onChangeText={(text) =>
+                    updateForm(userId, "yearlySalary", text)
+                  }
+                  keyboardType="numeric"
+                  placeholder="ex. 50000"
+                  placeholderTextColor={colors.textSecondary}
+                  style={styles.input}
+                  editable={!isBusy}
+                />
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Attribuer un rôle</Text>
+
+              <View style={styles.roleRow}>
+                {ROLE_OPTIONS.map((option) =>
+                  renderRoleOption(userId, option, selectedRole, isBusy),
+                )}
+              </View>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Attribuer un département</Text>
+
+              {departments.length === 0 ? (
+                <Text style={styles.helperText}>
+                  Aucun département disponible.
+                </Text>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.scrollChips}
+                >
+                  {departments.map((dept) =>
+                    renderDepartmentOption(
+                      userId,
+                      dept,
+                      form.departmentId,
+                      isBusy,
+                    ),
+                  )}
+                </ScrollView>
+              )}
+            </View>
+
+            <View style={styles.actionsRow}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => rejectUser(item)}
+                disabled={isBusy}
+                style={[
+                  styles.secondaryButton,
+                  isBusy && styles.disabledButton,
+                ]}
+              >
+                {isRejecting ? (
+                  <ActivityIndicator size="small" color={colors.text} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="close-outline"
+                      size={18}
+                      color={colors.text}
+                    />
+                    <Text style={styles.secondaryButtonText}>Rejeter</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => approveUser(item)}
+                disabled={isBusy}
+                style={[styles.primaryButton, isBusy && styles.disabledButton]}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={colors.textOnPrimary}
+                  />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="checkmark-outline"
+                      size={18}
+                      color={colors.textOnPrimary}
+                    />
+                    <Text style={styles.primaryButtonText}>Approuver</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </Card>
     );
   };
@@ -592,21 +821,56 @@ const ApprovalsScreen = () => {
         <View style={styles.sectionIconWrap}>
           <Ionicons name={icon} size={18} color={colors.primary} />
         </View>
+
         <View>
           <Text style={styles.sectionTitle}>{title}</Text>
           <Text style={styles.sectionSubtitle}>
-            {count} en attente {count === 1 ? "élément" : "éléments"}
+            {count} {count === 1 ? "élément" : "éléments"} en attente
           </Text>
         </View>
       </View>
     </View>
   );
 
+  const renderEmptyCard = (title, text) => (
+    <Card style={styles.emptyCard}>
+      <Text style={styles.emptyCardTitle}>{title}</Text>
+      <Text style={styles.emptyCardText}>{text}</Text>
+    </Card>
+  );
+
+  const renderFullyEmpty = () => (
+    <View style={styles.emptyState}>
+      <View style={styles.emptyIconWrap}>
+        <Ionicons
+          name="checkmark-done-circle-outline"
+          size={58}
+          color={colors.primary}
+        />
+      </View>
+
+      <Text style={styles.emptyTitle}>Aucune approbation en attente</Text>
+      <Text style={styles.emptyText}>Tout a déjà été traité.</Text>
+    </View>
+  );
+
   const renderTabs = () => {
     const tabs = [
-      { key: "all", label: "Tout", count: leaveRequests.length + pendingUsers.length },
-      { key: "leave", label: "Congés", count: leaveRequests.length },
-      { key: "users", label: "Utilisateurs", count: pendingUsers.length },
+      {
+        key: "all",
+        label: "Tout",
+        count: leaveRequests.length + pendingUsers.length,
+      },
+      {
+        key: "leave",
+        label: "Congés",
+        count: leaveRequests.length,
+      },
+      {
+        key: "users",
+        label: "Utilisateurs",
+        count: pendingUsers.length,
+      },
     ];
 
     return (
@@ -624,6 +888,7 @@ const ApprovalsScreen = () => {
               <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
                 {tab.label}
               </Text>
+
               <View
                 style={[
                   styles.tabCountBadge,
@@ -646,6 +911,110 @@ const ApprovalsScreen = () => {
     );
   };
 
+  const listData = useMemo(() => {
+    const rows = [];
+
+    const noLeaveRequests = leaveRequests.length === 0;
+    const noPendingUsers = pendingUsers.length === 0;
+    const fullyEmpty = noLeaveRequests && noPendingUsers;
+
+    if (fullyEmpty) {
+      rows.push({
+        type: "fullyEmpty",
+        key: "fully-empty",
+      });
+
+      return rows;
+    }
+
+    if (activeTab === "all" || activeTab === "leave") {
+      rows.push({
+        type: "sectionHeader",
+        key: "leave-header",
+        title: "Demandes de congé",
+        count: leaveRequests.length,
+        icon: "calendar-clear-outline",
+      });
+
+      if (noLeaveRequests) {
+        rows.push({
+          type: "emptyLeave",
+          key: "empty-leave",
+        });
+      } else {
+        leaveRequests.forEach((item) => {
+          const id = getItemId(item);
+
+          rows.push({
+            type: "leave",
+            key: `leave-${id}`,
+            item,
+          });
+        });
+      }
+    }
+
+    if (activeTab === "all" || activeTab === "users") {
+      rows.push({
+        type: "sectionHeader",
+        key: "users-header",
+        title: "Nouveaux comptes",
+        count: pendingUsers.length,
+        icon: "person-add-outline",
+      });
+
+      if (noPendingUsers) {
+        rows.push({
+          type: "emptyUsers",
+          key: "empty-users",
+        });
+      } else {
+        pendingUsers.forEach((item) => {
+          const id = getUserId(item);
+
+          rows.push({
+            type: "user",
+            key: `user-${id}`,
+            item,
+          });
+        });
+      }
+    }
+
+    return rows;
+  }, [activeTab, leaveRequests, pendingUsers]);
+
+  const renderItem = ({ item }) => {
+    switch (item.type) {
+      case "fullyEmpty":
+        return renderFullyEmpty();
+
+      case "sectionHeader":
+        return renderSectionHeader(item.title, item.count, item.icon);
+
+      case "leave":
+        return renderLeaveCard(item.item);
+
+      case "user":
+        return renderUserCard(item.item);
+
+      case "emptyLeave":
+        return renderEmptyCard(
+          "Aucune demande de congé en attente",
+          "Toutes les demandes de congé ont été traitées.",
+        );
+
+      case "emptyUsers":
+        return renderEmptyCard(
+          "Aucune validation de compte en attente",
+          "Toutes les demandes de compte ont été traitées.",
+        );
+
+      default:
+        return null;
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -655,14 +1024,15 @@ const ApprovalsScreen = () => {
     );
   }
 
-  const noLeaveRequests = leaveRequests.length === 0;
-  const noPendingUsers = pendingUsers.length === 0;
-  const fullyEmpty = noLeaveRequests && noPendingUsers;
-
   return (
-    <ScrollView
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+    <FlatList
       style={styles.container}
       contentContainerStyle={styles.content}
+      data={listData}
+      keyExtractor={(item) => item.key}
+      renderItem={renderItem}
+      ListHeaderComponent={renderTabs}
       showsVerticalScrollIndicator={false}
       refreshControl={
         <RefreshControl
@@ -671,73 +1041,8 @@ const ApprovalsScreen = () => {
           tintColor={colors.primary}
         />
       }
-    >
-      {renderTabs()}
-
-      {fullyEmpty ? (
-        <View style={styles.centered}>
-          <View style={styles.emptyIconWrap}>
-            <Ionicons
-              name="checkmark-done-circle-outline"
-              size={58}
-              color={colors.primary}
-            />
-          </View>
-          <Text style={styles.emptyTitle}>Aucune approbation en attente</Text>
-          <Text style={styles.emptyText}>
-            Tout a déjà été traité.
-          </Text>
-        </View>
-      ) : (
-        <>
-          {(activeTab === "all" || activeTab === "leave") && (
-            <View style={styles.block}>
-              {renderSectionHeader(
-                "Demandes de congé",
-                leaveRequests.length,
-                "calendar-clear-outline"
-              )}
-
-              {noLeaveRequests ? (
-                <Card style={styles.emptyCard}>
-                  <Text style={styles.emptyCardTitle}>
-                    Aucune demande de congé en attente
-                  </Text>
-                  <Text style={styles.emptyCardText}>
-                    Toutes les demandes de congé ont été traitées.
-                  </Text>
-                </Card>
-              ) : (
-                leaveRequests.map(renderLeaveCard)
-              )}
-            </View>
-          )}
-
-          {(activeTab === "all" || activeTab === "users") && (
-            <View style={styles.block}>
-              {renderSectionHeader(
-                "Nouveaux comptes",
-                pendingUsers.length,
-                "person-add-outline"
-              )}
-
-              {noPendingUsers ? (
-                <Card style={styles.emptyCard}>
-                  <Text style={styles.emptyCardTitle}>
-                    Aucune validation de compte en attente
-                  </Text>
-                  <Text style={styles.emptyCardText}>
-                    Toutes les demandes de compte ont été traitées.
-                  </Text>
-                </Card>
-              ) : (
-                pendingUsers.map(renderUserCard)
-              )}
-            </View>
-          )}
-        </>
-      )}
-    </ScrollView>
+    />
+    </KeyboardAvoidingView>
   );
 };
 
@@ -813,12 +1118,9 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       color: colors.textOnPrimary,
     },
 
-    block: {
-      marginBottom: spacing.xl,
-    },
-
     sectionHeader: {
       marginBottom: spacing.md,
+      marginTop: spacing.sm,
     },
 
     sectionHeaderLeft: {
@@ -852,17 +1154,27 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     card: {
       backgroundColor: colors.surface,
       padding: spacing.lg,
-      marginBottom: spacing.lg,
+      marginBottom: spacing.md,
       borderRadius: borderRadius.xl || 18,
       borderWidth: 1,
       borderColor: colors.border,
-      ...shadows.sm,
+      ...shadows.md,
     },
 
-    cardTop: {
+    compactCard: {
+      paddingVertical: spacing.md,
+    },
+
+    compactRow: {
       flexDirection: "row",
       alignItems: "center",
-      marginBottom: spacing.md,
+    },
+
+    expandedContent: {
+      marginTop: spacing.lg,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingTop: spacing.md,
     },
 
     avatarWrap: {
@@ -879,10 +1191,13 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       flex: 1,
     },
 
+    rowRight: {
+      alignItems: "flex-end",
+      gap: 8,
+      marginLeft: spacing.sm,
+    },
+
     pendingBadge: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
       paddingHorizontal: 10,
       paddingVertical: 6,
       borderRadius: borderRadius.full,
@@ -904,6 +1219,12 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     email: {
       marginTop: 2,
       fontSize: typography.sm,
+      color: colors.textSecondary,
+    },
+
+    smallPreview: {
+      marginTop: 3,
+      fontSize: 12,
       color: colors.textSecondary,
     },
 
@@ -941,9 +1262,9 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       alignItems: "center",
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: borderRadius.md,
+      borderRadius: borderRadius.lg,
       paddingHorizontal: spacing.md,
-      backgroundColor: colors.background,
+      backgroundColor: colors.surfaceMuted || colors.background,
     },
 
     input: {
@@ -973,7 +1294,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       paddingVertical: spacing.sm,
       paddingHorizontal: spacing.md,
       borderRadius: borderRadius.full,
-      borderWidth: 1,
+      borderWidth: 1.5,
       borderColor: colors.border,
       backgroundColor: colors.surface,
     },
@@ -1006,8 +1327,9 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       justifyContent: "center",
       gap: 6,
       backgroundColor: colors.primary,
-      borderRadius: borderRadius.md,
+      borderRadius: borderRadius.lg,
       paddingVertical: spacing.md,
+      ...shadows.sm,
     },
 
     secondaryButton: {
@@ -1017,9 +1339,9 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       justifyContent: "center",
       gap: 6,
       backgroundColor: colors.surfaceMuted,
-      borderRadius: borderRadius.md,
+      borderRadius: borderRadius.lg,
       paddingVertical: spacing.md,
-      borderWidth: 1,
+      borderWidth: 1.5,
       borderColor: colors.border,
     },
 
@@ -1048,13 +1370,19 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       alignItems: "center",
       justifyContent: "center",
       padding: spacing.xl,
-      backgroundColor: colors.background,
     },
 
     loadingText: {
       marginTop: spacing.md,
       fontSize: typography.sm,
       color: colors.textSecondary,
+    },
+
+    emptyState: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: spacing.xxl,
+      paddingHorizontal: spacing.xl,
     },
 
     emptyIconWrap: {
@@ -1090,6 +1418,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       borderRadius: borderRadius.xl || 18,
       borderWidth: 1,
       borderColor: colors.border,
+      marginBottom: spacing.lg,
       ...shadows.sm,
     },
 
@@ -1104,6 +1433,11 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       fontSize: typography.sm,
       color: colors.textSecondary,
       lineHeight: 20,
+    },
+
+    scrollChips: {
+      paddingRight: spacing.md,
+      paddingVertical: 4,
     },
   });
 

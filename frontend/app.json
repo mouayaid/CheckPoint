@@ -16,10 +16,22 @@
     },
     "plugins": [
       "expo-font",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Autoriser l'accès à la galerie pour enregistrer les QR codes.",
+          "savePhotosPermission": "Autoriser l'application à enregistrer les QR codes dans la galerie.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
     ],
     "android": {
-      "package": "com.anonymous.pfemobileapp"
+      "package": "com.anonymous.pfemobileapp",
+      "permissions": [
+        "READ_MEDIA_IMAGES",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
     }
   }
 }

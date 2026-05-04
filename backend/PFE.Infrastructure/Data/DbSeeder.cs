@@ -27,64 +27,6 @@ public static class DbSeeder
             await context.SaveChangesAsync();
         }
 
-        // Seed Users (Admin, Manager, Employee)
-        if (!await context.Users.AnyAsync())
-        {
-            var departments = await context.Departments.ToListAsync();
-            var itDepartment = departments.FirstOrDefault(d => d.Name == "IT") 
-                ?? departments.First();
-
-            var users = new List<User>
-            {
-                // Admin User
-                new User
-                {
-                    Email = "admin@pfe.com",
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!"),
-                    FullName = "Admin User",
-                    Role = Role.Admin,
-                    DepartmentId = itDepartment.Id,
-                    LeaveBalance = 25,
-                    CreatedAt = DateTime.UtcNow
-                },
-                // Manager User
-                new User
-                {
-                    Email = "manager@pfe.com",
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("Manager123!"),
-                    FullName = "Manager User",
-                    Role = Role.Manager,
-                    DepartmentId = itDepartment.Id,
-                    LeaveBalance = 20,
-                    CreatedAt = DateTime.UtcNow
-                },
-                // Employee User
-                new User
-                {
-                    Email = "employee@pfe.com",
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("Employee123!"),
-                    FullName = "Employee User",
-                    Role = Role.Employee,
-                    DepartmentId = itDepartment.Id,
-                    LeaveBalance = 15,
-                    CreatedAt = DateTime.UtcNow
-                },
-                // Additional Employee
-                new User
-                {
-                    Email = "john.doe@pfe.com",
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("Password123!"),
-                    FullName = "John Doe",
-                    Role = Role.Employee,
-                    DepartmentId = itDepartment.Id,
-                    LeaveBalance = 18,
-                    CreatedAt = DateTime.UtcNow
-                }
-            };
-
-            await context.Users.AddRangeAsync(users);
-            await context.SaveChangesAsync();
-        }
 
         // Seed Office Tables and Seats (optional - for testing)
         if (!await context.OfficeTables.AnyAsync())

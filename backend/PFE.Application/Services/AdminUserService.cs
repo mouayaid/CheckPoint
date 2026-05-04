@@ -19,22 +19,32 @@ public class AdminUserService : IAdminUserService
 
     public async Task<List<PendingUserDto>> GetPendingUsersAsync()
     {
-        var users = await _context.Users
-            .Include(u => u.Department)
-            .Where(u => !u.IsActive && u.RejectedAt == null)
-            .OrderBy(u => u.CreatedAt)
-            .ToListAsync();
-
-        return users.Select(u => new PendingUserDto
+        try
         {
-            Id = u.Id,
-            FullName = u.FullName,
-            Email = u.Email,
-            DepartmentName = u.Department?.Name,
-            CreatedAt = u.CreatedAt,
-            Role = u.Role,
-            IsActive = u.IsActive
-        }).ToList();
+            var users = await _context.Users
+                .Where(u => !u.IsActive)
+                .Select(u => new PendingUserDto
+                {
+                    Id = u.Id,
+                    FullName = u.FullName,
+                    Email = u.Email,
+                    RoleId = u.RoleId,
+                    RoleName = u.Role != null ? u.Role.Name : null,
+                    DepartmentName = u.Department != null ? u.Department.Name : null,
+                    CreatedAt = u.CreatedAt,
+                    IsActive = u.IsActive
+                })
+                .ToListAsync();
+
+            return users;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("❌ ERROR IN GetPendingUsersAsync:");
+            Console.WriteLine(ex.Message);
+            Console.WriteLine(ex.StackTrace);
+            throw; // keep throwing so API returns 500 with real message
+        }
     }
 
     public async Task<List<UserDto>> GetAllUsersAsync(string? search, string? role, bool? isActive)
@@ -52,9 +62,9 @@ public class AdminUserService : IAdminUserService
                 (u.Department != null && u.Department.Name.ToLower().Contains(lower)));
         }
 
-        if (!string.IsNullOrWhiteSpace(role) && Enum.TryParse<Role>(role, true, out var parsedRole))
+        if (!string.IsNullOrWhiteSpace(role))
         {
-            query = query.Where(u => u.Role == parsedRole);
+            query = query.Where(u => u.Role.Name == role);
         }
 
         if (isActive.HasValue)
@@ -92,9 +102,9 @@ public class AdminUserService : IAdminUserService
         user.ApprovedAt = DateTime.UtcNow;
         user.ApprovedByUserId = reviewerId;
 
-        if (dto.Role.HasValue)
+        if (dto.RoleId.HasValue)
         {
-            user.Role = dto.Role.Value;
+            user.RoleId = dto.RoleId.Value;
         }
 
         if (dto.DepartmentId.HasValue)
@@ -122,7 +132,7 @@ public class AdminUserService : IAdminUserService
             return null;
         }
 
-        user.Role = dto.Role;
+        user.RoleId = dto.RoleId;
         await _context.SaveChangesAsync();
 
         return _mapper.Map<UserDto>(user);
@@ -172,7 +182,7 @@ public class AdminUserService : IAdminUserService
         if (!string.IsNullOrWhiteSpace(dto.FullName))
             user.FullName = dto.FullName.Trim();
 
-        user.Role = dto.Role;
+        user.RoleId = dto.RoleId;
         user.DepartmentId = dto.DepartmentId;
         user.LeaveBalance = dto.LeaveBalance;
 

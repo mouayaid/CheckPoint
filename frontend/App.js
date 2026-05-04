@@ -48,13 +48,15 @@ import ManageEventsScreen from "./src/screens/hr/ManageEventsScreen";
 import DepartmentChannelScreen from "./src/screens/DepartmentChannelScreen";
 import ApprovalsScreen from "./src/screens/approvals/ApprovalsScreen";
 import UserManagementScreen from "./src/screens/admin/UserManagementScreen";
-import RoomManagementScreen from "./src/screens/admin/RoomManagementScreen";
 import SeatManagementScreen from "./src/screens/admin/SeatManagementScreen";
+import AdminOfficeLayoutScreen from "./src/screens/admin/AdminOfficeLayoutScreen";
 import SplashScreen from "./src/screens/SplashScreen";
 import { DepartmentChannelProvider } from "./src/context/DepartmentChannelContext";
 import { useDepartmentChannel } from "./src/context/DepartmentChannelContext";
 import CustomBottomTabBar from "./src/components/CustomBottomTabBar";
 import AnimatedTabScreen from "./src/components/AnimatedTabScreen";
+import RoomManagementScreen from "./src/screens/admin/RoomManagementScreen";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -95,7 +97,7 @@ function HeaderActions() {
 function HomeTabs() {
   const { colors } = useTheme();
   const { user } = useAuth();
-  const { channelUnreadCount, refreshChannelInfo } = useDepartmentChannel();
+  const { refreshChannelInfo } = useDepartmentChannel();
 
   useFocusEffect(
     useCallback(() => {
@@ -103,8 +105,10 @@ function HomeTabs() {
     }, [refreshChannelInfo]),
   );
 
-  const isAdmin = user?.role === "Admin" || user?.role === 3;
-  const isHR = user?.role === "HR" || user?.role === 4;
+  const role = user?.roleName ?? user?.roleId;
+
+  const isAdmin = role === "Admin" || role === 3;
+  const isHR = role === "HR" || role === 4;
 
   const canReviewRequests = isAdmin || isHR;
 
@@ -126,6 +130,9 @@ function HomeTabs() {
         sceneStyle: {
           backgroundColor: colors.background,
         },
+        sceneContainerStyle: {
+          backgroundColor: colors.background,
+        },
         lazy: false,
       }}
     >
@@ -137,13 +144,25 @@ function HomeTabs() {
         )}
       </Tab.Screen>
 
-      <Tab.Screen name="Channel" options={{ title: "Canal" }}>
-        {() => (
-          <AnimatedTabScreen>
-            <DepartmentChannelScreen />
-          </AnimatedTabScreen>
-        )}
-      </Tab.Screen>
+      {!isAdmin && (
+        <Tab.Screen name="Channel" options={{ title: "Canal" }}>
+          {() => (
+            <AnimatedTabScreen>
+              <DepartmentChannelScreen />
+            </AnimatedTabScreen>
+          )}
+        </Tab.Screen>
+      )}
+
+      {isAdmin && (
+        <Tab.Screen name="Announcements" options={{ title: "Annonces" }}>
+          {() => (
+            <AnimatedTabScreen>
+              <ManageAnnouncementsScreen />
+            </AnimatedTabScreen>
+          )}
+        </Tab.Screen>
+      )}
 
       {canReviewRequests && (
         <Tab.Screen name="Approvals" options={{ title: "Approbations" }}>
@@ -206,98 +225,117 @@ function AppNavigator() {
   }
 
   return (
-    <NavigationContainer
-      theme={{
-        dark: darkMode,
-        colors: {
-          primary: colors.primary,
-          background: colors.background,
-          card: colors.surface,
-          text: colors.textPrimary,
-          border: colors.border,
-          notification: colors.primary,
-        },
-      }}
-    >
-      <Stack.Navigator initialRouteName="Splash">
-        {!isAuthenticated ? (
-          <>
-            <Stack.Screen
-              name="Splash"
-              component={SplashScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Register" component={RegisterScreen} />
-          </>
-        ) : (
-          <>
-            <Stack.Screen
-              name="HomeTabs"
-              component={HomeTabs}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen
-              name="LeaveRequest"
-              component={LeaveRequestScreen}
-              options={{ title: "Demandes Congé" }}
-            />
-            <Stack.Screen
-              name="Notifications"
-              component={NotificationsScreen}
-              options={{ title: "Notifications" }}
-            />
-            <Stack.Screen
-              name="Profile"
-              component={ProfileScreen}
-              options={{ title: "Profil" }}
-            />
-            <Stack.Screen
-              name="PendingRoomReservations"
-              component={PendingRoomReservationsScreen}
-              options={{ title: "Demandes Salles En Attente" }}
-            />
-            <Stack.Screen
-              name="ManageAnnouncements"
-              component={ManageAnnouncementsScreen}
-              options={{ title: "Gérer Annonces" }}
-            />
-            <Stack.Screen
-              name="EventManagement"
-              component={
-                require("./src/screens/admin/EventManagementScreen").default
-              }
-              options={{ title: "Gestion des Événements" }}
-            />
-            <Stack.Screen
-              name="ManageEvents"
-              component={ManageEventsScreen}
-              options={{ title: "Créer un événement" }}
-            />
-            <Stack.Screen
-              name="PendingLeaveRequests"
-              component={PendingLeaveRequestsScreen}
-              options={{ title: "Demandes Congé En Attente" }}
-            />
-            <Stack.Screen
-              name="UserManagement"
-              component={UserManagementScreen}
-              options={{ title: "Gestion des Utilisateurs" }}
-            />
-            <Stack.Screen
-              name="RoomManagement"
-              component={RoomManagementScreen}
-              options={{ title: "Gestion des Salles" }}
-            />
-            <Stack.Screen
-              name="SeatManagement"
-              component={SeatManagementScreen}
-              options={{ title: "Tables et Sièges" }}
-            />
-          </>
-        )}
-      </Stack.Navigator>
-    </NavigationContainer>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <NavigationContainer
+        theme={{
+          dark: darkMode,
+          colors: {
+            primary: colors.primary,
+            background: colors.background,
+            card: colors.surface,
+            text: colors.textPrimary,
+            border: colors.border,
+            notification: colors.primary,
+          },
+        }}
+      >
+        <Stack.Navigator initialRouteName="Splash">
+          {!isAuthenticated ? (
+            <>
+              <Stack.Screen
+                name="Splash"
+                component={SplashScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen name="Register" component={RegisterScreen} />
+            </>
+          ) : (
+            <>
+              <Stack.Screen
+                name="HomeTabs"
+                component={HomeTabs}
+                options={{ headerShown: false }}
+              />
+
+              <Stack.Screen
+                name="LeaveRequest"
+                component={LeaveRequestScreen}
+                options={{ title: "Demandes Congé" }}
+              />
+
+              <Stack.Screen
+                name="Notifications"
+                component={NotificationsScreen}
+                options={{ title: "Notifications" }}
+              />
+
+              <Stack.Screen
+                name="Profile"
+                component={ProfileScreen}
+                options={{ title: "Profil" }}
+              />
+
+              <Stack.Screen
+                name="PendingRoomReservations"
+                component={PendingRoomReservationsScreen}
+                options={{ title: "Demandes Salles En Attente" }}
+              />
+
+              <Stack.Screen
+                name="ManageAnnouncements"
+                component={ManageAnnouncementsScreen}
+                options={{ title: "Gérer Annonces" }}
+              />
+
+              <Stack.Screen
+                name="EventManagement"
+                component={
+                  require("./src/screens/admin/EventManagementScreen").default
+                }
+                options={{ title: "Gestion des Événements" }}
+              />
+
+              <Stack.Screen
+                name="ManageEvents"
+                component={ManageEventsScreen}
+                options={{ title: "Créer un événement" }}
+              />
+
+              <Stack.Screen
+                name="PendingLeaveRequests"
+                component={PendingLeaveRequestsScreen}
+                options={{ title: "Demandes Congé En Attente" }}
+              />
+
+              <Stack.Screen
+                name="UserManagement"
+                component={UserManagementScreen}
+                options={{ title: "Gestion des Utilisateurs" }}
+              />
+
+              <Stack.Screen
+                name="RoomManagement"
+                component={RoomManagementScreen}
+                options={{ title: "Gestion des Salles" }}
+              />
+
+              <Stack.Screen
+                name="SeatManagement"
+                component={SeatManagementScreen}
+                options={{ title: "Tables et Sièges" }}
+              />
+
+              <Stack.Screen
+                name="AdminOfficeLayout"
+                component={AdminOfficeLayoutScreen}
+                options={{ title: "Plan Interactif" }}
+              />
+            </>
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </GestureHandlerRootView>
   );
 }
 
@@ -370,7 +408,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: "#ef4444",
     borderWidth: 2,
-    borderColor: "#fff", // change if dark theme
+    borderColor: "#fff",
   },
   headerIconButton: {
     marginLeft: 14,

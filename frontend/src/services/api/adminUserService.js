@@ -1,9 +1,10 @@
-import api from './axiosInstance';
+import api from "./axiosInstance";
 
 const extractData = (res) => {
+  if (Array.isArray(res)) return res;
   if (Array.isArray(res?.data)) return res.data;
   if (Array.isArray(res?.data?.data)) return res.data.data;
-  return res?.data?.data ?? res?.data ?? null;
+  return res?.data?.data ?? res?.data ?? res ?? null;
 };
 
 export const adminUserService = {
@@ -13,11 +14,41 @@ export const adminUserService = {
     if (search) params.search = search;
     if (role) params.role = role;
     if (isActive !== undefined && isActive !== null) params.isActive = isActive;
-    return api.get('/admin/users', { params });
+    return api.get("/admin/users", { params });
   },
 
   /** Fetch pending (unactivated) users */
-  getPendingUsers: () => api.get('/admin/users/pending'),
+  getPendingUsers: async () => {
+    try {
+      const res = await api.get("/admin/users/pending");
+
+      console.log("RAW PENDING USERS API RESPONSE:", res);
+
+      const data = extractData(res) ?? [];
+
+      return {
+        success: true,
+        data: Array.isArray(data) ? data : [],
+      };
+    } catch (error) {
+      console.log("PENDING USERS FULL ERROR:", {
+        message: error?.message,
+        status: error?.response?.status,
+        data: error?.response?.data,
+        url: error?.config?.url,
+        baseURL: error?.config?.baseURL,
+      });
+
+      return {
+        success: false,
+        data: [],
+        message:
+          error?.response?.data?.message ||
+          error?.message ||
+          "Impossible de charger les utilisateurs en attente",
+      };
+    }
+  },
 
   /** Fetch single user by id */
   getUserById: (id) => api.get(`/admin/users/${id}`),
@@ -27,6 +58,10 @@ export const adminUserService = {
 
   /** Assign / change role only */
   changeRole: (id, role) => api.put(`/admin/users/${id}/role`, { role }),
+
+  getRoles: () => api.get("/Roles"),
+
+  getDepartments: () => api.get("/Departments"),
 
   /** Delete a user permanently */
   deleteUser: (id) => api.delete(`/admin/users/${id}`),

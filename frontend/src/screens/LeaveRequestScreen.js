@@ -1,9 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import {
-  Dimensions,
-  KeyboardAvoidingView,
-  Platform,
-} from "react-native";
+import { Platform } from "react-native";
 import {
   View,
   Text,
@@ -17,6 +13,7 @@ import {
   RefreshControl,
   LayoutAnimation,
   UIManager,
+  KeyboardAvoidingView,
 } from "react-native";
 
 if (
@@ -28,7 +25,11 @@ if (
 
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import {
+  useNavigation,
+  useRoute,
+  useFocusEffect,
+} from "@react-navigation/native";
 import { useAuth } from "../context/AuthContext";
 import { leaveService, profileService } from "../services/api";
 import {
@@ -105,10 +106,13 @@ export default function LeaveRequestScreen() {
     [colors, darkMode, spacing, borderRadius, typography, shadows],
   );
 
-  const { user } = useAuth();
+  const { user, triggerRefresh } = useAuth();
   const navigation = useNavigation();
   const route = useRoute();
+
   const openCreateModal = route?.params?.openCreateModal === true;
+  const openPendingTab = route?.params?.openPendingTab === true;
+  const isReviewMode = route?.params?.mode === "review";
 
   const [refreshing, setRefreshing] = useState(false);
   const [requests, setRequests] = useState([]);
@@ -130,28 +134,12 @@ export default function LeaveRequestScreen() {
   const [reviewComment, setReviewComment] = useState("");
   const [reviewingAction, setReviewingAction] = useState("");
 
-  const [activeFilter, setActiveFilter] = useState("All");
+  const [activeFilter, setActiveFilter] = useState(
+    openPendingTab || isReviewMode ? "Pending" : "All",
+  );
 
   const role = roleToString(user?.role);
   const isManager = role === "Manager" || role === "Admin";
-
-  useEffect(() => {
-    if (user) {
-      loadRequests();
-      loadLeaveBalance();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-
-  useEffect(() => {
-    if (!loadingBalance && openCreateModal) {
-      if (leaveBalance > 0) {
-        setModalVisible(true);
-      }
-
-      navigation.setParams({ openCreateModal: false });
-    }
-  }, [openCreateModal, loadingBalance, leaveBalance, navigation]);
 
   const resetCreateModal = () => {
     setModalVisible(false);
@@ -172,6 +160,12 @@ export default function LeaveRequestScreen() {
   };
 
   const loadLeaveBalance = async () => {
+    if (isReviewMode) {
+      setLeaveBalance(null);
+      setLoadingBalance(false);
+      return;
+    }
+
     setLoadingBalance(true);
     try {
       const res = await profileService.getProfile();
@@ -205,19 +199,13 @@ export default function LeaveRequestScreen() {
     }
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await Promise.all([loadRequests(), loadLeaveBalance()]);
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
   const loadRequests = async () => {
     setLoadingRequests(true);
+
     try {
-      const res = await leaveService.getMyLeaveRequests();
+      const res = isReviewMode
+        ? await leaveService.getPendingReviewRequests()
+        : await leaveService.getMyLeaveRequests();
 
       if (res?.success) {
         const normalized = (res.data || []).map((request) => ({
@@ -231,15 +219,66 @@ export default function LeaveRequestScreen() {
 
         setRequests(normalized);
       } else {
-        Alert.alert("Erreur", res?.message || "Impossible de charger les demandes");
+        Alert.alert(
+          "Erreur",
+          res?.message || "Impossible de charger les demandes",
+        );
       }
     } catch (error) {
       console.log("LOAD LEAVES status:", error?.status);
       console.log("LOAD LEAVES body:", error?.data);
       console.log("LOAD LEAVES message:", error?.message);
-      Alert.alert("Erreur", error?.message || "Impossible de charger les demandes");
+
+      Alert.alert(
+        "Erreur",
+        error?.message || "Impossible de charger les demandes",
+      );
     } finally {
       setLoadingRequests(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user) {
+        loadRequests();
+        loadLeaveBalance();
+      }
+    }, [user, isReviewMode]),
+  );
+
+  useEffect(() => {
+    if (isReviewMode) return;
+
+    if (!loadingBalance && openCreateModal) {
+      if (leaveBalance > 0) {
+        setModalVisible(true);
+      }
+
+      navigation.setParams({ openCreateModal: false });
+    }
+  }, [
+    isReviewMode,
+    openCreateModal,
+    loadingBalance,
+    leaveBalance,
+    navigation,
+  ]);
+
+  useEffect(() => {
+    if (openPendingTab || isReviewMode) {
+      setActiveFilter("Pending");
+      setModalVisible(false);
+      navigation.setParams({ openPendingTab: false });
+    }
+  }, [openPendingTab, isReviewMode, navigation]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadRequests(), loadLeaveBalance()]);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -298,11 +337,14 @@ export default function LeaveRequestScreen() {
     }
 
     return null;
-  }, [startDate, endDate, trimmedReason, leaveBalance, requestedDays, requests]);
-
-  const validateLeaveRequest = () => {
-    return formValidationMessage;
-  };
+  }, [
+    startDate,
+    endDate,
+    trimmedReason,
+    leaveBalance,
+    requestedDays,
+    requests,
+  ]);
 
   const isCreateDisabled =
     creating ||
@@ -312,10 +354,8 @@ export default function LeaveRequestScreen() {
     !!formValidationMessage;
 
   const handleCreate = async () => {
-    const validationError = validateLeaveRequest();
-
-    if (validationError) {
-      Alert.alert("Erreur", validationError);
+    if (formValidationMessage) {
+      Alert.alert("Erreur", formValidationMessage);
       return;
     }
 
@@ -332,12 +372,10 @@ export default function LeaveRequestScreen() {
       if (res?.success) {
         Alert.alert("Succès", "Demande de congé créée");
         resetCreateModal();
+        triggerRefresh();
         await Promise.all([loadRequests(), loadLeaveBalance()]);
       } else {
-        Alert.alert(
-          "Erreur",
-          res?.message || "Impossible de créer la demande"
-        );
+        Alert.alert("Erreur", res?.message || "Impossible de créer la demande");
       }
     } catch (error) {
       console.log("CREATE LEAVE status:", error.response?.status);
@@ -370,16 +408,17 @@ export default function LeaveRequestScreen() {
         comment: reviewComment.trim(),
       });
 
-      const success = res?.success;
-
-      if (success) {
+      if (res?.success) {
         Alert.alert("Succès", `Demande ${String(status).toLowerCase()}`);
         resetReviewModal();
-        await loadRequests();
+        triggerRefresh();
+        await Promise.all([loadRequests(), loadLeaveBalance()]);
       } else {
         Alert.alert(
           "Erreur",
-          res?.data?.message || res?.message || "Impossible de traiter la demande",
+          res?.data?.message ||
+            res?.message ||
+            "Impossible de traiter la demande",
         );
       }
     } catch (error) {
@@ -461,8 +500,6 @@ export default function LeaveRequestScreen() {
     };
   }, [requests]);
 
-  const filterOptions = FILTERS_EMPLOYEE;
-
   if (!user) {
     return (
       <View style={styles.loadingContainer}>
@@ -474,9 +511,13 @@ export default function LeaveRequestScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.stickyHeader}>
-        <Text style={styles.screenTitle}>Demandes de congé</Text>
+        <Text style={styles.screenTitle}>
+          {isReviewMode ? "Congés en attente" : "Demandes de congé"}
+        </Text>
         <Text style={styles.screenSubtitle}>
-          Créez et suivez vos demandes de congé
+          {isReviewMode
+            ? "Consultez et traitez les demandes de congé en attente"
+            : "Créez et suivez vos demandes de congé"}
         </Text>
       </View>
 
@@ -491,63 +532,68 @@ export default function LeaveRequestScreen() {
           />
         }
       >
-        <>
-          <TouchableOpacity
-            style={[
-              styles.createButton,
-              !loadingBalance && leaveBalance <= 0 && styles.createButtonDisabled,
-            ]}
-            activeOpacity={0.9}
-            onPress={() => {
-              if (loadingBalance) return;
-
-              if (leaveBalance > 0) {
-                setModalVisible(true);
-                return;
-              }
-
-              Alert.alert(
-                "Aucun solde de congés",
-                "Vous n'avez plus de jours de congé. Vous pouvez tout de même consulter vos demandes précédentes ci-dessous.",
-              );
-            }}
-          >
-            <Text
+        {!isReviewMode && (
+          <>
+            <TouchableOpacity
               style={[
-                styles.createButtonText,
+                styles.createButton,
                 !loadingBalance &&
                   leaveBalance <= 0 &&
-                  styles.createButtonTextDisabled,
+                  styles.createButtonDisabled,
               ]}
-            >
-              {loadingBalance
-                ? "Vérification du solde..."
-                : leaveBalance > 0
-                  ? "+ Créer une demande"
-                  : "Voir les demandes précédentes"}
-            </Text>
-          </TouchableOpacity>
+              activeOpacity={0.9}
+              onPress={() => {
+                if (loadingBalance) return;
 
-          {!loadingBalance && leaveBalance <= 0 && (
-            <View style={styles.balanceWarningCard}>
-              <Ionicons
-                name="alert-circle-outline"
-                size={18}
-                color={colors.warning}
-              />
-              <Text style={styles.balanceWarningText}>
-                Votre solde de congés est à 0. Vous ne pouvez pas créer une nouvelle demande.
+                if (leaveBalance > 0) {
+                  setModalVisible(true);
+                  return;
+                }
+
+                Alert.alert(
+                  "Aucun solde de congés",
+                  "Vous n'avez plus de jours de congé. Vous pouvez tout de même consulter vos demandes précédentes ci-dessous.",
+                );
+              }}
+            >
+              <Text
+                style={[
+                  styles.createButtonText,
+                  !loadingBalance &&
+                    leaveBalance <= 0 &&
+                    styles.createButtonTextDisabled,
+                ]}
+              >
+                {loadingBalance
+                  ? "Vérification du solde..."
+                  : leaveBalance > 0
+                    ? "+ Créer une demande"
+                    : "Voir les demandes précédentes"}
               </Text>
-            </View>
-          )}
-        </>
+            </TouchableOpacity>
+
+            {!loadingBalance && leaveBalance <= 0 && (
+              <View style={styles.balanceWarningCard}>
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={18}
+                  color={colors.warning}
+                />
+                <Text style={styles.balanceWarningText}>
+                  Votre solde de congés est à 0. Vous ne pouvez pas créer une
+                  nouvelle demande.
+                </Text>
+              </View>
+            )}
+          </>
+        )}
 
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterRow}
         >
-          {filterOptions.map((filter) => {
+          {FILTERS_EMPLOYEE.map((filter) => {
             const selected = activeFilter === filter;
             const count = filterCounts[filter] ?? 0;
 
@@ -569,7 +615,7 @@ export default function LeaveRequestScreen() {
                     selected && styles.filterChipTextActive,
                   ]}
                 >
-                  {(FILTER_LABELS_FR[filter] ?? filter)} ({count})
+                  {FILTER_LABELS_FR[filter] ?? filter} ({count})
                 </Text>
               </TouchableOpacity>
             );
@@ -578,31 +624,18 @@ export default function LeaveRequestScreen() {
 
         {loadingRequests ? (
           <View style={[styles.emptyCard, { paddingVertical: spacing.xl }]}>
-            <View style={{ flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md }}>
-              <View style={{ height: 50, width: 50, borderRadius: borderRadius.lg, backgroundColor: colors.surfaceMuted }} />
-              <View style={{ flex: 1, gap: spacing.sm }}>
-                <View style={{ height: 16, width: '70%', backgroundColor: colors.surfaceMuted, borderRadius: 4 }} />
-                <View style={{ height: 14, width: '50%', backgroundColor: colors.surfaceMuted, borderRadius: 4 }} />
-              </View>
-            </View>
-            <View style={{ height: 12, width: 100, backgroundColor: colors.surfaceMuted, borderRadius: 4, alignSelf: 'flex-start' }} />
-            <View style={{ gap: spacing.sm, marginTop: spacing.lg }}>
-              <View style={{ height: 80, backgroundColor: colors.surfaceMuted, borderRadius: borderRadius.md }} />
-              <View style={{ height: 80, backgroundColor: colors.surfaceMuted, borderRadius: borderRadius.md }} />
-            </View>
+            <Text style={styles.emptyText}>Chargement des demandes...</Text>
           </View>
         ) : filteredRequests.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>
-              {isManager
-                ? activeFilter === "Pending"
-                  ? "Aucune demande en attente"
-                  : "Aucune demande correspondante"
+              {isReviewMode
+                ? "Aucune demande en attente"
                 : "Aucune demande de congé trouvée"}
             </Text>
             <Text style={styles.emptyText}>
-              {isManager
-                ? "Il n'y a actuellement aucune demande pour ce filtre."
+              {isReviewMode
+                ? "Il n'y a actuellement aucune demande de congé à traiter."
                 : "Essayez un autre filtre ou créez votre première demande de congé."}
             </Text>
           </View>
@@ -667,14 +700,31 @@ export default function LeaveRequestScreen() {
 
                 {!!request.managerComment && (
                   <View style={styles.commentBox}>
-                    <Text style={styles.commentLabel}>Commentaire du responsable</Text>
+                    <Text style={styles.commentLabel}>
+                      Commentaire du responsable
+                    </Text>
                     <Text style={styles.commentText}>
                       {request.managerComment}
                     </Text>
                   </View>
                 )}
 
-                {null}
+                {isReviewMode && request.normalizedStatus === "pending" && (
+                  <View style={styles.reviewButtons}>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.reviewOpenButton]}
+                      activeOpacity={0.9}
+                      onPress={() => {
+                        setSelectedRequest(request);
+                        setReviewModalVisible(true);
+                      }}
+                    >
+                      <Text style={styles.reviewOpenButtonText}>
+                        Traiter la demande
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             );
           })
@@ -687,8 +737,9 @@ export default function LeaveRequestScreen() {
         transparent
         onRequestClose={resetCreateModal}
       >
-        <Pressable style={StyleSheet.absoluteFill} onPress={resetCreateModal} />
-        <View style={styles.modalContainer}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={resetCreateModal} />
+          <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
 
@@ -751,7 +802,9 @@ export default function LeaveRequestScreen() {
                           !startDate && styles.placeholderText,
                         ]}
                       >
-              {startDate ? formatDateValue(startDate) : "Date de début"}
+                        {startDate
+                          ? formatDateValue(startDate)
+                          : "Date de début"}
                       </Text>
                     </View>
                     <Text style={styles.dateFieldLabel}>Début</Text>
@@ -773,7 +826,7 @@ export default function LeaveRequestScreen() {
                           !endDate && styles.placeholderText,
                         ]}
                       >
-              {endDate ? formatDateValue(endDate) : "Date de fin"}
+                        {endDate ? formatDateValue(endDate) : "Date de fin"}
                       </Text>
                     </View>
                     <Text style={styles.dateFieldLabel}>Fin</Text>
@@ -833,13 +886,15 @@ export default function LeaveRequestScreen() {
                   maxLength={300}
                 />
                 <Text style={styles.fieldHelperText}>
-                  Ajoutez une explication courte et claire ({trimmedReason.length}/300).
+                  Ajoutez une explication courte et claire (
+                  {trimmedReason.length}/300).
                 </Text>
               </View>
 
               {!!formValidationMessage &&
                 !(
-                  formValidationMessage === "Veuillez remplir tous les champs" &&
+                  formValidationMessage ===
+                    "Veuillez remplir tous les champs" &&
                   !startDate &&
                   !endDate &&
                   !trimmedReason
@@ -888,7 +943,8 @@ export default function LeaveRequestScreen() {
               </View>
             </ScrollView>
           </View>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -897,8 +953,9 @@ export default function LeaveRequestScreen() {
         transparent
         onRequestClose={resetReviewModal}
       >
-        <Pressable style={StyleSheet.absoluteFill} onPress={resetReviewModal} />
-        <View style={styles.modalContainer}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={resetReviewModal} />
+          <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalHandle} />
 
@@ -906,9 +963,9 @@ export default function LeaveRequestScreen() {
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.modalScrollContent}
             >
-              <Text style={styles.modalTitle}>Review Leave Request</Text>
+              <Text style={styles.modalTitle}>Traiter la demande</Text>
               <Text style={styles.modalSubtitle}>
-                Ajoutez un commentaire (optionnel) et choisissez une action
+                Ajoutez un commentaire optionnel et choisissez une action
               </Text>
 
               {selectedRequest && (
@@ -937,7 +994,9 @@ export default function LeaveRequestScreen() {
               )}
 
               <View style={styles.section}>
-                <Text style={styles.label}>Commentaire du responsable (optionnel)</Text>
+                <Text style={styles.label}>
+                  Commentaire du responsable (optionnel)
+                </Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
                   placeholder="Écrivez un commentaire court..."
@@ -973,9 +1032,7 @@ export default function LeaveRequestScreen() {
                   disabled={!!reviewingAction}
                 >
                   <Text style={styles.reviewButtonText}>
-                    {reviewingAction === "Rejected"
-                      ? "Rejet..."
-                      : "Rejeter"}
+                    {reviewingAction === "Rejected" ? "Rejet..." : "Rejeter"}
                   </Text>
                 </TouchableOpacity>
 
@@ -998,7 +1055,8 @@ export default function LeaveRequestScreen() {
               </View>
             </ScrollView>
           </View>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -1122,37 +1180,6 @@ const createStyles = (
     contentContainer: {
       padding: spacing.lg,
       paddingBottom: spacing.xxxl,
-    },
-
-    summaryRow: {
-      flexDirection: "row",
-      gap: spacing.sm,
-      marginBottom: spacing.lg,
-    },
-
-    summaryCard: {
-      flex: 1,
-      backgroundColor: colors.surface,
-      borderRadius: borderRadius.lg,
-      borderWidth: 1,
-      borderColor: colors.border,
-      paddingVertical: spacing.md,
-      alignItems: "center",
-      justifyContent: "center",
-      ...shadows.sm,
-    },
-
-    summaryValue: {
-      fontSize: typography.xl,
-      fontWeight: typography.bold,
-      color: colors.text,
-      marginBottom: 2,
-    },
-
-    summaryLabel: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      fontWeight: typography.semibold,
     },
 
     createButton: {

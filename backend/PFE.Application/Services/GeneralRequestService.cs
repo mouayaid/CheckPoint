@@ -49,7 +49,7 @@ public class GeneralRequestService : IGeneralRequestService
 
         // Notify admins based on category
         var admins = await _context.Users
-            .Where(u => u.Role == Role.Admin)
+            .Where(u => u.Role.Name == "Admin")
             .ToListAsync();
 
         foreach (var admin in admins)
@@ -177,7 +177,7 @@ public class GeneralRequestService : IGeneralRequestService
         var user = await _context.Users.FindAsync(userId);
         var canUpdate = request.UserId == userId ||
                        request.AssignedToUserId == userId ||
-                       (user != null && user.Role == Role.Admin);
+                       (user != null && user.Role.Name == "Admin");
 
         if (!canUpdate)
         {

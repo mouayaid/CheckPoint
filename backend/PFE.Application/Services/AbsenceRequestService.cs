@@ -2,7 +2,7 @@ using AutoMapper;
 using Microsoft.EntityFrameworkCore;
 using PFE.Application.DTOs.AbsenceRequest;
 using PFE.Domain.Entities;
-using PFE.Domain.Enums;
+using RequestStatus = PFE.Domain.Enums.RequestStatus;
 using PFE.Application.Abstractions;
 
 namespace PFE.Application.Services;
@@ -36,8 +36,9 @@ public class AbsenceRequestService : IAbsenceRequestService
 
         // Find manager in the same department (first Manager or Admin)
         var manager = await _context.Users
-            .FirstOrDefaultAsync(u => u.DepartmentId == user.DepartmentId &&
-                                     (u.Role == Role.Manager || u.Role == Role.Admin));
+    .Include(u => u.Role)
+    .FirstOrDefaultAsync(u => u.DepartmentId == user.DepartmentId &&
+                             (u.Role.Name == "Manager" || u.Role.Name == "Admin"));
 
         var absenceRequest = new AbsenceRequest
         {
@@ -89,7 +90,9 @@ public class AbsenceRequestService : IAbsenceRequestService
 
     public async Task<List<AbsenceRequestDto>> GetPendingAbsenceRequestsForTeamAsync(int managerId)
     {
-        var manager = await _context.Users.FindAsync(managerId);
+        var manager = await _context.Users
+    .Include(u => u.Role)
+    .FirstOrDefaultAsync(u => u.Id == managerId);
         if (manager == null)
         {
             return new List<AbsenceRequestDto>();

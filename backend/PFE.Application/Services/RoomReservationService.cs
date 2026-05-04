@@ -58,7 +58,7 @@ public class RoomReservationService : IRoomReservationService
                 .ThenInclude(u => u.Department)
             .Where(r => r.Status == ReservationStatus.Pending);
 
-        if (manager.Role == Role.Manager)
+        if (manager.Role.Name == "Manager")
         {
             query = query.Where(r => r.User.DepartmentId == manager.DepartmentId);
         }

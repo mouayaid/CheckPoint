@@ -4,5 +4,5 @@ namespace PFE.Application.DTOs.User;
 
 public class ChangeUserRoleDto
 {
-    public Role Role { get; set; }
+    public int RoleId { get; set; }
 }

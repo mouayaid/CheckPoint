@@ -1,28 +1,28 @@
-import axios from 'axios';
-import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from "axios";
+import { Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Backend API URL
 // - iOS Simulator: localhost
 // - Android Emulator: 10.0.2.2 (alias for host machine)
 // - Physical device: set API_HOST below to your PC's IP (e.g. 192.168.1.10)
-const API_HOST = '192.168.1.55'; // e.g. '192.168.1.10' for real device
+const API_HOST = "192.168.1.55"; // e.g. '192.168.1.10' for real device
 const getBaseUrl = () => {
-  if (!__DEV__) return 'https://your-api-domain.com/api';
+  if (!__DEV__) return "https://your-api-domain.com/api";
   if (API_HOST) return `http://${API_HOST}:5000/api`;
-  return Platform.OS === 'android'  
-    ? 'http://10.0.2.2:5000/api'
-    : 'http://localhost:5000/api';
+  return Platform.OS === "android"
+    ? "http://10.0.2.2:5000/api"
+    : "http://localhost:5000/api";
 };
 const BASE_URL = getBaseUrl();
-console.log('API BASE URL:', BASE_URL);
+console.log("API BASE URL:", BASE_URL);
 
 // Create axios instance
 const axiosInstance = axios.create({
   baseURL: BASE_URL,
   timeout: 10000,
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
 });
 
@@ -30,18 +30,18 @@ const axiosInstance = axios.create({
 axiosInstance.interceptors.request.use(
   async (config) => {
     try {
-      const token = await AsyncStorage.getItem('userToken');
+      const token = await AsyncStorage.getItem("userToken");
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
     } catch (error) {
-      console.error('Error getting token from storage:', error);
+      console.error("Error getting token from storage:", error);
     }
     return config;
   },
   (error) => {
     return Promise.reject(error);
-  }
+  },
 );
 
 // Response interceptor - Handle errors globally
@@ -57,22 +57,30 @@ axiosInstance.interceptors.response.use(
     if (error.response?.status === 401) {
       try {
         // Clear stored auth data
-        await AsyncStorage.removeItem('userToken');
-        await AsyncStorage.removeItem('userData');
-        
+        await AsyncStorage.removeItem("userToken");
+        await AsyncStorage.removeItem("userData");
+
         // You can dispatch a logout action here if using Redux/Context
         // For now, we'll just reject the promise
       } catch (storageError) {
-        console.error('Error clearing storage:', storageError);
+        console.error("Error clearing storage:", storageError);
       }
     }
 
     // Handle network errors
     if (!error.response) {
-      error.message = 'Erreur réseau. Veuillez vérifier votre connexion.';
+      error.message = "Erreur réseau. Veuillez vérifier votre connexion.";
     }
 
     // Return error in consistent format
+    console.log("AXIOS REAL ERROR:", {
+      message: error?.message,
+      status: error?.response?.status,
+      data: error?.response?.data,
+      url: error?.config?.url,
+      baseURL: error?.config?.baseURL,
+    });
+
     return Promise.reject({
       message:
         error.response?.data?.message ||
@@ -80,27 +88,28 @@ axiosInstance.interceptors.response.use(
         "Une erreur s'est produite",
       status: error.response?.status,
       data: error.response?.data,
+      url: error?.config?.url,
+      baseURL: error?.config?.baseURL,
     });
-  }
+  },
 );
 
 // Helper method to set auth token (useful for login)
 axiosInstance.setAuthToken = async (token) => {
   if (token) {
-    await AsyncStorage.setItem('userToken', token);
-    axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    await AsyncStorage.setItem("userToken", token);
+    axiosInstance.defaults.headers.common["Authorization"] = `Bearer ${token}`;
   } else {
-    await AsyncStorage.removeItem('userToken');
-    delete axiosInstance.defaults.headers.common['Authorization'];
+    await AsyncStorage.removeItem("userToken");
+    delete axiosInstance.defaults.headers.common["Authorization"];
   }
 };
 
 // Helper method to clear auth token (useful for logout)
 axiosInstance.clearAuthToken = async () => {
-  await AsyncStorage.removeItem('userToken');
-  await AsyncStorage.removeItem('userData');
-  delete axiosInstance.defaults.headers.common['Authorization'];
+  await AsyncStorage.removeItem("userToken");
+  await AsyncStorage.removeItem("userData");
+  delete axiosInstance.defaults.headers.common["Authorization"];
 };
 
 export default axiosInstance;
-

@@ -19,7 +19,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 
-import { seatService, profileService, eventService } from "../services/api";
+import {
+  seatService,
+  profileService,
+  eventService,
+  leaveService,
+  adminUserService,
+} from "../services/api";
 import api from "../services/api/axiosInstance";
 import { Card, Button } from "../components";
 import { useTheme } from "../context/ThemeContext";
@@ -28,9 +34,12 @@ import { useAuth } from "../context/AuthContext";
 /* ----------------------------- Helper functions ---------------------------- */
 
 const getResponseData = (response) => {
+  if (Array.isArray(response)) return response;
   if (Array.isArray(response?.data)) return response.data;
   if (Array.isArray(response?.data?.data)) return response.data.data;
-  return response?.data?.data ?? response?.data ?? null;
+  if (Array.isArray(response?.data?.items)) return response.data.items;
+  if (Array.isArray(response?.items)) return response.items;
+  return response?.data?.data ?? response?.data ?? response ?? [];
 };
 
 const normalizeRole = (role) => {
@@ -84,14 +93,10 @@ const getEventDateParts = (event) => {
   const raw =
     event?.date ?? event?.Date ?? event?.startDateTime ?? event?.StartDateTime;
 
-  if (!raw) {
-    return { day: "—", month: "—" };
-  }
+  if (!raw) return { day: "—", month: "—" };
 
   const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) {
-    return { day: "—", month: "—" };
-  }
+  if (Number.isNaN(d.getTime())) return { day: "—", month: "—" };
 
   return {
     day: String(d.getDate()),
@@ -191,8 +196,7 @@ const buildAttendanceSummary = (monthCheckIns, currentYear, currentMonth) => {
     const d = new Date();
     d.setDate(today.getDate() - offset);
 
-    const isSameMonth =
-      d.getFullYear() === year && d.getMonth() === monthIndex;
+    const isSameMonth = d.getFullYear() === year && d.getMonth() === monthIndex;
 
     if (!isSameMonth) {
       recentDays.push({
@@ -237,13 +241,8 @@ const buildAttendanceSummary = (monthCheckIns, currentYear, currentMonth) => {
 const getGreeting = () => {
   const hour = new Date().getHours();
 
-  if (hour < 12) {
-    return { greeting: "Bonjour", emoji: "🌅" };
-  }
-
-  if (hour < 18) {
-    return { greeting: "Bon après-midi", emoji: "👋" };
-  }
+  if (hour < 12) return { greeting: "Bonjour", emoji: "🌅" };
+  if (hour < 18) return { greeting: "Bon après-midi", emoji: "👋" };
 
   return { greeting: "Bonsoir", emoji: "🌙" };
 };
@@ -310,12 +309,44 @@ const AdminStatChip = ({
   );
 };
 
+const AdminActionCard = ({
+  icon,
+  title,
+  description,
+  buttonTitle,
+  onPress,
+  styles,
+  colors,
+}) => {
+  return (
+    <Card style={styles.adminActionCard}>
+      <View style={styles.adminActionTop}>
+        <View style={styles.adminActionIcon}>
+          <Ionicons name={icon} size={21} color={colors.primary} />
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.adminActionTitle}>{title}</Text>
+          <Text style={styles.adminActionDesc}>{description}</Text>
+        </View>
+      </View>
+
+      <Button
+        title={buttonTitle}
+        variant="primary"
+        onPress={onPress}
+        style={styles.cardBtn}
+      />
+    </Card>
+  );
+};
+
 /* ------------------------------ Main screen ------------------------------- */
 
 const DashboardScreen = () => {
   const navigation = useNavigation();
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
-  const { user } = useAuth();
+  const { user, refreshFlag } = useAuth();
 
   const styles = useMemo(
     () => createStyles(colors, spacing, typography, borderRadius, shadows),
@@ -323,10 +354,11 @@ const DashboardScreen = () => {
   );
 
   const { isAdmin, isHr, isManager, canReviewLeave } = useMemo(
-    () => getRoleFlags(user?.role),
-    [user?.role],
+    () => getRoleFlags(user?.roleName ?? user?.roleId),
+    [user?.roleName, user?.roleId],
   );
 
+  const showEmployeeDashboard = !isAdmin;
   const canManageRooms = isManager || isHr;
 
   const [upcomingEvent, setUpcomingEvent] = useState(null);
@@ -356,6 +388,20 @@ const DashboardScreen = () => {
 
   const heroFadeAnim = useRef(new Animated.Value(0)).current;
   const contentFadeAnim = useRef(new Animated.Value(0)).current;
+
+  const goToPendingLeaves = useCallback(() => {
+    navigation.navigate("HomeTabs", {
+      screen: "Approvals",
+      params: { filter: "leaves" },
+    });
+  }, [navigation]);
+
+  const goToPendingUsers = useCallback(() => {
+    navigation.navigate("HomeTabs", {
+      screen: "Approvals",
+      params: { filter: "users" },
+    });
+  }, [navigation]);
 
   const fetchUpcomingEvent = useCallback(async () => {
     setLoadingEvent(true);
@@ -403,15 +449,13 @@ const DashboardScreen = () => {
     setLoadingPendingLeave(true);
 
     try {
-      const res = await api.get("/Leave/pending-review");
-      const data = getResponseData(res);
-      setPendingLeaveCount(Array.isArray(data) ? data.length : 0);
+      const res = await leaveService.getPendingReviewRequests();
+
+      console.log("PENDING LEAVES DASHBOARD:", res.data);
+
+      setPendingLeaveCount(Array.isArray(res.data) ? res.data.length : 0);
     } catch (error) {
-      console.log("Pending leave approvals error", {
-        message: error?.message,
-        status: error?.response?.status,
-        data: error?.response?.data,
-      });
+      console.log("Pending leave approvals error", error);
       setPendingLeaveCount(0);
     } finally {
       setLoadingPendingLeave(false);
@@ -428,17 +472,13 @@ const DashboardScreen = () => {
     setLoadingPendingUsers(true);
 
     try {
-      const res = await api.get("/admin/users/pending");
-      const data = getResponseData(res);
-      setPendingUserCount(Array.isArray(data) ? data.length : 0);
+      const res = await adminUserService.getPendingUsers();
+
+      console.log("PENDING USERS DASHBOARD:", res.data);
+
+      setPendingUserCount(Array.isArray(res.data) ? res.data.length : 0);
     } catch (error) {
-      console.log("Pending user approvals error", {
-        message: error?.message,
-        status: error?.response?.status,
-        data: error?.response?.data,
-        url: error?.config?.url,
-        baseURL: error?.config?.baseURL,
-      });
+      console.log("Pending user approvals error", error);
       setPendingUserCount(0);
     } finally {
       setLoadingPendingUsers(false);
@@ -530,16 +570,24 @@ const DashboardScreen = () => {
   }, [currentYear, currentMonth]);
 
   const loadDashboardData = useCallback(async () => {
-    await Promise.all([
-      fetchMyReservation(),
-      fetchLeaveBalance(),
-      fetchUpcomingEvent(),
+    const adminCalls = [
       fetchPendingLeaveApprovals(),
       fetchPendingUserApprovals(),
-      fetchAnnouncements(),
-      fetchMonthCheckIns(),
-    ]);
+    ];
+
+    const employeeCalls = [fetchUpcomingEvent(), fetchAnnouncements()];
+
+    if (!isAdmin) {
+      employeeCalls.push(
+        fetchMyReservation(),
+        fetchLeaveBalance(),
+        fetchMonthCheckIns(),
+      );
+    }
+
+    await Promise.all([...adminCalls, ...employeeCalls]);
   }, [
+    showEmployeeDashboard,
     fetchMyReservation,
     fetchLeaveBalance,
     fetchUpcomingEvent,
@@ -548,6 +596,10 @@ const DashboardScreen = () => {
     fetchAnnouncements,
     fetchMonthCheckIns,
   ]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [refreshFlag, loadDashboardData]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -560,13 +612,9 @@ const DashboardScreen = () => {
 
   useFocusEffect(
     useCallback(() => {
-      fetchMyReservation();
-    }, [fetchMyReservation])
+      loadDashboardData();
+    }, [loadDashboardData]),
   );
-
-  useEffect(() => {
-    loadDashboardData();
-  }, [loadDashboardData]);
 
   useEffect(() => {
     Animated.stagger(130, [
@@ -588,7 +636,8 @@ const DashboardScreen = () => {
     [monthCheckIns, currentYear, currentMonth],
   );
 
-  const seatLabel = myReservation?.seatLabel ?? myReservation?.SeatLabel ?? null;
+  const seatLabel =
+    myReservation?.seatLabel ?? myReservation?.SeatLabel ?? null;
 
   const todayLabel = new Date().toLocaleDateString("fr-FR", {
     weekday: "long",
@@ -597,6 +646,14 @@ const DashboardScreen = () => {
   });
 
   const { greeting, emoji } = getGreeting();
+
+  const displayName =
+    userName ||
+    user?.fullName ||
+    user?.FullName ||
+    user?.name ||
+    user?.Name ||
+    "";
 
   const deskChipText = loadingDesk
     ? "Vérification…"
@@ -634,7 +691,8 @@ const DashboardScreen = () => {
   const balanceLoadFailed = !loadingBalance && leaveBalance === null;
 
   const firstAnnouncement = announcements[0];
-  const announcementTitle = firstAnnouncement?.title ?? firstAnnouncement?.Title;
+  const announcementTitle =
+    firstAnnouncement?.title ?? firstAnnouncement?.Title;
   const announcementContent =
     firstAnnouncement?.content ?? firstAnnouncement?.Content ?? "";
 
@@ -674,119 +732,138 @@ const DashboardScreen = () => {
         >
           <View style={styles.heroTopRow}>
             <View style={styles.heroTextWrap}>
-              <Text style={styles.heroEyebrow}>Tableau de bord</Text>
+              <Text style={styles.heroEyebrow}>
+                {isAdmin ? "Tableau de bord administrateur" : "Tableau de bord"}
+              </Text>
+
               <Text style={styles.heroTitle}>
                 {greeting}
-                {userName ? ` ${userName.split(" ")[0]}` : ""} {emoji}
+                {displayName ? ` ${displayName.split(" ")[0]}` : ""} {emoji}
               </Text>
-              <Text style={styles.heroDate}>{todayLabel}</Text>
+
+              <Text style={styles.heroDate}>
+                {isAdmin
+                  ? "Gérez les utilisateurs, validations et ressources"
+                  : todayLabel}
+              </Text>
             </View>
 
             <View style={styles.heroIconBadge}>
               <Ionicons
-                name="sparkles-outline"
+                name={isAdmin ? "shield-checkmark-outline" : "sparkles-outline"}
                 size={18}
                 color={colors.textOnPrimary}
               />
             </View>
           </View>
 
-          <View style={styles.heroChipRow}>
-            <StatusChip
-              text={deskChipText}
-              dotColor={deskChipColor}
-              styles={styles}
-            />
-            <StatusChip
-              text={attendanceChipText}
-              dotColor={attendanceChipColor}
-              styles={styles}
-            />
-          </View>
-
-          <View style={styles.attendanceCard}>
-            <View style={styles.attendanceHeaderRow}>
-              <View style={styles.attendanceTitleRow}>
-                <Ionicons
-                  name="checkmark-done-circle-outline"
-                  size={15}
-                  color={colors.textOnPrimary}
+          {showEmployeeDashboard && (
+            <>
+              <View style={styles.heroChipRow}>
+                <StatusChip
+                  text={deskChipText}
+                  dotColor={deskChipColor}
+                  styles={styles}
                 />
-                <Text style={styles.attendanceCardTitle}>
-                  Présence du mois
-                </Text>
+                <StatusChip
+                  text={attendanceChipText}
+                  dotColor={attendanceChipColor}
+                  styles={styles}
+                />
               </View>
 
-              {loadingAttendance ? (
-                <ActivityIndicator size="small" color={colors.textOnPrimary} />
-              ) : (
-                <Text style={styles.attendanceMeta}>
-                  {attendanceSummary.checkedInCount}✓ ·{" "}
-                  {attendanceSummary.missedCount}✗
-                </Text>
-              )}
-            </View>
+              <View style={styles.attendanceCard}>
+                <View style={styles.attendanceHeaderRow}>
+                  <View style={styles.attendanceTitleRow}>
+                    <Ionicons
+                      name="checkmark-done-circle-outline"
+                      size={15}
+                      color={colors.textOnPrimary}
+                    />
+                    <Text style={styles.attendanceCardTitle}>
+                      Présence du mois
+                    </Text>
+                  </View>
 
-            {!loadingAttendance && (
-              <>
-                <View style={styles.attDayRow}>
-                  {attendanceSummary.recentDays.map((item) => {
-                    const backgroundColor =
-                      item.type === "checked"
-                        ? "rgba(74,222,128,0.18)"
-                        : item.type === "missed"
-                          ? "rgba(251,146,60,0.22)"
-                          : item.type === "today"
-                            ? "rgba(255,255,255,0.18)"
-                            : "rgba(255,255,255,0.06)";
-
-                    const borderColor =
-                      item.type === "checked"
-                        ? "rgba(74,222,128,0.45)"
-                        : item.type === "missed"
-                          ? "rgba(251,146,60,0.55)"
-                          : item.type === "today"
-                            ? "rgba(255,255,255,0.38)"
-                            : "rgba(255,255,255,0.08)";
-
-                    return (
-                      <View
-                        key={item.key}
-                        style={[
-                          styles.attDay,
-                          { backgroundColor, borderColor },
-                          item.type === "today" && styles.attDayToday,
-                        ]}
-                      >
-                        {item.type === "checked" ? (
-                          <Ionicons
-                            name="checkmark"
-                            size={14}
-                            color="#4ade80"
-                          />
-                        ) : item.type === "missed" ? (
-                          <Ionicons name="close" size={14} color="#fb923c" />
-                        ) : (
-                          <Text
-                            style={[
-                              styles.attDayLabel,
-                              item.type === "empty" && { opacity: 0 },
-                            ]}
-                          >
-                            {item.label}
-                          </Text>
-                        )}
-                      </View>
-                    );
-                  })}
+                  {loadingAttendance ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={colors.textOnPrimary}
+                    />
+                  ) : (
+                    <Text style={styles.attendanceMeta}>
+                      {attendanceSummary.checkedInCount}✓ ·{" "}
+                      {attendanceSummary.missedCount}✗
+                    </Text>
+                  )}
                 </View>
 
-                <Text style={styles.attLegend}>
-                  Vert = validé · orange = manqué · blanc = aujourd&apos;hui
-                </Text>
-              </>
-            )}
-          </View>
+                {!loadingAttendance && (
+                  <>
+                    <View style={styles.attDayRow}>
+                      {attendanceSummary.recentDays.map((item) => {
+                        const backgroundColor =
+                          item.type === "checked"
+                            ? "rgba(74,222,128,0.18)"
+                            : item.type === "missed"
+                              ? "rgba(251,146,60,0.22)"
+                              : item.type === "today"
+                                ? "rgba(255,255,255,0.18)"
+                                : "rgba(255,255,255,0.06)";
+
+                        const borderColor =
+                          item.type === "checked"
+                            ? "rgba(74,222,128,0.45)"
+                            : item.type === "missed"
+                              ? "rgba(251,146,60,0.55)"
+                              : item.type === "today"
+                                ? "rgba(255,255,255,0.38)"
+                                : "rgba(255,255,255,0.08)";
+
+                        return (
+                          <View
+                            key={item.key}
+                            style={[
+                              styles.attDay,
+                              { backgroundColor, borderColor },
+                              item.type === "today" && styles.attDayToday,
+                            ]}
+                          >
+                            {item.type === "checked" ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={14}
+                                color="#4ade80"
+                              />
+                            ) : item.type === "missed" ? (
+                              <Ionicons
+                                name="close"
+                                size={14}
+                                color="#fb923c"
+                              />
+                            ) : (
+                              <Text
+                                style={[
+                                  styles.attDayLabel,
+                                  item.type === "empty" && { opacity: 0 },
+                                ]}
+                              >
+                                {item.label}
+                              </Text>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
+
+                    <Text style={styles.attLegend}>
+                      Vert = validé · orange = manqué · blanc = aujourd&apos;hui
+                    </Text>
+                  </>
+                )}
+              </View>
+            </>
+          )}
         </LinearGradient>
       </Animated.View>
 
@@ -803,237 +880,265 @@ const DashboardScreen = () => {
           ],
         }}
       >
-        <SectionHeader title="Espace de travail" styles={styles} />
+        {showEmployeeDashboard && (
+          <>
+            <SectionHeader title="Solde de congés" styles={styles} />
 
-        <Card style={styles.card}>
-          <CardHeader
-            icon="desktop-outline"
-            title="Votre bureau aujourd'hui"
-            styles={styles}
-            colors={colors}
-          />
+            <Card style={styles.card}>
+              <CardHeader
+                icon="wallet-outline"
+                title="Jours disponibles"
+                styles={styles}
+                colors={colors}
+              />
 
-          {loadingDesk ? (
-            <View style={styles.inlineLoader}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={styles.loaderText}>
-                Chargement de la réservation…
-              </Text>
-            </View>
-          ) : seatLabel ? (
-            <>
-              <View style={styles.successPill}>
-                <Ionicons
-                  name="checkmark-circle"
-                  size={15}
-                  color={colors.success}
+              {loadingBalance ? (
+                <View style={styles.inlineLoader}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={styles.loaderText}>Chargement du solde…</Text>
+                </View>
+              ) : balanceLoadFailed ? (
+                <Text style={styles.cardBody}>
+                  Impossible de charger votre solde. Faites glisser pour
+                  actualiser.
+                </Text>
+              ) : (
+                <>
+                  <Text style={styles.balanceBigNum}>
+                    {balanceNum}
+                    <Text style={styles.balanceUnit}>
+                      {" "}
+                      {balanceNum === 1 ? "jour" : "jours"}
+                    </Text>
+                  </Text>
+
+                  {noLeaveDaysLeft && (
+                    <Text style={styles.balanceWarning}>
+                      Vous n&apos;avez plus de jours de congé disponibles.
+                    </Text>
+                  )}
+
+                  <Text style={styles.cardBody}>
+                    {balanceNum > 0
+                      ? "Vous pouvez soumettre une nouvelle demande de congé."
+                      : "Consultez vos demandes précédentes ci-dessous."}
+                  </Text>
+
+                  <Button
+                    title={
+                      balanceNum > 0
+                        ? "Créer une demande de congé"
+                        : "Voir les demandes précédentes"
+                    }
+                    variant={balanceNum > 0 ? "primary" : "secondary"}
+                    onPress={() =>
+                      navigation.navigate("LeaveRequest", {
+                        openCreateModal: balanceNum > 0,
+                      })
+                    }
+                    style={styles.cardBtn}
+                  />
+                </>
+              )}
+            </Card>
+
+            {canManageRooms && (
+              <Card style={styles.card}>
+                <CardHeader
+                  icon="library-outline"
+                  title="Réserver une salle"
+                  styles={styles}
+                  colors={colors}
                 />
-                <Text style={styles.successPillText}>
-                  Poste {seatLabel} réservé pour aujourd&apos;hui
+                <Text style={styles.cardEmptyTitle}>Gérez les salles</Text>
+                <Text style={styles.cardBody}>
+                  Consultez les disponibilités et soumettez une demande de
+                  réservation.
                 </Text>
-              </View>
+                <Button
+                  title="Réserver une salle"
+                  variant="primary"
+                  onPress={() => navigation.navigate("Rooms")}
+                  style={styles.cardBtn}
+                />
+              </Card>
+            )}
 
-              <Text style={styles.cardBody}>
-                Ouvrez le plan des bureaux pour voir votre emplacement.
-              </Text>
+            <SectionHeader title="Annonces" styles={styles} />
 
-              <Button
-                title="Ouvrir le plan des bureaux"
-                variant="secondary"
-                onPress={() => navigation.navigate("Desk")}
-                style={styles.cardBtn}
+            <Card style={styles.card}>
+              <CardHeader
+                icon="megaphone-outline"
+                title="Dernière annonce"
+                styles={styles}
+                colors={colors}
               />
-            </>
-          ) : (
-            <>
-              <Text style={styles.cardEmptyTitle}>Aucune réservation</Text>
-              <Text style={styles.cardBody}>
-                Choisissez un poste si vous prévoyez de venir au bureau
-                aujourd&apos;hui.
-              </Text>
 
-              <Button
-                title="Réserver un bureau"
-                onPress={() => navigation.navigate("Desk")}
-                style={styles.cardBtn}
-              />
-            </>
-          )}
-        </Card>
-
-        <SectionHeader title="Solde de congés" styles={styles} />
-
-        <Card style={styles.card}>
-          <CardHeader
-            icon="wallet-outline"
-            title="Jours disponibles"
-            styles={styles}
-            colors={colors}
-          />
-
-          {loadingBalance ? (
-            <View style={styles.inlineLoader}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={styles.loaderText}>Chargement du solde…</Text>
-            </View>
-          ) : balanceLoadFailed ? (
-            <Text style={styles.cardBody}>
-              Impossible de charger votre solde. Faites glisser pour actualiser.
-            </Text>
-          ) : (
-            <>
-              <Text style={styles.balanceBigNum}>
-                {balanceNum}
-                <Text style={styles.balanceUnit}>
-                  {" "}
-                  {balanceNum === 1 ? "jour" : "jours"}
-                </Text>
-              </Text>
-
-              {noLeaveDaysLeft && (
-                <Text style={styles.balanceWarning}>
-                  Vous n&apos;avez plus de jours de congé disponibles.
+              {loadingAnnouncements ? (
+                <View style={styles.inlineLoader}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={styles.loaderText}>
+                    Chargement des annonces…
+                  </Text>
+                </View>
+              ) : announcements.length > 0 ? (
+                <View style={styles.announcementStrip}>
+                  <Text style={styles.announcementTitle}>
+                    {announcementTitle ?? "Annonce"}
+                  </Text>
+                  <Text style={styles.announcementBody}>
+                    {announcementContent.length > 140
+                      ? `${announcementContent.slice(0, 140)}…`
+                      : announcementContent}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.cardBody}>
+                  Aucune annonce disponible pour le moment.
                 </Text>
               )}
 
-              <Text style={styles.cardBody}>
-                {balanceNum > 0
-                  ? "Vous pouvez soumettre une nouvelle demande de congé."
-                  : "Consultez vos demandes précédentes ci-dessous."}
-              </Text>
+              {isHr && (
+                <Button
+                  title="Gérer les annonces"
+                  variant="primary"
+                  onPress={() => navigation.navigate("ManageAnnouncements")}
+                  style={styles.cardBtn}
+                />
+              )}
+            </Card>
+          </>
+        )}
+
+        {isAdmin && (
+          <>
+            <SectionHeader title="Vue rapide" styles={styles} />
+
+            <View style={styles.adminRow}>
+              <AdminStatChip
+                label="Congés en attente"
+                count={pendingLeaveCount}
+                loading={loadingPendingLeave}
+                badgeText="À valider"
+                onPress={goToPendingLeaves}
+                styles={styles}
+                colors={colors}
+              />
+
+              <AdminStatChip
+                label="Comptes en attente"
+                count={pendingUserCount}
+                loading={loadingPendingUsers}
+                badgeText="À approuver"
+                onPress={goToPendingUsers}
+                styles={styles}
+                colors={colors}
+              />
+            </View>
+
+            <AdminActionCard
+              icon="people-outline"
+              title="Gestion des utilisateurs"
+              description="Consultez les utilisateurs, modifiez leurs informations, attribuez des rôles ou supprimez des comptes."
+              buttonTitle="Gérer les utilisateurs"
+              onPress={() => navigation.navigate("UserManagement")}
+              styles={styles}
+              colors={colors}
+            />
+
+            <AdminActionCard
+              icon="person-add-outline"
+              title="Validation des comptes"
+              description="Approuvez ou refusez les nouveaux comptes en attente d’activation."
+              buttonTitle="Voir les comptes en attente"
+              onPress={goToPendingUsers}
+              styles={styles}
+              colors={colors}
+            />
+
+            <SectionHeader title="Prochain événement" styles={styles} />
+
+            <Card style={styles.card}>
+              <CardHeader
+                icon="calendar-clear-outline"
+                title="Agenda"
+                styles={styles}
+                colors={colors}
+              />
+
+              {loadingEvent ? (
+                <View style={styles.inlineLoader}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={styles.loaderText}>
+                    Chargement du calendrier…
+                  </Text>
+                </View>
+              ) : upcomingEvent ? (
+                <View style={styles.eventRow}>
+                  <View style={styles.eventDateBadge}>
+                    <Text style={styles.eventDateDay}>{eventDay}</Text>
+                    <Text style={styles.eventDateMon}>{eventMonth}</Text>
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.eventTitle} numberOfLines={2}>
+                      {upcomingEvent?.title ??
+                        upcomingEvent?.Title ??
+                        "Événement sans titre"}
+                    </Text>
+                    <Text style={styles.eventTime}>
+                      {formatEventCompact(upcomingEvent)}
+                    </Text>
+                  </View>
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.cardEmptyTitle}>
+                    Aucun événement prévu
+                  </Text>
+                  <Text style={styles.cardBody}>
+                    Rien dans les 7 prochains jours.
+                  </Text>
+                </>
+              )}
+
+              <View style={styles.divider} />
 
               <Button
-                title={
-                  balanceNum > 0
-                    ? "Créer une demande de congé"
-                    : "Voir les demandes précédentes"
-                }
-                variant={balanceNum > 0 ? "primary" : "secondary"}
+                title={isAdmin ? "Créer un événement" : "Voir les événements"}
+                variant={upcomingEvent ? "secondary" : "primary"}
                 onPress={() =>
-                  navigation.navigate("LeaveRequest", {
-                    openCreateModal: balanceNum > 0,
+                  navigation.navigate("Events", {
+                    openCreateModal: isAdmin,
                   })
                 }
                 style={styles.cardBtn}
               />
-            </>
-          )}
-        </Card>
+            </Card>
 
-        <SectionHeader title="Prochain événement" styles={styles} />
-
-        <Card style={styles.card}>
-          <CardHeader
-            icon="calendar-clear-outline"
-            title="Agenda"
-            styles={styles}
-            colors={colors}
-          />
-
-          {loadingEvent ? (
-            <View style={styles.inlineLoader}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={styles.loaderText}>Chargement du calendrier…</Text>
-            </View>
-          ) : upcomingEvent ? (
-            <View style={styles.eventRow}>
-              <View style={styles.eventDateBadge}>
-                <Text style={styles.eventDateDay}>{eventDay}</Text>
-                <Text style={styles.eventDateMon}>{eventMonth}</Text>
-              </View>
-
-              <View style={{ flex: 1 }}>
-                <Text style={styles.eventTitle} numberOfLines={2}>
-                  {upcomingEvent?.title ??
-                    upcomingEvent?.Title ??
-                    "Événement sans titre"}
-                </Text>
-                <Text style={styles.eventTime}>
-                  {formatEventCompact(upcomingEvent)}
-                </Text>
-              </View>
-            </View>
-          ) : (
-            <>
-              <Text style={styles.cardEmptyTitle}>Aucun événement prévu</Text>
-              <Text style={styles.cardBody}>Rien dans les 7 prochains jours.</Text>
-            </>
-          )}
-
-          <View style={styles.divider} />
-
-          <Button
-            title="Voir les événements"
-            variant={upcomingEvent ? "secondary" : "primary"}
-            onPress={() => navigation.navigate("Events")}
-            style={styles.cardBtn}
-          />
-        </Card>
-
-        {canManageRooms && (
-          <Card style={styles.card}>
-            <CardHeader
-              icon="library-outline"
-              title="Réserver une salle"
+            <AdminActionCard
+              icon="business-outline"
+              title="Gestion des salles"
+              description="Gérez les salles de réunion, leur capacité et leur disponibilité."
+              buttonTitle="Gérer les salles"
+              onPress={() => navigation.navigate("RoomManagement")}
               styles={styles}
               colors={colors}
             />
-            <Text style={styles.cardEmptyTitle}>Gérez les salles</Text>
-            <Text style={styles.cardBody}>
-              Consultez les disponibilités et soumettez une demande de réservation (validation requise).
-            </Text>
-            <Button
-              title="Réserver une salle"
-              variant="primary"
-              onPress={() => navigation.navigate("Rooms")}
-              style={styles.cardBtn}
+
+            <AdminActionCard
+              icon="desktop-outline"
+              title="Gestion des sièges et tables"
+              description="Organisez la disposition des tables et des sièges dans l’espace de travail."
+              buttonTitle="Gérer les sièges"
+              onPress={() => navigation.navigate("SeatManagement")}
+              styles={styles}
+              colors={colors}
             />
-          </Card>
+          </>
         )}
 
-        <SectionHeader title="Annonces" styles={styles} />
-
-        <Card style={styles.card}>
-          <CardHeader
-            icon="megaphone-outline"
-            title="Dernière annonce"
-            styles={styles}
-            colors={colors}
-          />
-
-          {loadingAnnouncements ? (
-            <View style={styles.inlineLoader}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={styles.loaderText}>Chargement des annonces…</Text>
-            </View>
-          ) : announcements.length > 0 ? (
-            <View style={styles.announcementStrip}>
-              <Text style={styles.announcementTitle}>
-                {announcementTitle ?? "Annonce"}
-              </Text>
-              <Text style={styles.announcementBody}>
-                {announcementContent.length > 140
-                  ? `${announcementContent.slice(0, 140)}…`
-                  : announcementContent}
-              </Text>
-            </View>
-          ) : (
-            <Text style={styles.cardBody}>
-              Aucune annonce disponible pour le moment.
-            </Text>
-          )}
-
-          {(isHr || isAdmin) && (
-            <Button
-              title="Gérer les annonces"
-              variant="primary"
-              onPress={() => navigation.navigate("ManageAnnouncements")}
-              style={styles.cardBtn}
-            />
-          )}
-        </Card>
-
-        {canReviewLeave && (
+        {!isAdmin && canReviewLeave && (
           <>
             <SectionHeader title="Administration" styles={styles} />
 
@@ -1043,83 +1148,11 @@ const DashboardScreen = () => {
                 count={pendingLeaveCount}
                 loading={loadingPendingLeave}
                 badgeText="À valider"
-                onPress={() => navigation.navigate("LeaveRequest")}
+                onPress={goToPendingLeaves}
                 styles={styles}
                 colors={colors}
               />
-
-              {isAdmin && (
-                <AdminStatChip
-                  label="Comptes en attente"
-                  count={pendingUserCount}
-                  loading={loadingPendingUsers}
-                  badgeText="À approuver"
-                  onPress={() => navigation.navigate("Approvals")}
-                  styles={styles}
-                  colors={colors}
-                />
-              )}
             </View>
-
-            {isAdmin && (
-              <Card style={styles.card}>
-                <CardHeader
-                  icon="people-outline"
-                  title="Gestion des utilisateurs"
-                  styles={styles}
-                  colors={colors}
-                />
-                <Text style={styles.cardBody}>
-                  Consultez tous les utilisateurs, modifiez leurs informations, attribuez des rôles ou supprimez des comptes.
-                </Text>
-                <Button
-                  title="Gérer les utilisateurs"
-                  variant="primary"
-                  onPress={() => navigation.navigate("UserManagement")}
-                  style={styles.cardBtn}
-                />
-              </Card>
-            )}
-            
-            {(isAdmin || isHr) && (
-              <>
-                <Card style={styles.card}>
-                  <CardHeader
-                    icon="business-outline"
-                    title="Gestion des salles"
-                    styles={styles}
-                    colors={colors}
-                  />
-                  <Text style={styles.cardBody}>
-                    Gérez les salles de réunion, leur capacité et leur statut.
-                  </Text>
-                  <Button
-                    title="Gérer les salles"
-                    variant="secondary"
-                    onPress={() => navigation.navigate("RoomManagement")}
-                    style={styles.cardBtn}
-                  />
-                </Card>
-                
-                <Card style={styles.card}>
-                  <CardHeader
-                    icon="desktop-outline"
-                    title="Gestion des sièges et tables"
-                    styles={styles}
-                    colors={colors}
-                  />
-                  <Text style={styles.cardBody}>
-                    Gérez la disposition des tables et les sièges du bureau.
-                  </Text>
-                  <Button
-                    title="Gérer les sièges"
-                    variant="secondary"
-                    onPress={() => navigation.navigate("SeatManagement")}
-                    style={styles.cardBtn}
-                  />
-                </Card>
-              </>
-            )}
           </>
         )}
       </Animated.View>
@@ -1506,6 +1539,41 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       fontSize: 10,
       fontFamily: typography.fontFamily?.semibold,
       color: colors.warning ?? "#92400e",
+    },
+
+    adminActionCard: {
+      backgroundColor: colors.surface,
+      padding: spacing.lg,
+      marginBottom: spacing.lg,
+    },
+
+    adminActionTop: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.md,
+    },
+
+    adminActionIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: borderRadius.lg,
+      backgroundColor: colors.primaryLight ?? `${colors.primary}18`,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    adminActionTitle: {
+      fontSize: typography.base,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.text,
+      marginBottom: 4,
+    },
+
+    adminActionDesc: {
+      fontSize: typography.sm,
+      fontFamily: typography.fontFamily?.regular,
+      color: colors.textSecondary,
+      lineHeight: 20,
     },
   });
 

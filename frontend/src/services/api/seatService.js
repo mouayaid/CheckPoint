@@ -20,8 +20,16 @@ export const seatService = {
     return await axiosInstance.delete("/SeatReservations/my-today");
   },
 
+  checkInReservation: async (qrCode) => {
+  return await axiosInstance.post("/SeatReservations/check-in", {
+    qrCode,
+  });
+},
+
   getMyMonthReservations: async (year, month) => {
-    return await axiosInstance.get("/SeatReservations/my-month", { params: { year, month } });
+    return await axiosInstance.get("/SeatReservations/my-month", {
+      params: { year, month },
+    });
   },
 };
 export const profileService = {

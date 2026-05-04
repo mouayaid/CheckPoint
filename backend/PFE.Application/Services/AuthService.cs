@@ -4,7 +4,6 @@ using PFE.Application.DTOs.Auth;
 using PFE.Application.DTOs.User;
 using PFE.Domain.Entities;
 using PFE.Application.Abstractions;
-using PFE.Domain.Enums;
 using BCrypt.Net;
 
 namespace PFE.Application.Services;
@@ -15,7 +14,7 @@ public class AuthService : IAuthService
     private readonly IJwtService _jwtService;
     private readonly IMapper _mapper;
 
-public AuthService(IApplicationDbContext context, IJwtService jwtService, IMapper mapper)
+    public AuthService(IApplicationDbContext context, IJwtService jwtService, IMapper mapper)
     {
         _context = context;
         _jwtService = jwtService;
@@ -26,6 +25,7 @@ public AuthService(IApplicationDbContext context, IJwtService jwtService, IMappe
     {
         var user = await _context.Users
             .Include(u => u.Department)
+            .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Email == loginDto.Email);
 
         if (user == null || !BCrypt.Net.BCrypt.Verify(loginDto.Password, user.PasswordHash))
@@ -43,7 +43,7 @@ public AuthService(IApplicationDbContext context, IJwtService jwtService, IMappe
             };
         }
 
-        var token = _jwtService.GenerateToken(user.Id, user.Email, user.Role);
+        var token = _jwtService.GenerateToken(user.Id, user.Email, user.Role.Name);
         var userDto = _mapper.Map<UserDto>(user);
 
         return new AuthResponseDto
@@ -66,7 +66,7 @@ public AuthService(IApplicationDbContext context, IJwtService jwtService, IMappe
             Email = registerDto.Email,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(registerDto.Password),
             FullName = registerDto.FullName,
-            Role = Role.Employee, // Always Employee, ignore client input
+            RoleId = 1, // Always Employee, ignore client input
             DepartmentId = registerDto.DepartmentId,
             LeaveBalance = null, // Null until admin approval, ignore client input
             IsActive = false, // Inactive until admin approval
@@ -88,6 +88,7 @@ public AuthService(IApplicationDbContext context, IJwtService jwtService, IMappe
     {
         var user = await _context.Users
             .Include(u => u.Department)
+            .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null) return null;

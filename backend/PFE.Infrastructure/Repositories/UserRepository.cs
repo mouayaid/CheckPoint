@@ -24,15 +24,16 @@ public class UserRepository : Repository<User>, IUserRepository
         return Enumerable.Empty<User>();
     }
 
-    public async Task<IEnumerable<User>> GetUsersByRoleAsync(string role)
-    {
-        // Role is enum, but method receives string -> parse safely.
-        if (!Enum.TryParse<Role>(role, ignoreCase: true, out var parsedRole))
-            return Enumerable.Empty<User>();
+  public async Task<IEnumerable<User>> GetUsersByRoleAsync(string role)
+{
+    if (string.IsNullOrWhiteSpace(role))
+        return new List<User>();
 
-        // No IsActive in User entity -> remove that filter
-        return await _dbSet
-            .Where(u => u.Role == parsedRole)
-            .ToListAsync();
-    }
+    role = role.Trim().ToLower();
+
+    return await _dbSet
+        .Include(u => u.Role)
+        .Where(u => u.Role.Name.ToLower() == role)
+        .ToListAsync();
+}
 }

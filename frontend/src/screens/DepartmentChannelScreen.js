@@ -17,6 +17,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Keyboard,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -27,8 +28,11 @@ import { Card, Button } from "../components";
 import { roleToString } from "../utils/helpers";
 import { useFocusEffect } from "@react-navigation/native";
 import { useDepartmentChannel } from "../context/DepartmentChannelContext";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Animated } from "react-native";
 
 const MIN_OPTIONS = 2;
+const FLOATING_TAB_SPACE = 95;
 
 const formatDate = (iso) =>
   new Date(iso).toLocaleString(undefined, {
@@ -48,10 +52,9 @@ const isPollClosed = (poll) =>
   poll.isClosed ||
   (poll.expiresAt && new Date(poll.expiresAt).getTime() <= Date.now());
 
-// ─── Poll ────────────────────────────────────────────────────────────────────
-
 const PollItem = React.memo(({ poll, roleName, votingId, onVote }) => {
   const { colors, spacing, borderRadius, typography } = useTheme();
+
   const styles = useMemo(
     () => createStyles(colors, spacing, borderRadius, typography),
     [colors, spacing, borderRadius, typography],
@@ -71,9 +74,7 @@ const PollItem = React.memo(({ poll, roleName, votingId, onVote }) => {
 
       {poll.expiresAt && (
         <Text style={styles.pollMeta}>
-          {closed
-            ? "Clôturé"
-            : `Clôture le ${formatCloseDate(poll.expiresAt)}`}
+          {closed ? "Clôturé" : `Clôture le ${formatCloseDate(poll.expiresAt)}`}
         </Text>
       )}
 
@@ -134,8 +135,6 @@ const PollItem = React.memo(({ poll, roleName, votingId, onVote }) => {
   );
 });
 
-// ─── Feed item ───────────────────────────────────────────────────────────────
-
 const FeedItem = React.memo(
   ({ item, roleName, votingId, onVote, styles, colors }) => {
     const isPoll = item.messageType === "Poll";
@@ -149,6 +148,7 @@ const FeedItem = React.memo(
                 {(item.senderName || "?")[0].toUpperCase()}
               </Text>
             </View>
+
             <View style={styles.senderMeta}>
               <Text style={styles.senderName}>{item.senderName}</Text>
               <Text style={styles.messageMeta}>
@@ -166,6 +166,7 @@ const FeedItem = React.memo(
                 </Text>
               </View>
             )}
+
             <View
               style={[
                 styles.pill,
@@ -199,8 +200,6 @@ const FeedItem = React.memo(
   },
 );
 
-// ─── Main screen ─────────────────────────────────────────────────────────────
-
 export default function DepartmentChannelScreen() {
   const { colors, spacing, borderRadius, typography } = useTheme();
   const styles = useMemo(
@@ -208,14 +207,20 @@ export default function DepartmentChannelScreen() {
     [colors, spacing, borderRadius, typography],
   );
 
+  const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const flatListRef = useRef(null);
 
+  const keyboardHeight = useRef(new Animated.Value(0)).current;
+
   const { user } = useAuth();
+  const { refreshChannelInfo } = useDepartmentChannel();
+
   const departmentId = user?.departmentId ?? user?.DepartmentId ?? null;
   const roleName = roleToString(user?.role);
   const isManager = roleName === "Manager" || roleName === "Admin";
 
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState([]);
@@ -226,7 +231,33 @@ export default function DepartmentChannelScreen() {
   const [pollOptions, setPollOptions] = useState(["", ""]);
   const [submitting, setSubmitting] = useState(false);
   const [votingId, setVotingId] = useState(null);
-  const { refreshChannelInfo } = useDepartmentChannel();
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
+      setKeyboardVisible(true);
+
+      Animated.timing(keyboardHeight, {
+        toValue: e.endCoordinates.height,
+        duration: 250,
+        useNativeDriver: false,
+      }).start();
+    });
+
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardVisible(false);
+
+      Animated.timing(keyboardHeight, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: false,
+      }).start();
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const markAsRead = async () => {
     try {
@@ -244,6 +275,7 @@ export default function DepartmentChannelScreen() {
         setRefreshing(false);
         return;
       }
+
       try {
         if (asRefresh) setRefreshing(true);
         else setLoading(true);
@@ -251,7 +283,10 @@ export default function DepartmentChannelScreen() {
         const res = await departmentChannelService.getFeed(departmentId);
         setItems(Array.isArray(res) ? res : (res?.data ?? []));
       } catch (error) {
-        Alert.alert("Erreur", error?.message || "Impossible de charger le canal.");
+        Alert.alert(
+          "Erreur",
+          error?.message || "Impossible de charger le canal.",
+        );
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -265,7 +300,7 @@ export default function DepartmentChannelScreen() {
       const init = async () => {
         await loadFeed(false);
         await markAsRead();
-        await refreshChannelInfo(); // 🔥 THIS updates the navbar badge
+        await refreshChannelInfo();
       };
 
       init();
@@ -291,18 +326,24 @@ export default function DepartmentChannelScreen() {
 
   const handleSubmitMessage = async () => {
     if (!messageContent.trim()) return;
+
     setSubmitting(true);
+
     try {
       await departmentChannelService.createMessage({
         departmentId,
         content: messageContent.trim(),
         isPinned: false,
       });
+
       resetComposer();
       await loadFeed(false);
       await refreshChannelInfo();
     } catch (error) {
-      Alert.alert("Erreur", error?.message || "Impossible de publier le message.");
+      Alert.alert(
+        "Erreur",
+        error?.message || "Impossible de publier le message.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -313,12 +354,16 @@ export default function DepartmentChannelScreen() {
       Alert.alert("Requis", "La question du sondage est requise.");
       return;
     }
+
     const cleanedOptions = pollOptions.map((o) => o.trim()).filter(Boolean);
+
     if (cleanedOptions.length < MIN_OPTIONS) {
       Alert.alert("Requis", "Ajoutez au moins deux options.");
       return;
     }
+
     setSubmitting(true);
+
     try {
       await departmentChannelService.createPoll({
         departmentId,
@@ -328,11 +373,15 @@ export default function DepartmentChannelScreen() {
         expiresAt: null,
         isPinned: false,
       });
+
       resetComposer();
       await loadFeed(false);
       await refreshChannelInfo();
     } catch (error) {
-      Alert.alert("Erreur", error?.message || "Impossible de créer le sondage.");
+      Alert.alert(
+        "Erreur",
+        error?.message || "Impossible de créer le sondage.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -341,17 +390,21 @@ export default function DepartmentChannelScreen() {
   const handleVote = useCallback(
     async (pollId, optionId) => {
       setVotingId(pollId);
+
       try {
         await departmentChannelService.votePoll({ pollId, optionId });
         await loadFeed(false);
-        await refreshChannelInfo(); 
+        await refreshChannelInfo();
       } catch (error) {
-        Alert.alert("Erreur", error?.message || "Impossible d'envoyer le vote.");
+        Alert.alert(
+          "Erreur",
+          error?.message || "Impossible d'envoyer le vote.",
+        );
       } finally {
         setVotingId(null);
       }
     },
-    [loadFeed],
+    [loadFeed, refreshChannelInfo],
   );
 
   const renderItem = useCallback(
@@ -372,13 +425,16 @@ export default function DepartmentChannelScreen() {
 
   if (!user) return null;
 
+  const composerBottomPadding = keyboardVisible
+    ? spacing.md
+    : spacing.lg + insets.bottom + FLOATING_TAB_SPACE;
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? headerHeight : 0}
     >
-      {/* Feed — flex: 1 so it shrinks when keyboard opens, never overlaps composer */}
       <View style={styles.feedContainer}>
         {loading ? (
           <View style={styles.centered}>
@@ -391,7 +447,16 @@ export default function DepartmentChannelScreen() {
             keyExtractor={keyExtractor}
             renderItem={renderItem}
             contentContainerStyle={
-              items.length === 0 ? styles.emptyList : styles.list
+              items.length === 0
+                ? styles.emptyList
+                : [
+                    styles.list,
+                    {
+                      paddingBottom: keyboardVisible
+                        ? spacing.lg
+                        : spacing.lg + 12,
+                    },
+                  ]
             }
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
@@ -414,9 +479,12 @@ export default function DepartmentChannelScreen() {
                     color={colors.textSecondary}
                   />
                 </View>
-                <Text style={styles.emptyTitle}>Aucune publication pour le moment</Text>
+                <Text style={styles.emptyTitle}>
+                  Aucune publication pour le moment
+                </Text>
                 <Text style={styles.emptySubtitle}>
-                  Les actualités du département et les sondages apparaîtront ici.
+                  Les actualités du département et les sondages apparaîtront
+                  ici.
                 </Text>
               </View>
             }
@@ -424,9 +492,24 @@ export default function DepartmentChannelScreen() {
         )}
       </View>
 
-      {/* Composer — only for managers */}
       {isManager && (
-        <View style={styles.composerContainer}>
+        <Animated.View
+          style={[
+            styles.composerContainer,
+            {
+              paddingBottom: composerBottomPadding,
+              transform: [
+                {
+                  translateY: keyboardHeight.interpolate({
+                    inputRange: [0, 400],
+                    outputRange: [0, -500],
+                    extrapolate: "clamp",
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
           <View style={styles.composerTabs}>
             {["message", "poll"].map((mode) => (
               <TouchableOpacity
@@ -450,6 +533,7 @@ export default function DepartmentChannelScreen() {
                   }
                   style={{ marginRight: 5 }}
                 />
+
                 <Text
                   style={[
                     styles.composerTabText,
@@ -465,7 +549,10 @@ export default function DepartmentChannelScreen() {
           {composerMode === "message" ? (
             <View style={styles.composerBody}>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  keyboardVisible && { minHeight: 52, maxHeight: 70 },
+                ]}
                 placeholder="Partager une mise à jour…"
                 placeholderTextColor={colors.textSecondary}
                 value={messageContent}
@@ -473,6 +560,7 @@ export default function DepartmentChannelScreen() {
                 multiline
                 blurOnSubmit={false}
               />
+
               <Button
                 title={submitting ? "Publication…" : "Publier"}
                 onPress={handleSubmitMessage}
@@ -525,13 +613,11 @@ export default function DepartmentChannelScreen() {
               />
             </View>
           )}
-        </View>
+        </Animated.View>
       )}
     </KeyboardAvoidingView>
   );
 }
-
-// ─── Styles ──────────────────────────────────────────────────────────────────
 
 const createStyles = (colors, spacing, borderRadius, typography) =>
   StyleSheet.create({
@@ -540,22 +626,21 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       backgroundColor: colors.background,
     },
 
-    // flex: 1 is critical — makes the list shrink upward when the keyboard
-    // opens, keeping the composer always visible above it
     feedContainer: {
       flex: 1,
     },
 
-    // ── Layout ──
     list: {
       padding: spacing.lg,
       paddingBottom: spacing.lg,
     },
+
     emptyList: {
       flexGrow: 1,
       padding: spacing.lg,
       justifyContent: "center",
     },
+
     centered: {
       flex: 1,
       alignItems: "center",
@@ -563,7 +648,6 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       padding: spacing.xl,
     },
 
-    // ── Empty state ──
     emptyIconWrap: {
       width: 56,
       height: 56,
@@ -573,12 +657,14 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       justifyContent: "center",
       marginBottom: spacing.md,
     },
+
     emptyTitle: {
       fontSize: typography.base,
       fontWeight: typography.semibold,
       color: colors.text,
       marginBottom: spacing.xs,
     },
+
     emptySubtitle: {
       fontSize: typography.sm,
       color: colors.textSecondary,
@@ -586,22 +672,24 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       lineHeight: 20,
     },
 
-    // ── Feed card ──
     messageCard: {
       marginBottom: spacing.md,
       padding: spacing.md,
     },
+
     messageHeader: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "flex-start",
       marginBottom: spacing.sm,
     },
+
     senderRow: {
       flexDirection: "row",
       alignItems: "center",
       flex: 1,
     },
+
     senderAvatar: {
       width: 32,
       height: 32,
@@ -611,29 +699,35 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       justifyContent: "center",
       marginRight: spacing.sm,
     },
+
     senderAvatarText: {
       fontSize: typography.sm,
       fontWeight: typography.bold,
       color: colors.textOnPrimary,
     },
+
     senderMeta: {
       flex: 1,
     },
+
     senderName: {
       fontSize: typography.sm,
       fontWeight: typography.semibold,
       color: colors.text,
     },
+
     messageMeta: {
       fontSize: typography.xs,
       color: colors.textSecondary,
       marginTop: 1,
     },
+
     badgeRow: {
       flexDirection: "row",
       alignItems: "center",
       gap: spacing.xs,
     },
+
     pill: {
       flexDirection: "row",
       alignItems: "center",
@@ -642,35 +736,42 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       paddingVertical: 3,
       borderRadius: borderRadius.full,
     },
+
     pillPinned: {
       backgroundColor: colors.warningLight,
     },
+
     pillPoll: {
       backgroundColor: colors.infoLight ?? colors.surfaceMuted,
     },
+
     pillMessage: {
       backgroundColor: colors.surfaceMuted,
     },
+
     pillText: {
       fontSize: typography.xs,
       fontWeight: typography.semibold,
     },
+
     pillTextPoll: {
       color: colors.info ?? colors.primary,
     },
+
     pillTextMessage: {
       color: colors.textSecondary,
     },
+
     messageContent: {
       fontSize: typography.sm,
       color: colors.text,
       lineHeight: 20,
     },
 
-    // ── Poll ──
     pollContainer: {
       marginTop: spacing.xs,
     },
+
     pollQuestion: {
       fontSize: typography.sm,
       fontWeight: typography.semibold,
@@ -678,11 +779,13 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       marginBottom: spacing.xs,
       lineHeight: 20,
     },
+
     pollMeta: {
       fontSize: typography.xs,
       color: colors.textSecondary,
       marginBottom: spacing.sm,
     },
+
     pollOption: {
       paddingVertical: spacing.sm,
       paddingHorizontal: spacing.md,
@@ -692,26 +795,31 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       marginBottom: spacing.xs,
       backgroundColor: colors.background,
     },
+
     pollOptionSelected: {
       borderColor: colors.primary,
       backgroundColor: colors.surfaceMuted,
     },
+
     pollOptionHeader: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
       marginBottom: 6,
     },
+
     pollOptionText: {
       fontSize: typography.sm,
       color: colors.text,
       flex: 1,
       marginRight: spacing.sm,
     },
+
     pollOptionTextSelected: {
       fontWeight: typography.semibold,
       color: colors.primary,
     },
+
     pollOptionPercent: {
       fontSize: typography.xs,
       fontWeight: typography.bold,
@@ -719,6 +827,7 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       minWidth: 32,
       textAlign: "right",
     },
+
     pollBarBackground: {
       height: 4,
       borderRadius: 999,
@@ -726,39 +835,43 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       overflow: "hidden",
       marginBottom: 4,
     },
+
     pollBarFill: {
       height: "100%",
       borderRadius: 999,
       backgroundColor: colors.primary,
     },
+
     pollVoteCount: {
       fontSize: 11,
       color: colors.textSecondary,
     },
+
     pollFooterRow: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "center",
       marginTop: spacing.sm,
     },
+
     pollFooter: {
       fontSize: typography.xs,
       color: colors.textSecondary,
     },
+
     pollTotalVotes: {
       fontSize: typography.xs,
       color: colors.textSecondary,
     },
 
-    // ── Composer ──
     composerContainer: {
       borderTopWidth: 1,
       borderTopColor: colors.border,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.md,
-      paddingBottom: spacing.lg,
       backgroundColor: colors.surface,
     },
+
     composerTabs: {
       flexDirection: "row",
       marginBottom: spacing.md,
@@ -767,6 +880,7 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       borderColor: colors.border,
       overflow: "hidden",
     },
+
     composerTab: {
       flex: 1,
       flexDirection: "row",
@@ -775,21 +889,26 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       justifyContent: "center",
       backgroundColor: colors.surface,
     },
+
     composerTabActive: {
       backgroundColor: colors.primary,
     },
+
     composerTabText: {
       fontSize: typography.sm,
       color: colors.textSecondary,
       fontWeight: typography.medium,
     },
+
     composerTabTextActive: {
       color: colors.textOnPrimary,
       fontWeight: typography.semibold,
     },
+
     composerBody: {
       gap: spacing.sm,
     },
+
     input: {
       borderWidth: 1,
       borderColor: colors.border,
@@ -803,6 +922,7 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       minHeight: 68,
       maxHeight: 120,
     },
+
     optionInput: {
       borderWidth: 1,
       borderColor: colors.border,
@@ -813,14 +933,17 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       color: colors.text,
       backgroundColor: colors.background,
     },
+
     pollActionsRow: {
       flexDirection: "row",
     },
+
     addOptionText: {
       fontSize: typography.sm,
       color: colors.primary,
       fontWeight: typography.semibold,
     },
+
     composerButton: {
       marginTop: spacing.xs,
     },

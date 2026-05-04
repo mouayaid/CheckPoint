@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -10,21 +10,21 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   Platform,
-} from 'react-native';
-import { useAuth } from '../context/AuthContext';
-import { useNavigation } from '@react-navigation/native';
-import { authService } from '../services/api';
-import { Button, Input } from '../components';
-import { useTheme } from '../context/ThemeContext';
-import { LinearGradient } from 'expo-linear-gradient';
+} from "react-native";
+import { useAuth } from "../context/AuthContext";
+import { useNavigation } from "@react-navigation/native";
+import { authService } from "../services/api";
+import { Button, Input } from "../components";
+import { useTheme } from "../context/ThemeContext";
+import { LinearGradient } from "expo-linear-gradient";
 
 const LoginScreen = () => {
   const navigation = useNavigation();
   const { signIn } = useAuth();
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
 
@@ -58,6 +58,8 @@ const LoginScreen = () => {
 
       if (response.success && response.data) {
         const { token, user } = response.data;
+        console.log("LOGIN USER:", user);
+        console.log("ROLE:", user?.roleName);
 
         if (token && user) {
           await signIn(token, user);
@@ -67,15 +69,15 @@ const LoginScreen = () => {
       } else {
         Alert.alert(
           "Connexion échouée",
-          response.message || "E-mail ou mot de passe invalide"
+          response.message || "E-mail ou mot de passe invalide",
         );
       }
     } catch (error) {
-      console.error('Login error:', error);
+      console.error("Login error:", error);
       Alert.alert(
         "Erreur",
         error.message ||
-          "Échec de la connexion. Veuillez vérifier votre connexion et réessayer."
+          "Échec de la connexion. Veuillez vérifier votre connexion et réessayer.",
       );
     } finally {
       setLoading(false);
@@ -94,12 +96,12 @@ const LoginScreen = () => {
     },
     scrollContent: {
       flexGrow: 1,
-      justifyContent: 'center',
+      justifyContent: "center",
       paddingHorizontal: spacing.xl,
       paddingVertical: spacing.xxxl,
     },
     header: {
-      alignItems: 'center',
+      alignItems: "center",
       marginBottom: spacing.xxl,
     },
     logoBox: {
@@ -107,8 +109,8 @@ const LoginScreen = () => {
       height: 96,
       borderRadius: borderRadius.xl + 4,
       backgroundColor: colors.surfaceElevated,
-      justifyContent: 'center',
-      alignItems: 'center',
+      justifyContent: "center",
+      alignItems: "center",
       marginBottom: spacing.md,
       borderWidth: 1,
       borderColor: colors.border,
@@ -128,7 +130,7 @@ const LoginScreen = () => {
       fontSize: typography.xxl,
       color: colors.text,
       fontWeight: typography.bold,
-      textAlign: 'center',
+      textAlign: "center",
     },
     card: {
       backgroundColor: colors.card,
@@ -141,7 +143,7 @@ const LoginScreen = () => {
       ...shadows.md,
     },
     forgotButton: {
-      alignSelf: 'flex-end',
+      alignSelf: "flex-end",
       marginTop: 2,
       marginBottom: spacing.sm,
     },
@@ -155,10 +157,10 @@ const LoginScreen = () => {
     },
     footer: {
       marginTop: spacing.xl + 2,
-      flexDirection: 'row',
-      justifyContent: 'center',
-      alignItems: 'center',
-      flexWrap: 'wrap',
+      flexDirection: "row",
+      justifyContent: "center",
+      alignItems: "center",
+      flexWrap: "wrap",
     },
     footerText: {
       fontSize: typography.sm,
@@ -181,7 +183,7 @@ const LoginScreen = () => {
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
           style={styles.keyboardView}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
           <ScrollView
             contentContainerStyle={styles.scrollContent}
@@ -191,19 +193,19 @@ const LoginScreen = () => {
             <View style={styles.header}>
               <View style={styles.logoBox}>
                 <Image
-                  source={require('../assets/checkpoint.png')}
+                  source={require("../assets/checkpoint.png")}
                   style={styles.logo}
                   resizeMode="contain"
                 />
               </View>
 
               <Text style={styles.brandText}>by Triweb</Text>
-<Text style={styles.subtitle}>Connectez-vous à votre compte</Text>
+              <Text style={styles.subtitle}>Connectez-vous à votre compte</Text>
             </View>
 
             <View style={styles.card}>
               <Input
-label="Email professionnel"
+                label="Email professionnel"
                 value={email}
                 onChangeText={setEmail}
                 placeholder="you@company.com"
@@ -219,7 +221,7 @@ label="Email professionnel"
 
               <Input
                 ref={passwordRef}
-label="Mot de passe"
+                label="Mot de passe"
                 value={password}
                 onChangeText={setPassword}
                 placeholder="••••••••"
@@ -238,16 +240,16 @@ label="Mot de passe"
                 onPress={() =>
                   Alert.alert(
                     "Bientôt disponible",
-                    "La fonctionnalité « mot de passe oublié » n'est pas encore disponible."
+                    "La fonctionnalité « mot de passe oublié » n'est pas encore disponible.",
                   )
                 }
                 disabled={loading}
               >
-<Text style={styles.forgotText}>Mot de passe oublié ?</Text>
+                <Text style={styles.forgotText}>Mot de passe oublié ?</Text>
               </TouchableOpacity>
 
               <Button
-title="Se connecter"
+                title="Se connecter"
                 onPress={handleLogin}
                 loading={loading}
                 disabled={loading}
@@ -255,13 +257,13 @@ title="Se connecter"
               />
 
               <View style={styles.footer}>
- <Text style={styles.footerText}>Pas de compte ? </Text>
+                <Text style={styles.footerText}>Pas de compte ? </Text>
                 <TouchableOpacity
                   activeOpacity={0.75}
-                  onPress={() => navigation.navigate('Register')}
+                  onPress={() => navigation.navigate("Register")}
                   disabled={loading}
                 >
- <Text style={styles.footerLink}>Créez-en un</Text>
+                  <Text style={styles.footerLink}>Créez-en un</Text>
                 </TouchableOpacity>
               </View>
             </View>

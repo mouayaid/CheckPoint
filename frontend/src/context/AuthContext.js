@@ -20,6 +20,13 @@ export const AuthProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
+  // ✅ global refresh trigger
+  const [refreshFlag, setRefreshFlag] = useState(0);
+
+  const triggerRefresh = () => {
+    setRefreshFlag((prev) => prev + 1);
+  };
+
   useEffect(() => {
     loadStoredAuth();
   }, []);
@@ -41,10 +48,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  /**
-   * @param {string} token - JWT token from backend
-   * @param {object} userData - User data object
-   */
   const signIn = async (token, userData) => {
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.USER_TOKEN, token);
@@ -57,6 +60,7 @@ export const AuthProvider = ({ children }) => {
 
       setUser(userData);
       setIsAuthenticated(true);
+      triggerRefresh();
     } catch (error) {
       console.error("Error signing in:", error);
       throw error;
@@ -74,6 +78,7 @@ export const AuthProvider = ({ children }) => {
 
       setUser(null);
       setIsAuthenticated(false);
+      triggerRefresh();
     } catch (error) {
       console.error("Error signing out:", error);
       throw error;
@@ -86,6 +91,10 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated,
     signIn,
     signOut,
+
+    // ✅ add these
+    refreshFlag,
+    triggerRefresh,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

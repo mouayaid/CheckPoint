@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -13,6 +14,7 @@ import {
   RefreshControl,
   LayoutAnimation,
   UIManager,
+  KeyboardAvoidingView,
 } from "react-native";
 
 if (
@@ -247,7 +249,7 @@ export default function RoomReservationScreen() {
 
   const workDays = useMemo(() => getWorkWeekDays(weekStartDate), [weekStartDate]);
 
-  useEffect(() => { loadInitialData(); }, []);
+  useFocusEffect(useCallback(() => { loadInitialData(); }, []));
   useEffect(() => { if (rooms.length > 0) loadRoomStatusesForSelectedDate(); }, [rooms, selectedDate]);
   useEffect(() => { if (modalVisible && selectedRoom?.id) loadReservationsForSelected(); }, [selectedDate, modalVisible, selectedRoom]);
   useEffect(() => { if (!scannerVisible) setScanning(false); }, [scannerVisible]);
@@ -809,8 +811,9 @@ export default function RoomReservationScreen() {
 
       {/* ══ Reservation Modal ══ */}
       <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={resetModal}>
-        <Pressable style={styles.modalBackdrop} onPress={resetModal} />
-        <View style={styles.modalSheet}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <Pressable style={styles.modalBackdrop} onPress={resetModal} />
+          <View style={styles.modalSheet}>
           <View style={styles.modalHandle} />
 
           <ScrollView
@@ -995,7 +998,8 @@ export default function RoomReservationScreen() {
               Si le créneau a été pris entre-temps, actualisez et choisissez une autre plage.
             </Text>
           </ScrollView>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

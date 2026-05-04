@@ -56,7 +56,7 @@ public class EventService : IEventService
         if (dto.IsMandatory)
         {
             var employees = await _context.Users
-                .Where(u => u.Role == Role.Employee)
+                .Where(u => u.Role.Name == "Employee")
                 .ToListAsync();
 
             foreach (var employee in employees)
@@ -74,7 +74,7 @@ public class EventService : IEventService
         {
             // Notify all employees for non-mandatory events too (optional - you can remove this if not needed)
             var employees = await _context.Users
-                .Where(u => u.Role == Role.Employee)
+                .Where(u => u.Role.Name == "Employee")
                 .ToListAsync();
 
             foreach (var employee in employees)

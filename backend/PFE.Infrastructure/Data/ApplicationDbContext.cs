@@ -1,7 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using PFE.Application.Abstractions;
 using PFE.Domain.Entities;
-using PFE.Domain.Enums;
+
+using EntityRole = PFE.Domain.Entities.Role;
+using RequestStatus = PFE.Domain.Enums.RequestStatus;
+using ParticipantStatus = PFE.Domain.Enums.ParticipantStatus;
 
 namespace PFE.Infrastructure.Data;
 
@@ -15,6 +18,8 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<Department> Departments { get; set; }
     public DbSet<User> Users { get; set; }
     public DbSet<OfficeTable> OfficeTables { get; set; }
+
+    public DbSet<EntityRole> Roles { get; set; }
 
     public DbSet<InternalRequest> InternalRequests { get; set; }
 
@@ -41,6 +46,19 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     .HasOne(m => m.Poll)
     .WithOne(p => p.Message)
     .HasForeignKey<DepartmentPoll>(p => p.MessageId);
+
+        modelBuilder.Entity<Role>().HasData(
+        new Role { Id = 1, Name = "Employee", Description = "Regular employee" },
+        new Role { Id = 2, Name = "Manager", Description = "Department manager" },
+        new Role { Id = 3, Name = "Admin", Description = "System administrator" },
+        new Role { Id = 4, Name = "HR", Description = "Human resources" }
+    );
+
+        modelBuilder.Entity<User>()
+            .HasOne(u => u.Role)
+            .WithMany(r => r.Users)
+            .HasForeignKey(u => u.RoleId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<DepartmentPollOption>()
         .HasOne(o => o.Poll)
@@ -240,8 +258,17 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.HasIndex(e => e.DepartmentId)
                 .HasDatabaseName("IX_Users_DepartmentId");
 
-            entity.HasIndex(e => e.Role)
-                .HasDatabaseName("IX_Users_Role");
+            entity.HasIndex(e => e.RoleId)
+              .HasDatabaseName("IX_Users_RoleId");
+
+            entity.Property(e => e.RoleId)
+                .IsRequired()
+                .HasDefaultValue(1);
+
+            entity.HasOne(e => e.Role)
+                .WithMany(r => r.Users)
+                .HasForeignKey(e => e.RoleId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             entity.Property(e => e.Id)
                 .ValueGeneratedOnAdd();
@@ -257,11 +284,6 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.Property(e => e.PasswordHash)
                 .IsRequired()
                 .HasMaxLength(500);
-
-            entity.Property(e => e.Role)
-                .IsRequired()
-                .HasConversion<int>()
-                .HasDefaultValue(Role.Employee);
 
             entity.Property(e => e.DepartmentId)
                 .IsRequired();

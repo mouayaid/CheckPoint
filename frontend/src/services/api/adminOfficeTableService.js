@@ -11,6 +11,10 @@ export const adminOfficeTableService = {
   getOfficeTableById: (id) => api.get(`/admin/officetables/${id}`),
   createOfficeTable: (dto) => api.post('/admin/officetables', dto),
   updateOfficeTable: (id, dto) => api.put(`/admin/officetables/${id}`, dto),
+
+  updateOfficeTablePosition: (id, dto) =>
+    api.patch(`/admin/officetables/${id}/position`, dto),
+
   deleteOfficeTable: (id) => api.delete(`/admin/officetables/${id}`),
   extractData,
 };

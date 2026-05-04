@@ -30,6 +30,8 @@ public class MappingProfile : Profile
         // User mappings
         CreateMap<User, UserDto>()
     .ForMember(dest => dest.DepartmentName, opt => opt.MapFrom(src => src.Department.Name))
+    .ForMember(dest => dest.RoleId, opt => opt.MapFrom(src => src.RoleId))
+    .ForMember(dest => dest.RoleName, opt => opt.MapFrom(src => src.Role.Name))
     .ForMember(dest => dest.LeaveBalance, opt => opt.MapFrom(src => src.LeaveBalance));
         CreateMap<CreateUserDto, User>()
             .ForMember(dest => dest.PasswordHash, opt => opt.Ignore())

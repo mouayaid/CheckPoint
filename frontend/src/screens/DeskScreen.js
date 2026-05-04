@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -17,6 +18,9 @@ import { seatService } from "../services/api";
 import { formatDate } from "../utils/helpers";
 import { Button, Card } from "../components";
 import { useTheme } from "../context/ThemeContext";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Haptics from "expo-haptics";
 
 const { width } = Dimensions.get("window");
 
@@ -31,7 +35,14 @@ function getErrorMessage(error, fallback) {
   );
 }
 
-const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
+const createStyles = (
+  colors,
+  spacing,
+  borderRadius,
+  typography,
+  shadows,
+  insets,
+) =>
   StyleSheet.create({
     container: {
       flex: 1,
@@ -139,7 +150,7 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
     },
     mapContainer: {
       padding: spacing.lg,
-      paddingBottom: 120,
+      paddingBottom: 220,
       gap: spacing.lg,
     },
     loadingContainer: {
@@ -274,6 +285,7 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       gap: spacing.lg,
       paddingVertical: spacing.sm + 2,
       paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.lg + 4,
       backgroundColor: colors.surface,
       borderTopWidth: 1,
       borderTopColor: colors.border,
@@ -339,7 +351,7 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
     // ── Action panel ────────────────────────────────────────
     actionPanel: {
       position: "absolute",
-      bottom: 0,
+      bottom: 90 + (insets?.bottom ?? 0),
       left: 0,
       right: 0,
       backgroundColor: colors.surface,
@@ -371,15 +383,65 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
     actionPanelButton: {
       marginLeft: spacing.lg,
     },
+    scannerContainer: {
+      flex: 1,
+      backgroundColor: "#000",
+    },
+    scannerOverlay: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.xl,
+      backgroundColor: "rgba(0,0,0,0.25)",
+    },
+    scannerTitle: {
+      position: "absolute",
+      top: 70,
+      fontSize: typography.lg,
+      fontWeight: typography.bold,
+      color: "#fff",
+      textAlign: "center",
+    },
+    qrFrame: {
+      width: 240,
+      height: 240,
+      borderWidth: 3,
+      borderColor: "#fff",
+      borderRadius: 24,
+      backgroundColor: "transparent",
+    },
+    scannerHint: {
+      marginTop: spacing.lg,
+      color: "#fff",
+      fontSize: typography.sm,
+      textAlign: "center",
+    },
+    closeScannerBtn: {
+      position: "absolute",
+      bottom: 50,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      borderRadius: 999,
+      backgroundColor: "rgba(0,0,0,0.65)",
+    },
+    closeScannerText: {
+      color: "#fff",
+      fontWeight: typography.bold,
+    },
   });
 
 const DeskScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const styles = useMemo(
-    () => createStyles(colors, spacing, borderRadius, typography, shadows),
-    [colors, spacing, borderRadius, typography, shadows],
+    () =>
+      createStyles(colors, spacing, borderRadius, typography, shadows, insets),
+    [colors, spacing, borderRadius, typography, shadows, insets],
   );
 
   const selectedDate = useMemo(() => formatDate(new Date()), []);
@@ -396,10 +458,96 @@ const DeskScreen = () => {
 
   const [myReservation, setMyReservation] = useState(null);
 
-  useEffect(() => {
-    fetchSeatMap();
-    fetchMyReservation();
-  }, []);
+  const [scannerVisible, setScannerVisible] = useState(false);
+  const [scanned, setScanned] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [checkingIn, setCheckingIn] = useState(false);
+
+  const openScanner = async () => {
+    if (!permission?.granted) {
+      const result = await requestPermission();
+      if (!result.granted) {
+        Alert.alert(
+          "Permission refusée",
+          "La caméra est nécessaire pour scanner le QR code.",
+        );
+        return;
+      }
+    }
+
+    setScanned(false);
+    setScannerVisible(true);
+  };
+
+  const handleQrScanned = async ({ data }) => {
+    if (scanned || checkingIn) return;
+
+    setScanned(true);
+
+    const resetScan = () => setTimeout(() => setScanned(false), 1500);
+
+    const scannedValue = String(data).trim().toUpperCase();
+    const reservedSeat = String(mySeatLabel).trim().toUpperCase();
+
+    // ✅ reject wrong QR locally
+    if (scannedValue !== reservedSeat) {
+      Alert.alert(
+        "QR incorrect",
+        `Ce QR code ne correspond pas à votre poste réservé (${mySeatLabel}).`,
+        [
+          {
+            text: "Réessayer",
+            onPress: resetScan
+          },
+        ],
+      );
+      return;
+    }
+
+    setCheckingIn(true);
+
+    try {
+      const response = await seatService.checkInReservation(data);
+
+      // ✅ Axios fix: response.data contains backend result
+      const result = response?.data ?? response;
+
+      if (result?.success) {
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        );
+
+        setScannerVisible(false);
+
+        setTimeout(() => {
+          Alert.alert("Check-in réussi", "Votre présence a été confirmée.");
+        }, 200);
+
+        await fetchMyReservation();
+      } else {
+        Alert.alert(
+          "Check-in refusé",
+          result?.message || "Impossible de confirmer le check-in.",
+          [{ text: "Réessayer", onPress: resetScan }],
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        "Erreur",
+        getErrorMessage(error, "Impossible de faire le check-in."),
+        [{ text: "Réessayer", onPress:resetScan }],
+      );
+    } finally {
+      setCheckingIn(false);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchSeatMap();
+      fetchMyReservation();
+    }, []),
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -500,7 +648,10 @@ const DeskScreen = () => {
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
 
     if (isMySeat) {
-      Alert.alert("Votre poste", `Vous avez le poste ${seat.label} pour aujourd'hui.`);
+      Alert.alert(
+        "Votre poste",
+        `Vous avez le poste ${seat.label} pour aujourd'hui.`,
+      );
       return;
     }
 
@@ -568,9 +719,9 @@ const DeskScreen = () => {
       "Annuler la réservation ?",
       `Libérer le poste ${mySeatLabel} pour aujourd'hui ?`,
       [
-        { text: "Garder", style: "cancel" },
+        { text: "Non", style: "cancel" },
         {
-          text: "Annuler",
+          text: "Oui",
           style: "destructive",
           onPress: confirmCancelReservation,
         },
@@ -767,7 +918,9 @@ const DeskScreen = () => {
             <View style={styles.statusIconWrap}>
               <ActivityIndicator size="small" color={colors.primary} />
             </View>
-            <Text style={styles.statusHint}>Vérification de votre réservation…</Text>
+            <Text style={styles.statusHint}>
+              Vérification de votre réservation…
+            </Text>
           </View>
         ) : hasMyReservation ? (
           <View style={styles.statusRow}>
@@ -780,6 +933,12 @@ const DeskScreen = () => {
               </Text>
               <Text style={styles.statusHint}>Aujourd&apos;hui · confirmé</Text>
             </View>
+            <Button
+              title="Scanner QR"
+              onPress={openScanner}
+              disabled={checkingIn}
+              style={{ marginRight: 8 }}
+            />
             <Button
               title="Libérer"
               variant="danger-outline"
@@ -917,6 +1076,48 @@ const DeskScreen = () => {
           />
         </View>
       )}
+      <Modal
+        visible={scannerVisible}
+        animationType="slide"
+        onRequestClose={() => setScannerVisible(false)}
+      >
+        <View style={styles.scannerContainer}>
+          <CameraView
+            style={StyleSheet.absoluteFillObject}
+            facing="back"
+            onBarcodeScanned={scanned ? undefined : handleQrScanned}
+            barcodeScannerSettings={{
+              barcodeTypes: ["qr"],
+            }}
+          />
+
+          <View style={styles.scannerOverlay}>
+            <Text style={styles.scannerTitle}>Scanner le QR code du poste</Text>
+
+            <View style={styles.qrFrame} />
+
+            <Text style={styles.scannerHint}>
+              Placez le QR code dans le cadre
+            </Text>
+
+            {checkingIn && (
+              <ActivityIndicator
+                size="large"
+                color="#fff"
+                style={{ marginTop: 20 }}
+              />
+            )}
+
+            <TouchableOpacity
+              style={styles.closeScannerBtn}
+              onPress={() => setScannerVisible(false)}
+            >
+              <Ionicons name="close" size={22} color="#fff" />
+              <Text style={styles.closeScannerText}>Fermer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };

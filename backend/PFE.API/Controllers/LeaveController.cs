@@ -45,7 +45,7 @@ public class LeaveController : ControllerBase
         return Ok(ApiResponse<List<LeaveRequestDto>>.SuccessResponse(requests));
     }
 
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Manager,Admin,HR")]
     [HttpGet("pending-review")]
     public async Task<IActionResult> GetPendingForReview()
     {
@@ -55,7 +55,7 @@ public class LeaveController : ControllerBase
         return Ok(requests);
     }
 
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Manager,Admin,HR")]
     [HttpPut("requests/{id}/approve")]
     public async Task<IActionResult> Approve(int id, [FromBody] ApproveLeaveRequestDto dto)
     {
@@ -65,7 +65,7 @@ public class LeaveController : ControllerBase
         return Ok(result);
     }
 
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Manager,Admin,HR")]
     [HttpPut("requests/{id}/reject")]
     public async Task<IActionResult> Reject(int id, [FromBody] RejectLeaveRequestDto dto)
     {

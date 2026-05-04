@@ -1,16 +1,24 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Pressable, Text, StyleSheet, Animated } from "react-native";
+import {
+  View,
+  Pressable,
+  Text,
+  StyleSheet,
+  Animated,
+  Keyboard,
+  Platform,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useTheme } from "../context/ThemeContext";
 import { useDepartmentChannel } from "../context/DepartmentChannelContext";
 import { useAuth } from "../context/AuthContext";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const BAR_HEIGHT = 74;
-const BAR_HORIZONTAL_PADDING = 10;
-const BAR_VERTICAL_PADDING = 10;
-const TAB_HEIGHT = 54;
-const TAB_GAP = 8;
+const BAR_HEIGHT = 72;
+const BAR_HORIZONTAL_PADDING = 8;
+const BAR_VERTICAL_PADDING = 8;
+const TAB_HEIGHT = 56;
 
 function AnimatedTabItem({
   route,
@@ -24,50 +32,86 @@ function AnimatedTabItem({
   channelUnreadCount,
   width,
 }) {
-  const scaleAnim = useRef(new Animated.Value(focused ? 1 : 0.92)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const pressAnim = useRef(new Animated.Value(0)).current;
   const labelAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
-  const translateYAnim = useRef(new Animated.Value(focused ? 0 : 3)).current;
+  const iconLiftAnim = useRef(new Animated.Value(focused ? -1 : 0)).current;
+  const iconScaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: focused ? 1 : 0.92,
-        friction: 6,
-        tension: 150,
-        useNativeDriver: true,
-      }),
-      Animated.spring(translateYAnim, {
-        toValue: focused ? 0 : 3,
-        friction: 6,
-        tension: 150,
-        useNativeDriver: true,
-      }),
-      Animated.timing(labelAnim, {
+      Animated.spring(labelAnim, {
         toValue: focused ? 1 : 0,
-        duration: 180,
+        damping: 18,
+        stiffness: 220,
+        mass: 0.7,
         useNativeDriver: false,
       }),
+      Animated.spring(iconLiftAnim, {
+        toValue: focused ? -1 : 0,
+        damping: 18,
+        stiffness: 220,
+        mass: 0.7,
+        useNativeDriver: true,
+      }),
     ]).start();
-  }, [focused, scaleAnim, translateYAnim, labelAnim]);
+  }, [focused]);
+
+  const handlePressIn = () => {
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 0.92,
+        damping: 14,
+        stiffness: 280,
+        useNativeDriver: true,
+      }),
+      Animated.timing(pressAnim, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(iconScaleAnim, {
+        toValue: 1.15,
+        damping: 12,
+        stiffness: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.parallel([
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        damping: 14,
+        stiffness: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(pressAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.spring(iconScaleAnim, {
+        toValue: 1,
+        damping: 14,
+        stiffness: 250,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const pressBackgroundColor = pressAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["transparent", colors.primary + "15"],
+  });
+
+  const iconScale = Animated.multiply(iconScaleAnim, focused ? 1 : 1);
 
   return (
     <Pressable
-      onPressIn={() => {
-        Animated.spring(scaleAnim, {
-          toValue: focused ? 0.95 : 0.93,
-          friction: 5,
-          tension: 200,
-          useNativeDriver: true,
-        }).start();
-      }}
-      onPressOut={() => {
-        Animated.spring(scaleAnim, {
-          toValue: focused ? 1 : 0.92,
-          friction: 6,
-          tension: 150,
-          useNativeDriver: true,
-        }).start();
-      }}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
       onPress={onPress}
       onLongPress={onLongPress}
       style={[styles.tabButton, { width, height: TAB_HEIGHT }]}
@@ -78,16 +122,25 @@ function AnimatedTabItem({
         style={[
           styles.tabInner,
           {
-            transform: [{ scale: scaleAnim }, { translateY: translateYAnim }],
+            transform: [{ scale: scaleAnim }],
+            backgroundColor: pressBackgroundColor,
           },
         ]}
       >
-        <View style={styles.iconWrap}>
+        <Animated.View
+          style={[
+            styles.iconWrap,
+            {
+              transform: [{ translateY: iconLiftAnim }, { scale: iconScale }],
+            },
+          ]}
+        >
           <Ionicons
             name={icon}
-            size={20}
+            size={21}
             color={focused ? colors.primary : colors.textSecondary}
           />
+
           {route.name === "Channel" && channelUnreadCount > 0 ? (
             <View
               style={[
@@ -99,44 +152,38 @@ function AnimatedTabItem({
               ]}
             />
           ) : null}
-        </View>
-
-        <Animated.View
-          style={{
-            overflow: "hidden",
-            maxWidth: labelAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 90],
-            }),
-            opacity: labelAnim,
-            marginLeft: labelAnim.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0, 6],
-            }),
-          }}
-        >
-          <Animated.Text
-            numberOfLines={1}
-            style={[
-              styles.activeLabel,
-              {
-                color: colors.primary,
-                fontFamily: typography?.fontFamily?.semibold,
-                fontSize: typography?.sm ?? 14,
-                transform: [
-                  {
-                    translateX: labelAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [-8, 0],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            {label}
-          </Animated.Text>
         </Animated.View>
+
+        {focused && (
+          <Animated.View
+            style={{
+              opacity: labelAnim,
+              marginLeft: 7,
+              transform: [
+                {
+                  translateX: labelAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-6, 0],
+                  }),
+                },
+              ],
+            }}
+          >
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.activeLabel,
+                {
+                  color: colors.primary,
+                  fontFamily: typography?.fontFamily?.semibold,
+                  fontSize: typography?.sm ?? 14,
+                },
+              ]}
+            >
+              {label}
+            </Text>
+          </Animated.View>
+        )}
       </Animated.View>
     </Pressable>
   );
@@ -146,24 +193,35 @@ export default function CustomBottomTabBar({ state, navigation }) {
   const { colors, typography, shadows, darkMode } = useTheme();
   const { channelUnreadCount } = useDepartmentChannel();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
-  const isAdmin = user?.role === "Admin" || user?.role === 3;
-  const isHR = user?.role === "HR" || user?.role === 4;
+  const [barWidth, setBarWidth] = useState(0);
+
+  const pillTranslateX = useRef(new Animated.Value(0)).current;
+  const pillScaleX = useRef(new Animated.Value(1)).current;
+
+  const role = user?.roleName ?? user?.roleId;
+
+  const isAdmin = role === "Admin" || role === 3;
+  const isHR = role === "HR" || role === 4;
   const canReviewRequests = isAdmin || isHR;
 
-  const blurTint = darkMode ? "dark" : "light";
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
-  const glassBackground = darkMode
-    ? "rgba(15, 23, 42, 0.78)"
-    : "rgba(255, 255, 255, 0.82)";
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardDidShow", () => {
+      setKeyboardVisible(true);
+    });
 
-  const pillBackground = darkMode
-    ? "rgba(255, 255, 255, 0.10)"
-    : "rgba(255, 255, 255, 0.65)";
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardVisible(false);
+    });
 
-  const pillBorderColor = darkMode
-    ? "rgba(255, 255, 255, 0.08)"
-    : "rgba(255, 255, 255, 0.7)";
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   const visibleRoutes = useMemo(() => {
     return state.routes.filter((route) => {
@@ -190,12 +248,6 @@ export default function CustomBottomTabBar({ state, navigation }) {
     ),
   );
 
-  const [barWidth, setBarWidth] = useState(0);
-
-  const pillTranslateX = useRef(new Animated.Value(0)).current;
-  const pillScale = useRef(new Animated.Value(1)).current;
-  const pillOpacity = useRef(new Animated.Value(1)).current;
-
   const tabWidth =
     barWidth > 0
       ? (barWidth - BAR_HORIZONTAL_PADDING * 2) /
@@ -208,37 +260,27 @@ export default function CustomBottomTabBar({ state, navigation }) {
     Animated.parallel([
       Animated.spring(pillTranslateX, {
         toValue: currentVisibleIndex * tabWidth,
-        friction: 8,
-        tension: 120,
+        damping: 22,
+        stiffness: 220,
+        mass: 0.8,
         useNativeDriver: true,
       }),
       Animated.sequence([
-        Animated.timing(pillScale, {
-          toValue: 0.96,
-          duration: 90,
+        Animated.spring(pillScaleX, {
+          toValue: 0.94,
+          damping: 16,
+          stiffness: 260,
           useNativeDriver: true,
         }),
-        Animated.spring(pillScale, {
+        Animated.spring(pillScaleX, {
           toValue: 1,
-          friction: 6,
-          tension: 180,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.sequence([
-        Animated.timing(pillOpacity, {
-          toValue: 0.92,
-          duration: 90,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pillOpacity, {
-          toValue: 1,
-          duration: 120,
+          damping: 18,
+          stiffness: 220,
           useNativeDriver: true,
         }),
       ]),
     ]).start();
-  }, [currentVisibleIndex, tabWidth, pillTranslateX, pillScale, pillOpacity]);
+  }, [currentVisibleIndex, tabWidth]);
 
   const getTabConfig = (routeName, focused) => {
     switch (routeName) {
@@ -252,6 +294,11 @@ export default function CustomBottomTabBar({ state, navigation }) {
           icon: focused ? "chatbubbles" : "chatbubbles-outline",
           label: "Canal",
         };
+      case "Announcements":
+        return {
+          icon: focused ? "megaphone" : "megaphone-outline",
+          label: "Annonces",
+        };
       case "Approvals":
         return {
           icon: focused ? "checkmark-circle" : "checkmark-circle-outline",
@@ -259,28 +306,53 @@ export default function CustomBottomTabBar({ state, navigation }) {
         };
       default:
         return {
-          icon: "ellipse-outline",
+          icon: focused ? "ellipse" : "ellipse-outline",
           label: routeName,
         };
     }
   };
 
+  const blurTint = darkMode ? "dark" : "light";
+
+  const glassBackground = darkMode
+    ? "rgba(15, 23, 42, 0.72)"
+    : "rgba(255, 255, 255, 0.78)";
+
+  const pillBackground = darkMode
+    ? "rgba(255, 255, 255, 0.13)"
+    : "rgba(255, 255, 255, 0.92)";
+
+  const pillBorderColor = darkMode
+    ? "rgba(255, 255, 255, 0.10)"
+    : "rgba(255, 255, 255, 0.95)";
+
+  if (keyboardVisible) {
+    return null;
+  }
   return (
-    <View style={styles.wrapper} pointerEvents="box-none">
+    <Animated.View
+      style={[
+        styles.wrapper,
+        {
+          bottom: Math.max(insets.bottom, 14),
+        },
+      ]}
+      pointerEvents="box-none"
+    >
       <View
         style={[
           styles.shadowContainer,
           {
             shadowColor: shadows?.md?.shadowColor ?? "#000",
-            shadowOffset: shadows?.md?.shadowOffset ?? { width: 0, height: 10 },
-            shadowOpacity: shadows?.md?.shadowOpacity ?? 0.14,
-            shadowRadius: shadows?.md?.shadowRadius ?? 16,
-            elevation: shadows?.md?.elevation ?? 12,
+            shadowOffset: shadows?.md?.shadowOffset ?? { width: 0, height: 12 },
+            shadowOpacity: shadows?.md?.shadowOpacity ?? 0.16,
+            shadowRadius: shadows?.md?.shadowRadius ?? 18,
+            elevation: shadows?.md?.elevation ?? 14,
           },
         ]}
       >
         <BlurView
-          intensity={darkMode ? 28 : 36}
+          intensity={darkMode ? 34 : 42}
           tint={blurTint}
           style={[
             styles.blurShell,
@@ -291,29 +363,21 @@ export default function CustomBottomTabBar({ state, navigation }) {
           ]}
           onLayout={(event) => setBarWidth(event.nativeEvent.layout.width)}
         >
-          {tabWidth > 80 && (
+          {tabWidth > 0 && (
             <Animated.View
               style={[
                 styles.activePill,
                 {
                   width: tabWidth,
                   backgroundColor: pillBackground,
-                  borderWidth: 1,
                   borderColor: pillBorderColor,
                   transform: [
                     { translateX: pillTranslateX },
-                    { scale: pillScale },
+                    { scaleX: pillScaleX },
                   ],
-                  opacity: pillOpacity,
                 },
               ]}
-            >
-              <BlurView
-                intensity={darkMode ? 14 : 20}
-                tint={blurTint}
-                style={styles.activePillBlur}
-              />
-            </Animated.View>
+            />
           )}
 
           <View style={styles.row}>
@@ -362,16 +426,16 @@ export default function CustomBottomTabBar({ state, navigation }) {
           </View>
         </BlurView>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: {
     position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 14,
+    left: 18,
+    right: 18,
+    zIndex: 999,
   },
 
   shadowContainer: {
@@ -394,11 +458,7 @@ const styles = StyleSheet.create({
     top: BAR_VERTICAL_PADDING,
     bottom: BAR_VERTICAL_PADDING,
     borderRadius: 999,
-    overflow: "hidden",
-  },
-
-  activePillBlur: {
-    flex: 1,
+    borderWidth: 1,
   },
 
   row: {
@@ -421,19 +481,20 @@ const styles = StyleSheet.create({
 
   iconWrap: {
     position: "relative",
-    width: 22,
+    width: 23,
     alignItems: "center",
     justifyContent: "center",
   },
 
   activeLabel: {
     includeFontPadding: false,
+    fontWeight: "700",
   },
 
   dot: {
     position: "absolute",
-    top: -3,
-    right: -5,
+    top: -4,
+    right: -6,
     width: 9,
     height: 9,
     borderRadius: 999,

@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Animated,
   Pressable,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -24,6 +25,7 @@ import {
   profileService,
   eventService,
   leaveService,
+  requestService,
   adminUserService,
 } from "../services/api";
 import api from "../services/api/axiosInstance";
@@ -61,45 +63,103 @@ const getRoleFlags = (role) => {
 
 const formatDateForApi = (date) => date.toISOString().split("T")[0];
 
-const formatEventCompact = (event) => {
-  const raw =
-    event?.date ?? event?.Date ?? event?.startDateTime ?? event?.StartDateTime;
+const getEventId = (event, index) => event?.id ?? event?.Id ?? `event-${index}`;
 
-  if (!raw) return "Date à confirmer";
+const getEventTitle = (event) =>
+  event?.title ?? event?.Title ?? "Événement sans titre";
 
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return String(raw);
+const getEventDescription = (event) =>
+  event?.description ?? event?.Description ?? "";
 
-  const datePart = d.toLocaleDateString("fr-FR", {
+const getEventImage = (event) => event?.imageUrl ?? event?.ImageUrl ?? null;
+
+const getEventLocation = (event) =>
+  event?.location ??
+  event?.Location ??
+  event?.roomName ??
+  event?.RoomName ??
+  null;
+
+const getEventStartValue = (event) =>
+  event?.startDateTime ?? event?.StartDateTime ?? event?.date ?? event?.Date;
+
+const getEventEndValue = (event) =>
+  event?.endDateTime ?? event?.EndDateTime ?? getEventStartValue(event);
+
+const getEventStartTime = (event) => {
+  const raw = getEventStartValue(event);
+  if (!raw) return 0;
+
+  const timestamp = new Date(raw).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
+const getEventEndTime = (event) => {
+  const raw = getEventEndValue(event);
+  if (!raw) return getEventStartTime(event);
+
+  const timestamp = new Date(raw).getTime();
+  return Number.isNaN(timestamp) ? getEventStartTime(event) : timestamp;
+};
+
+const formatEventDateTime = (event) => {
+  const startRaw = getEventStartValue(event);
+  if (!startRaw) return "Date à confirmer";
+
+  const start = new Date(startRaw);
+  if (Number.isNaN(start.getTime())) return "Date à confirmer";
+
+  const endRaw = getEventEndValue(event);
+  const end = endRaw ? new Date(endRaw) : null;
+
+  const datePart = start.toLocaleDateString("fr-FR", {
     weekday: "short",
-    month: "short",
     day: "numeric",
+    month: "short",
   });
 
-  const timePart = d.toLocaleTimeString("fr-FR", {
+  const startTime = start.toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
   });
 
-  return `${datePart} · ${timePart}`;
+  const endTime =
+    end && !Number.isNaN(end.getTime())
+      ? end.toLocaleTimeString("fr-FR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
+
+  return endTime ? `${datePart} · ${startTime} - ${endTime}` : `${datePart} · ${startTime}`;
 };
 
-const getEventDateParts = (event) => {
-  const raw =
-    event?.date ?? event?.Date ?? event?.startDateTime ?? event?.StartDateTime;
+const isEventImportant = (event) => {
+  const isImportant = event?.isImportant ?? event?.IsImportant ?? false;
+  if (isImportant === true) return true;
+  if (typeof isImportant === "string") {
+    return ["true", "important", "urgent", "high"].includes(
+      isImportant.trim().toLowerCase(),
+    );
+  }
 
-  if (!raw) return { day: "—", month: "—" };
+  const priority = event?.priority ?? event?.Priority;
+  if (typeof priority === "number") return priority > 0;
+  if (typeof priority === "string") {
+    return ["important", "urgent", "high", "haute", "elevee", "élevée"].includes(
+      priority.trim().toLowerCase(),
+    );
+  }
 
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return { day: "—", month: "—" };
+  return event?.isMandatory === true || event?.IsMandatory === true;
+};
 
-  return {
-    day: String(d.getDate()),
-    month: d
-      .toLocaleDateString("fr-FR", { month: "short" })
-      .replace(".", "")
-      .toUpperCase(),
-  };
+const sortEventsNearestFirst = (events) =>
+  [...events].sort((a, b) => getEventStartTime(a) - getEventStartTime(b));
+
+const filterUpcomingEvents = (events) => {
+  const now = Date.now();
+  return events.filter((event) => getEventEndTime(event) >= now);
 };
 
 const getDisplayName = (payload) => {
@@ -242,6 +302,78 @@ const getGreeting = () => {
   return { greeting: "Bonsoir", emoji: "🌙" };
 };
 
+const getAnnouncementId = (announcement, index) =>
+  announcement?.id ?? announcement?.Id ?? `announcement-${index}`;
+
+const getAnnouncementTitle = (announcement) =>
+  announcement?.title ?? announcement?.Title ?? "Annonce";
+
+const getAnnouncementContent = (announcement) =>
+  announcement?.content ?? announcement?.Content ?? "";
+
+const getAnnouncementImage = (announcement) =>
+  announcement?.imageUrl ?? announcement?.ImageUrl ?? null;
+
+const getAnnouncementDateValue = (announcement) =>
+  announcement?.dateCreation ??
+  announcement?.createdAt ??
+  announcement?.DateCreation ??
+  announcement?.CreatedAt ??
+  null;
+
+const isAnnouncementImportant = (announcement) => {
+  const isImportant =
+    announcement?.isImportant ?? announcement?.IsImportant ?? false;
+
+  if (isImportant === true) return true;
+  if (typeof isImportant === "string") {
+    return ["true", "important", "urgent", "high"].includes(
+      isImportant.trim().toLowerCase(),
+    );
+  }
+
+  const priority = announcement?.priority ?? announcement?.Priority;
+  if (typeof priority === "number") return priority > 0;
+  if (typeof priority === "string") {
+    return ["important", "urgent", "high", "haute", "elevee", "élevée"].includes(
+      priority.trim().toLowerCase(),
+    );
+  }
+
+  return false;
+};
+
+const getAnnouncementTime = (announcement) => {
+  const raw = getAnnouncementDateValue(announcement);
+  if (!raw) return 0;
+
+  const timestamp = new Date(raw).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
+const formatAnnouncementDate = (announcement) => {
+  const raw = getAnnouncementDateValue(announcement);
+  if (!raw) return null;
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+};
+
+const sortAnnouncementsNewestFirst = (items) =>
+  [...items].sort((a, b) => getAnnouncementTime(b) - getAnnouncementTime(a));
+
+const truncateAnnouncement = (text, maxLength = 132) => {
+  if (!text) return "";
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength).trim()}…`;
+};
+
 /* -------------------------------- UI pieces ------------------------------- */
 
 const SectionHeader = ({ title, styles }) => {
@@ -357,12 +489,14 @@ const DashboardScreen = () => {
 
   const [upcomingEvents, setUpcomingEvents] = useState([]);
   const [loadingEvent, setLoadingEvent] = useState(true);
+  const [eventsError, setEventsError] = useState("");
+  const [eventsExpanded, setEventsExpanded] = useState(true);
 
   const [refreshing, setRefreshing] = useState(false);
 
   const [loadingDesk, setLoadingDesk] = useState(true);
   const [loadingBalance, setLoadingBalance] = useState(true);
-  const [loadingPendingLeave, setLoadingPendingLeave] = useState(true);
+  const [loadingPendingRequests, setLoadingPendingRequests] = useState(true);
   const [loadingPendingUsers, setLoadingPendingUsers] = useState(true);
   const [loadingAnnouncements, setLoadingAnnouncements] = useState(true);
   const [loadingAttendance, setLoadingAttendance] = useState(true);
@@ -371,10 +505,12 @@ const DashboardScreen = () => {
   const [leaveBalance, setLeaveBalance] = useState(null);
   const [userName, setUserName] = useState("");
 
-  const [pendingLeaveCount, setPendingLeaveCount] = useState(0);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [pendingUserCount, setPendingUserCount] = useState(0);
 
   const [announcements, setAnnouncements] = useState([]);
+  const [announcementsError, setAnnouncementsError] = useState("");
+  const [announcementsExpanded, setAnnouncementsExpanded] = useState(true);
   const [monthCheckIns, setMonthCheckIns] = useState([]);
 
   const [currentYear] = useState(new Date().getFullYear());
@@ -383,17 +519,17 @@ const DashboardScreen = () => {
   const heroFadeAnim = useRef(new Animated.Value(0)).current;
   const contentFadeAnim = useRef(new Animated.Value(0)).current;
 
-  const goToPendingLeaves = useCallback(() => {
+  const goToPendingRequests = useCallback(() => {
     navigation.navigate("HomeTabs", {
       screen: "Approvals",
-      params: { filter: "leaves" },
+      params: { mainFilter: "Demandes" },
     });
   }, [navigation]);
 
   const goToPendingUsers = useCallback(() => {
     navigation.navigate("HomeTabs", {
       screen: "Approvals",
-      params: { filter: "users" },
+      params: { mainFilter: "Utilisateurs" },
     });
   }, [navigation]);
 
@@ -401,10 +537,13 @@ const DashboardScreen = () => {
     setLoadingEvent(true);
 
     try {
+      setEventsError("");
       const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
       const result = [];
 
-      for (let i = 0; i < 7; i++) {
+      for (let i = 0; i < 30; i++) {
         const checkDate = new Date(today);
         checkDate.setDate(today.getDate() + i);
 
@@ -412,64 +551,94 @@ const DashboardScreen = () => {
           formatDateForApi(checkDate),
         );
 
-        const events = Array.isArray(response?.data)
-          ? response.data
-          : Array.isArray(response?.data?.data)
-            ? response.data.data
-            : [];
+        const events = getResponseData(response);
 
-        for (const ev of events) {
-          // avoid duplicates (in case API returns overlapping data)
-          if (ev?.id == null) {
-            result.push(ev);
-          } else {
-            const alreadyExists = result.some((x) => x?.id === ev.id);
-            if (!alreadyExists) result.push(ev);
-          }
+        if (Array.isArray(events)) {
+          result.push(...events);
         }
       }
 
-      // sort by date ascending
-      result.sort((a, b) => {
-        const da = new Date(
-          a?.date ?? a?.Date ?? a?.startDateTime ?? a?.StartDateTime,
-        ).getTime();
-        const db = new Date(
-          b?.date ?? b?.Date ?? b?.startDateTime ?? b?.StartDateTime,
-        ).getTime();
-        return (Number.isNaN(da) ? 0 : da) - (Number.isNaN(db) ? 0 : db);
-      });
+      const seen = new Set();
+      const uniqueEvents = [];
 
-      // cap display size
-      setUpcomingEvents(result.slice(0, 5));
+      for (const event of result) {
+        const id = event?.id ?? event?.Id;
+        const key =
+          id != null
+            ? `id-${id}`
+            : `${getEventTitle(event)}-${getEventStartValue(event)}`;
+
+        if (seen.has(key)) continue;
+        seen.add(key);
+        uniqueEvents.push(event);
+      }
+
+      const upcoming = sortEventsNearestFirst(filterUpcomingEvents(uniqueEvents));
+
+      if (__DEV__) {
+        console.log("DASHBOARD EVENTS SUMMARY:", {
+          rawCount: result.length,
+          normalizedCount: uniqueEvents.length,
+          upcomingCount: upcoming.length,
+        });
+      }
+
+      setUpcomingEvents(upcoming);
     } catch (error) {
-      console.log("Upcoming events error", error);
+      console.log("Upcoming events error", {
+        message: error?.message,
+        status: error?.response?.status,
+        data: error?.response?.data,
+        url: error?.config?.url,
+        baseURL: error?.config?.baseURL,
+      });
+      setEventsError("Impossible de charger les événements.");
       setUpcomingEvents([]);
     } finally {
       setLoadingEvent(false);
     }
   }, []);
 
-  const fetchPendingLeaveApprovals = useCallback(async () => {
+  const fetchPendingRequests = useCallback(async () => {
     if (!canReviewLeave) {
-      setPendingLeaveCount(0);
-      setLoadingPendingLeave(false);
+      setPendingRequestCount(0);
+      setLoadingPendingRequests(false);
       return;
     }
 
-    setLoadingPendingLeave(true);
+    setLoadingPendingRequests(true);
 
     try {
-      const res = await leaveService.getPendingReviewRequests();
+      const [leaveRes, generalRes] = await Promise.allSettled([
+        leaveService.getPendingReviewRequests(),
+        requestService.getAllGeneralRequests({ status: "Pending" }),
+      ]);
 
-      console.log("PENDING LEAVES DASHBOARD:", res.data);
+      const pendingLeaves =
+        leaveRes.status === "fulfilled" ? getResponseData(leaveRes.value) : [];
+      const pendingGeneralRequests =
+        generalRes.status === "fulfilled"
+          ? getResponseData(generalRes.value)
+          : [];
 
-      setPendingLeaveCount(Array.isArray(res.data) ? res.data.length : 0);
+      const leaveCount = Array.isArray(pendingLeaves)
+        ? pendingLeaves.length
+        : 0;
+      const generalRequestCount = Array.isArray(pendingGeneralRequests)
+        ? pendingGeneralRequests.length
+        : 0;
+
+      console.log("PENDING REQUESTS DASHBOARD:", {
+        leaves: leaveCount,
+        generalRequests: generalRequestCount,
+      });
+
+      setPendingRequestCount(leaveCount + generalRequestCount);
     } catch (error) {
-      console.log("Pending leave approvals error", error);
-      setPendingLeaveCount(0);
+      console.log("Pending request approvals error", error);
+      setPendingRequestCount(0);
     } finally {
-      setLoadingPendingLeave(false);
+      setLoadingPendingRequests(false);
     }
   }, [canReviewLeave]);
 
@@ -523,9 +692,12 @@ const DashboardScreen = () => {
     setLoadingAnnouncements(true);
 
     try {
+      setAnnouncementsError("");
       const res = await api.get("/Announcement");
       const data = getResponseData(res);
-      setAnnouncements(Array.isArray(data) ? data : []);
+      setAnnouncements(
+        Array.isArray(data) ? sortAnnouncementsNewestFirst(data) : [],
+      );
     } catch (error) {
       console.log("Announcements error", {
         message: error?.message,
@@ -534,6 +706,7 @@ const DashboardScreen = () => {
         url: error?.config?.url,
         baseURL: error?.config?.baseURL,
       });
+      setAnnouncementsError("Impossible de charger les annonces.");
       setAnnouncements([]);
     } finally {
       setLoadingAnnouncements(false);
@@ -582,7 +755,7 @@ const DashboardScreen = () => {
 
   const loadDashboardData = useCallback(async () => {
     const adminCalls = [
-      fetchPendingLeaveApprovals(),
+      fetchPendingRequests(),
       fetchPendingUserApprovals(),
     ];
 
@@ -602,7 +775,7 @@ const DashboardScreen = () => {
     fetchMyReservation,
     fetchLeaveBalance,
     fetchUpcomingEvents,
-    fetchPendingLeaveApprovals,
+    fetchPendingRequests,
     fetchPendingUserApprovals,
     fetchAnnouncements,
     fetchMonthCheckIns,
@@ -701,14 +874,10 @@ const DashboardScreen = () => {
 
   const balanceLoadFailed = !loadingBalance && leaveBalance === null;
 
-  const firstAnnouncement = announcements[0];
-  const announcementTitle =
-    firstAnnouncement?.title ?? firstAnnouncement?.Title;
-  const announcementContent =
-    firstAnnouncement?.content ?? firstAnnouncement?.Content ?? "";
-
-  const firstUpcoming = upcomingEvents?.[0] ?? null;
-  const { day: eventDay, month: eventMonth } = getEventDateParts(firstUpcoming);
+  const sortedAnnouncements = useMemo(
+    () => sortAnnouncementsNewestFirst(announcements),
+    [announcements],
+  );
 
   return (
     <ScrollView
@@ -894,12 +1063,12 @@ const DashboardScreen = () => {
       >
         {showEmployeeDashboard && (
           <>
-            <SectionHeader title="Solde de congés" styles={styles} />
+            <SectionHeader title="Centre des demandes" styles={styles} />
 
             <Card style={styles.card}>
               <CardHeader
-                icon="wallet-outline"
-                title="Jours disponibles"
+                icon="albums-outline"
+                title="Demandes"
                 styles={styles}
                 colors={colors}
               />
@@ -916,6 +1085,7 @@ const DashboardScreen = () => {
                 </Text>
               ) : (
                 <>
+                  <Text style={styles.cardEmptyTitle}>Solde de congés</Text>
                   <Text style={styles.balanceBigNum}>
                     {balanceNum}
                     <Text style={styles.balanceUnit}>
@@ -927,27 +1097,20 @@ const DashboardScreen = () => {
                   {noLeaveDaysLeft && (
                     <Text style={styles.balanceWarning}>
                       Vous n&apos;avez plus de jours de congé disponibles.
+                      Les autres types de demandes restent accessibles.
                     </Text>
                   )}
 
                   <Text style={styles.cardBody}>
-                    {balanceNum > 0
-                      ? "Vous pouvez soumettre une nouvelle demande de congé."
-                      : "Consultez vos demandes précédentes ci-dessous."}
+                    Accédez au centre des demandes pour créer une demande de
+                    congé, de récupération, de télétravail, de document ou
+                    d&apos;autorisation.
                   </Text>
 
                   <Button
-                    title={
-                      balanceNum > 0
-                        ? "Créer une demande de congé"
-                        : "Voir les demandes précédentes"
-                    }
-                    variant={balanceNum > 0 ? "primary" : "secondary"}
-                    onPress={() =>
-                      navigation.navigate("LeaveRequest", {
-                        openCreateModal: balanceNum > 0,
-                      })
-                    }
+                    title="Accéder aux demandes"
+                    variant="primary"
+                    onPress={() => navigation.navigate("DemandMenu")}
                     style={styles.cardBtn}
                   />
                 </>
@@ -955,6 +1118,7 @@ const DashboardScreen = () => {
             </Card>
 
             <SectionHeader title="Espace de travail" styles={styles} />
+
             <Card style={styles.card}>
               <CardHeader
                 icon="desktop-outline"
@@ -997,108 +1161,119 @@ const DashboardScreen = () => {
               </Card>
             )}
 
-            <SectionHeader title="Annonces" styles={styles} />
-
             <Card style={styles.card}>
-              <CardHeader
-                icon="megaphone-outline"
-                title="Dernière annonce"
-                styles={styles}
-                colors={colors}
-              />
+              <Pressable
+                style={styles.announcementSectionHeader}
+                onPress={() =>
+                  setAnnouncementsExpanded((isExpanded) => !isExpanded)
+                }
+                accessibilityRole="button"
+              >
+                <View style={styles.announcementHeaderTitleWrap}>
+                  <View
+                    style={[
+                      styles.cardHeaderIconWrap,
+                      {
+                        backgroundColor:
+                          colors.primaryLight ?? `${colors.primary}18`,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="megaphone-outline"
+                      size={18}
+                      color={colors.primary}
+                    />
+                  </View>
 
-              {loadingAnnouncements ? (
-                <View style={styles.inlineLoader}>
-                  <ActivityIndicator size="small" color={colors.primary} />
-                  <Text style={styles.loaderText}>
-                    Chargement des annonces…
+                  <Text style={styles.announcementSectionTitle}>
+                    Annonces ({sortedAnnouncements.length})
                   </Text>
                 </View>
-              ) : announcements.length > 0 ? (
-                <View style={styles.announcementStrip}>
-                  <Text style={styles.announcementTitle}>
-                    {announcementTitle ?? "Annonce"}
+
+                <Ionicons
+                  name={
+                    announcementsExpanded ? "chevron-up" : "chevron-down"
+                  }
+                  size={22}
+                  color={colors.textSecondary}
+                />
+              </Pressable>
+
+              {announcementsExpanded ? (
+                loadingAnnouncements ? (
+                  <View style={styles.inlineLoader}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.loaderText}>
+                      Chargement des annonces…
+                    </Text>
+                  </View>
+                ) : announcementsError ? (
+                  <Text style={styles.cardBody}>{announcementsError}</Text>
+                ) : sortedAnnouncements.length > 0 ? (
+                  <View style={styles.announcementList}>
+                    {sortedAnnouncements.map((announcement, index) => {
+                      const imageUrl = getAnnouncementImage(announcement);
+                      const dateLabel = formatAnnouncementDate(announcement);
+                      const content = getAnnouncementContent(announcement);
+                      const important = isAnnouncementImportant(announcement);
+
+                      return (
+                        <View
+                          key={getAnnouncementId(announcement, index)}
+                          style={styles.announcementItem}
+                        >
+                          {imageUrl ? (
+                            <Image
+                              source={{ uri: imageUrl }}
+                              style={styles.announcementImage}
+                            />
+                          ) : null}
+
+                          <View style={styles.announcementMetaRow}>
+                            {important ? (
+                              <View style={styles.announcementBadge}>
+                                <Text style={styles.announcementBadgeText}>
+                                  Important
+                                </Text>
+                              </View>
+                            ) : null}
+
+                            {dateLabel ? (
+                              <Text style={styles.announcementDate}>
+                                {dateLabel}
+                              </Text>
+                            ) : null}
+                          </View>
+
+                          <Text
+                            style={styles.announcementTitle}
+                            numberOfLines={2}
+                          >
+                            {getAnnouncementTitle(announcement)}
+                          </Text>
+
+                          {content ? (
+                            <Text
+                              style={styles.announcementBody}
+                              numberOfLines={3}
+                            >
+                              {truncateAnnouncement(content, 140)}
+                            </Text>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <Text style={styles.cardBody}>
+                    Aucune annonce disponible pour le moment.
                   </Text>
-                  <Text style={styles.announcementBody}>
-                    {announcementContent.length > 140
-                      ? `${announcementContent.slice(0, 140)}…`
-                      : announcementContent}
-                  </Text>
-                </View>
-              ) : (
-                <Text style={styles.cardBody}>
-                  Aucune annonce disponible pour le moment.
-                </Text>
-              )}
+                )
+              ) : null}
             </Card>
           </>
         )}
-
-        <SectionHeader title="Prochains événements" styles={styles} />
-
-        <Card style={styles.card}>
-          <CardHeader
-            icon="calendar-clear-outline"
-            title="Agenda"
-            styles={styles}
-            colors={colors}
-          />
-
-          {loadingEvent ? (
-            <View style={styles.inlineLoader}>
-              <ActivityIndicator size="small" color={colors.primary} />
-              <Text style={styles.loaderText}>Chargement du calendrier…</Text>
-            </View>
-          ) : upcomingEvents?.length > 0 ? (
-            <View>
-              {upcomingEvents.map((ev, idx) => {
-                const { day, month } = getEventDateParts(ev);
-
-                return (
-                  <View
-                    key={ev?.id ?? `${day}-${month}-${idx}`}
-                    style={styles.eventRow}
-                  >
-                    <View style={styles.eventDateBadge}>
-                      <Text style={styles.eventDateDay}>{day}</Text>
-                      <Text style={styles.eventDateMon}>{month}</Text>
-                    </View>
-
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.eventTitle} numberOfLines={2}>
-                        {ev?.title ?? ev?.Title ?? "Événement sans titre"}
-                      </Text>
-
-                      <Text style={styles.eventTime}>
-                        {formatEventCompact(ev)}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          ) : (
-            <>
-              <Text style={styles.cardEmptyTitle}>Aucun événement prévu</Text>
-              <Text style={styles.cardBody}>
-                Rien dans les 7 prochains jours.
-              </Text>
-            </>
-          )}
-
-          <View style={styles.divider} />
-
-          <Button
-            title={isAdmin ? "Créer un événement" : "Voir les événements"}
-            variant={upcomingEvents?.length > 0 ? "secondary" : "primary"}
-            onPress={() =>
-              navigation.navigate("EventManagement", {
-                openCreateModal: true,
-              })
-            }
-            style={styles.cardBtn}
-          />
-        </Card>
 
         {isAdmin && (
           <>
@@ -1106,11 +1281,11 @@ const DashboardScreen = () => {
 
             <View style={styles.adminRow}>
               <AdminStatChip
-                label="Congés en attente"
-                count={pendingLeaveCount}
-                loading={loadingPendingLeave}
+                label="Demandes en attente"
+                count={pendingRequestCount}
+                loading={loadingPendingRequests}
                 badgeText="À valider"
-                onPress={goToPendingLeaves}
+                onPress={goToPendingRequests}
                 styles={styles}
                 colors={colors}
               />
@@ -1126,15 +1301,7 @@ const DashboardScreen = () => {
               />
             </View>
 
-            <AdminActionCard
-              icon="library-outline"
-              title="Réserver une salle"
-              description="Consultez les créneaux disponibles et soumettez une demande de réservation pour une réunion."
-              buttonTitle="Réserver une salle"
-              onPress={() => navigation.navigate("Rooms")}
-              styles={styles}
-              colors={colors}
-            />
+            <SectionHeader title="Administration" styles={styles} />
 
             <AdminActionCard
               icon="people-outline"
@@ -1146,15 +1313,7 @@ const DashboardScreen = () => {
               colors={colors}
             />
 
-            <AdminActionCard
-              icon="person-add-outline"
-              title="Validation des comptes"
-              description="Approuvez ou refusez les nouveaux comptes en attente d’activation."
-              buttonTitle="Voir les comptes en attente"
-              onPress={goToPendingUsers}
-              styles={styles}
-              colors={colors}
-            />
+            <SectionHeader title="Ressources" styles={styles} />
 
             <AdminActionCard
               icon="business-outline"
@@ -1184,17 +1343,126 @@ const DashboardScreen = () => {
 
             <View style={styles.adminRow}>
               <AdminStatChip
-                label="Congés en attente"
-                count={pendingLeaveCount}
-                loading={loadingPendingLeave}
+                label="Demandes en attente"
+                count={pendingRequestCount}
+                loading={loadingPendingRequests}
                 badgeText="À valider"
-                onPress={goToPendingLeaves}
+                onPress={goToPendingRequests}
                 styles={styles}
                 colors={colors}
               />
             </View>
           </>
         )}
+
+        <Card style={styles.card}>
+          <Pressable
+            style={styles.eventSectionHeader}
+            onPress={() => setEventsExpanded((isExpanded) => !isExpanded)}
+            accessibilityRole="button"
+          >
+            <View style={styles.eventHeaderTitleWrap}>
+              <View
+                style={[
+                  styles.cardHeaderIconWrap,
+                  {
+                    backgroundColor:
+                      colors.primaryLight ?? `${colors.primary}18`,
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="calendar-clear-outline"
+                  size={18}
+                  color={colors.primary}
+                />
+              </View>
+
+              <Text style={styles.eventSectionTitle}>
+                Prochains événements ({upcomingEvents.length})
+              </Text>
+            </View>
+
+            <Ionicons
+              name={eventsExpanded ? "chevron-up" : "chevron-down"}
+              size={22}
+              color={colors.textSecondary}
+            />
+          </Pressable>
+
+          {eventsExpanded ? (
+            loadingEvent ? (
+              <View style={styles.inlineLoader}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.loaderText}>Chargement du calendrier…</Text>
+              </View>
+            ) : eventsError ? (
+              <Text style={styles.cardBody}>{eventsError}</Text>
+            ) : upcomingEvents?.length > 0 ? (
+              <View style={styles.eventList}>
+                {upcomingEvents.map((event, index) => {
+                  const imageUrl = getEventImage(event);
+                  const location = getEventLocation(event);
+                  const description = getEventDescription(event);
+                  const important = isEventImportant(event);
+
+                  return (
+                    <View
+                      key={getEventId(event, index)}
+                      style={styles.eventItem}
+                    >
+                      {imageUrl ? (
+                        <Image source={{ uri: imageUrl }} style={styles.eventImage} />
+                      ) : null}
+
+                      <View style={styles.eventMetaRow}>
+                        {important ? (
+                          <View style={styles.eventBadge}>
+                            <Text style={styles.eventBadgeText}>Important</Text>
+                          </View>
+                        ) : null}
+
+                        <Text style={styles.eventDateText}>
+                          {formatEventDateTime(event)}
+                        </Text>
+                      </View>
+
+                      <Text style={styles.eventTitle} numberOfLines={2}>
+                        {getEventTitle(event)}
+                      </Text>
+
+                      {location ? (
+                        <View style={styles.eventLocationRow}>
+                          <Ionicons
+                            name="location-outline"
+                            size={14}
+                            color={colors.textSecondary}
+                          />
+                          <Text style={styles.eventLocationText} numberOfLines={1}>
+                            {location}
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      {description ? (
+                        <Text style={styles.eventDescription} numberOfLines={3}>
+                          {truncateAnnouncement(description, 136)}
+                        </Text>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <>
+                <Text style={styles.cardEmptyTitle}>Aucun événement prévu</Text>
+                <Text style={styles.cardBody}>
+                  Rien dans les 30 prochains jours.
+                </Text>
+              </>
+            )
+          ) : null}
+        </Card>
       </Animated.View>
     </ScrollView>
   );
@@ -1468,34 +1736,98 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       marginBottom: spacing.xs,
     },
 
-    eventRow: {
+    eventSectionHeader: {
       flexDirection: "row",
-      alignItems: "flex-start",
+      alignItems: "center",
+      justifyContent: "space-between",
       gap: spacing.md,
+    },
+
+    eventHeaderTitleWrap: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+
+    eventSectionTitle: {
+      flex: 1,
+      fontSize: typography.base,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.text,
+    },
+
+    eventList: {
+      gap: spacing.sm,
+      marginTop: spacing.md,
+    },
+
+    eventItem: {
+      borderWidth: 1,
+      borderColor: colors.border ?? `${colors.text}14`,
+      borderRadius: borderRadius.lg,
+      backgroundColor: colors.surfaceMuted ?? colors.background,
+      padding: spacing.md,
+      ...shadows.sm,
+    },
+
+    eventImage: {
+      width: "100%",
+      aspectRatio: 16 / 9,
+      borderRadius: borderRadius.md,
+      backgroundColor: colors.border,
+      marginBottom: spacing.md,
+    },
+
+    eventMetaRow: {
+      minHeight: 22,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
       marginBottom: spacing.xs,
     },
 
-    eventDateBadge: {
-      minWidth: 48,
-      paddingVertical: 8,
-      paddingHorizontal: 10,
-      borderRadius: borderRadius.md,
-      alignItems: "center",
-      backgroundColor: colors.surfaceMuted ?? colors.background,
+    eventBadge: {
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.warningLight ?? "#fef3c7",
+      paddingHorizontal: 9,
+      paddingVertical: 3,
     },
 
-    eventDateDay: {
-      fontSize: 22,
-      fontFamily: typography.fontFamily?.bold,
-      color: colors.primary,
-      lineHeight: 26,
-    },
-
-    eventDateMon: {
-      fontSize: 9,
+    eventBadgeText: {
+      fontSize: 10,
       fontFamily: typography.fontFamily?.semibold,
+      color: colors.warning ?? "#92400e",
+      textTransform: "uppercase",
+    },
+
+    eventDateText: {
+      flexShrink: 1,
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.medium,
       color: colors.textSecondary,
-      letterSpacing: 0.5,
+    },
+
+    eventLocationRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      marginTop: 2,
+      marginBottom: spacing.xs,
+    },
+
+    eventLocationText: {
+      flex: 1,
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.medium,
+      color: colors.textSecondary,
+    },
+
+    eventDescription: {
+      fontSize: typography.sm,
+      fontFamily: typography.fontFamily?.regular,
+      color: colors.textSecondary,
+      lineHeight: 19,
     },
 
     eventTitle: {
@@ -1505,30 +1837,89 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       marginBottom: 3,
     },
 
-    eventTime: {
-      fontSize: typography.sm,
-      fontFamily: typography.fontFamily?.regular,
-      color: colors.textSecondary,
-    },
-
     divider: {
       height: 1,
       backgroundColor: colors.border ?? `${colors.text}12`,
       marginVertical: spacing.md,
     },
 
-    announcementStrip: {
-      borderLeftWidth: 2,
-      borderLeftColor: colors.primary,
-      paddingLeft: spacing.md,
-      marginVertical: spacing.sm,
+    announcementSectionHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.md,
+    },
+
+    announcementHeaderTitleWrap: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+
+    announcementSectionTitle: {
+      flex: 1,
+      fontSize: typography.base,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.text,
+    },
+
+    announcementList: {
+      gap: spacing.sm,
+      marginTop: spacing.md,
+    },
+
+    announcementItem: {
+      borderWidth: 1,
+      borderColor: colors.border ?? `${colors.text}14`,
+      borderRadius: borderRadius.lg,
+      backgroundColor: colors.surfaceMuted ?? colors.background,
+      padding: spacing.md,
+      ...shadows.sm,
+    },
+
+    announcementImage: {
+      width: "100%",
+      aspectRatio: 16 / 9,
+      borderRadius: borderRadius.md,
+      backgroundColor: colors.border,
+      marginBottom: spacing.md,
+    },
+
+    announcementMetaRow: {
+      minHeight: 22,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      marginBottom: spacing.xs,
+    },
+
+    announcementBadge: {
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.warningLight ?? "#fef3c7",
+      paddingHorizontal: 9,
+      paddingVertical: 3,
+    },
+
+    announcementBadgeText: {
+      fontSize: 10,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.warning ?? "#92400e",
+      textTransform: "uppercase",
+    },
+
+    announcementDate: {
+      flexShrink: 1,
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.medium,
+      color: colors.textSecondary,
     },
 
     announcementTitle: {
-      fontSize: typography.sm,
+      fontSize: typography.base,
       fontFamily: typography.fontFamily?.semibold,
       color: colors.text,
-      marginBottom: 3,
+      marginBottom: 4,
     },
 
     announcementBody: {

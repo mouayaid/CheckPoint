@@ -8,6 +8,7 @@ public interface ISeatReservationService
     Task<SeatReservationDto?> GetMyTodayReservationAsync(int userId);
 
     Task<SeatReservationDto> CheckInAsync(int userId, SeatCheckInDto dto);
+    Task<SeatReservationDto> CheckOutAsync(int userId);
     Task<List<MonthCheckInDto>> GetMyMonthReservationsAsync(int userId, int year, int month);
 
     Task<bool> CancelMyTodayReservationAsync(int userId);

@@ -141,7 +141,9 @@ public class SeatReservationService : ISeatReservationService
             .Include(r => r.User)
             .Where(r => r.UserId == userId
                         && r.Date.Date == tunisToday
-                        && r.Status == SeatReservationStatus.Active)
+                        && (r.Status == SeatReservationStatus.Active
+                            || r.Status == SeatReservationStatus.CheckedIn
+                            || r.Status == SeatReservationStatus.Completed))
             .OrderByDescending(r => r.CreatedAt)
             .FirstOrDefaultAsync();
 
@@ -230,8 +232,23 @@ public class SeatReservationService : ISeatReservationService
     {
         var today = GetTunisiaNow().Date;
 
+        var qrValue = dto.QrCodeValue?.Trim() ?? string.Empty;
+        const string seatQrPrefix = "SEAT:";
+        var scannedSeatId = 0;
+        var hasValidSeatPayload =
+            qrValue.StartsWith(seatQrPrefix, StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(qrValue[seatQrPrefix.Length..], out scannedSeatId) &&
+            scannedSeatId > 0;
+
+        if (!hasValidSeatPayload)
+            throw new FrontendValidationException(
+                422,
+                "Invalid seat QR code. Expected SEAT:{seatId}.",
+                new[] { "INVALID_QR" }
+            );
+
         var seat = await _context.Seats
-            .FirstOrDefaultAsync(s => s.QrCodeValue == dto.QrCodeValue && s.IsActive);
+            .FirstOrDefaultAsync(s => s.Id == scannedSeatId && s.IsActive);
 
         if (seat == null)
             throw new FrontendValidationException(
@@ -269,6 +286,32 @@ public class SeatReservationService : ISeatReservationService
         return _mapper.Map<SeatReservationDto>(reservation);
     }
 
+    public async Task<SeatReservationDto> CheckOutAsync(int userId)
+    {
+        var today = GetTunisiaNow().Date;
+
+        var reservation = await _context.SeatReservations
+            .Include(r => r.Seat)
+                .ThenInclude(s => s.OfficeTable)
+            .Include(r => r.User)
+            .FirstOrDefaultAsync(r =>
+                r.UserId == userId &&
+                r.Date.Date == today &&
+                r.Status == SeatReservationStatus.CheckedIn);
+
+        if (reservation == null)
+            throw new FrontendValidationException(
+                404,
+                "No checked-in reservation found for today.",
+                new[] { "NO_CHECKED_IN" }
+            );
+
+        reservation.Status = SeatReservationStatus.Completed;
+        await _context.SaveChangesAsync();
+
+        return _mapper.Map<SeatReservationDto>(reservation);
+    }
+
     public async Task<List<MonthCheckInDto>> GetMyMonthReservationsAsync(int userId, int year, int month)
     {
         var startDate = new DateTime(year, month, 1);
@@ -292,4 +335,3 @@ public class SeatReservationService : ISeatReservationService
         return reservations;
     }
 }
-

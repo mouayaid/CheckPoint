@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+﻿import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import { adminStatisticsService } from "../../services/api/adminStatisticsService";
 import { adminUserService } from "../../services/api/adminUserService";
+import ChatbotModal from "../../components/dashboard/ChatbotModal";
 
 const toYmd = (d) => {
   const x = new Date(d);
@@ -42,44 +43,72 @@ const addDays = (d, n) => {
 };
 
 const presets = [
-  { id: "7d", label: "7 jours", apply: () => {
-    const to = new Date();
-    to.setHours(23, 59, 59, 999);
-    const from = addDays(to, -6);
-    from.setHours(0, 0, 0, 0);
-    return { from, to };
-  }},
-  { id: "30d", label: "30 jours", apply: () => {
-    const to = new Date();
-    to.setHours(23, 59, 59, 999);
-    const from = addDays(to, -29);
-    from.setHours(0, 0, 0, 0);
-    return { from, to };
-  }},
-  { id: "month", label: "Ce mois", apply: () => {
-    const now = new Date();
-    const from = startOfMonth(now);
-    const to = new Date(now);
-    to.setHours(23, 59, 59, 999);
-    return { from, to };
-  }},
-  { id: "quarter", label: "90 jours", apply: () => {
-    const to = new Date();
-    to.setHours(23, 59, 59, 999);
-    const from = addDays(to, -89);
-    from.setHours(0, 0, 0, 0);
-    return { from, to };
-  }},
-  { id: "year", label: "365 jours", apply: () => {
-    const to = new Date();
-    to.setHours(23, 59, 59, 999);
-    const from = addDays(to, -364);
-    from.setHours(0, 0, 0, 0);
-    return { from, to };
-  }},
+  {
+    id: "7d",
+    label: "7 jours",
+    apply: () => {
+      const to = new Date();
+      to.setHours(23, 59, 59, 999);
+      const from = addDays(to, -6);
+      from.setHours(0, 0, 0, 0);
+      return { from, to };
+    },
+  },
+  {
+    id: "30d",
+    label: "30 jours",
+    apply: () => {
+      const to = new Date();
+      to.setHours(23, 59, 59, 999);
+      const from = addDays(to, -29);
+      from.setHours(0, 0, 0, 0);
+      return { from, to };
+    },
+  },
+  {
+    id: "month",
+    label: "Ce mois",
+    apply: () => {
+      const now = new Date();
+      const from = startOfMonth(now);
+      const to = new Date(now);
+      to.setHours(23, 59, 59, 999);
+      return { from, to };
+    },
+  },
+  {
+    id: "quarter",
+    label: "90 jours",
+    apply: () => {
+      const to = new Date();
+      to.setHours(23, 59, 59, 999);
+      const from = addDays(to, -89);
+      from.setHours(0, 0, 0, 0);
+      return { from, to };
+    },
+  },
+  {
+    id: "year",
+    label: "365 jours",
+    apply: () => {
+      const to = new Date();
+      to.setHours(23, 59, 59, 999);
+      const from = addDays(to, -364);
+      from.setHours(0, 0, 0, 0);
+      return { from, to };
+    },
+  },
 ];
 
-const StatCard = ({ label, value, sub, colors, spacing, borderRadius, typography }) => (
+const StatCard = ({
+  label,
+  value,
+  sub,
+  colors,
+  spacing,
+  borderRadius,
+  typography,
+}) => (
   <View
     style={{
       flex: 1,
@@ -109,17 +138,30 @@ const StatCard = ({ label, value, sub, colors, spacing, borderRadius, typography
         fontFamily: typography.fontFamily?.bold,
       }}
     >
-      {value ?? "—"}
+      {value ?? "-"}
     </Text>
     {sub ? (
-      <Text style={{ marginTop: 4, fontSize: typography.xs, color: colors.textMuted }}>
+      <Text
+        style={{
+          marginTop: 4,
+          fontSize: typography.xs,
+          color: colors.textMuted,
+        }}
+      >
         {sub}
       </Text>
     ) : null}
   </View>
 );
 
-const StatusList = ({ title, items, colors, spacing, borderRadius, typography }) => {
+const StatusList = ({
+  title,
+  items,
+  colors,
+  spacing,
+  borderRadius,
+  typography,
+}) => {
   if (!items?.length) return null;
   return (
     <View style={{ marginTop: spacing.lg }}>
@@ -154,10 +196,18 @@ const StatusList = ({ title, items, colors, spacing, borderRadius, typography })
               borderTopColor: colors.border,
             }}
           >
-            <Text style={{ color: colors.textPrimary, fontSize: typography.sm }}>
+            <Text
+              style={{ color: colors.textPrimary, fontSize: typography.sm }}
+            >
               {row.status ?? row.Status}
             </Text>
-            <Text style={{ fontWeight: "700", color: colors.primary, fontSize: typography.sm }}>
+            <Text
+              style={{
+                fontWeight: "700",
+                color: colors.primary,
+                fontSize: typography.sm,
+              }}
+            >
               {row.count ?? row.Count}
             </Text>
           </View>
@@ -181,6 +231,7 @@ export default function AdminStatisticsScreen() {
   const [error, setError] = useState(null);
 
   const [picker, setPicker] = useState(null);
+  const [chatbotVisible, setChatbotVisible] = useState(false);
 
   const applyPreset = useCallback((id) => {
     const p = presets.find((x) => x.id === id);
@@ -198,7 +249,7 @@ export default function AdminStatisticsScreen() {
       setDepartments(
         list.map((d) => ({
           id: d.id ?? d.Id,
-          name: d.name ?? d.Name ?? "—",
+          name: d.name ?? d.Name ?? "-",
         })),
       );
     } catch {
@@ -286,6 +337,17 @@ export default function AdminStatisticsScreen() {
           borderColor: colors.border,
           overflow: "hidden",
         },
+        chatbotButton: {
+          position: "absolute",
+          right: 20,
+          bottom: 20,
+          width: 60,
+          height: 60,
+          borderRadius: 30,
+          justifyContent: "center",
+          alignItems: "center",
+          elevation: 6,
+        },
       }),
     [colors, spacing, typography, borderRadius],
   );
@@ -301,16 +363,13 @@ export default function AdminStatisticsScreen() {
           paddingBottom: Math.max(insets.bottom, spacing.xl) + 88,
         }}
         refreshControl={
-          <RefreshControl refreshing={loading} onRefresh={fetchStats} tintColor={colors.primary} />
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={fetchStats}
+            tintColor={colors.primary}
+          />
         }
       >
-        <View style={styles.headerRow}>
-          <Text style={styles.sectionTitle}>Statistiques</Text>
-          <TouchableOpacity onPress={fetchStats} hitSlop={12}>
-            <Ionicons name="refresh" size={22} color={colors.primary} />
-          </TouchableOpacity>
-        </View>
-
         <View style={styles.filterCard}>
           <Text
             style={{
@@ -333,7 +392,9 @@ export default function AdminStatisticsScreen() {
                     styles.chip,
                     {
                       borderColor: active ? colors.primary : colors.border,
-                      backgroundColor: active ? colors.primary + "18" : colors.background,
+                      backgroundColor: active
+                        ? colors.primary + "18"
+                        : colors.background,
                     },
                   ]}
                 >
@@ -363,16 +424,42 @@ export default function AdminStatisticsScreen() {
             Dates personnalisées
           </Text>
           <View style={{ flexDirection: "row", gap: spacing.sm }}>
-            <TouchableOpacity style={styles.dateBtn} onPress={() => setPicker("from")}>
-              <Text style={{ fontSize: typography.xs, color: colors.textSecondary }}>Du</Text>
-              <Text style={{ fontSize: typography.sm, color: colors.textPrimary, marginTop: 2 }}>
-                {toYmd(from) ?? "—"}
+            <TouchableOpacity
+              style={styles.dateBtn}
+              onPress={() => setPicker("from")}
+            >
+              <Text
+                style={{ fontSize: typography.xs, color: colors.textSecondary }}
+              >
+                Du
+              </Text>
+              <Text
+                style={{
+                  fontSize: typography.sm,
+                  color: colors.textPrimary,
+                  marginTop: 2,
+                }}
+              >
+                {toYmd(from) ?? "-"}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.dateBtn} onPress={() => setPicker("to")}>
-              <Text style={{ fontSize: typography.xs, color: colors.textSecondary }}>Au</Text>
-              <Text style={{ fontSize: typography.sm, color: colors.textPrimary, marginTop: 2 }}>
-                {toYmd(to) ?? "—"}
+            <TouchableOpacity
+              style={styles.dateBtn}
+              onPress={() => setPicker("to")}
+            >
+              <Text
+                style={{ fontSize: typography.xs, color: colors.textSecondary }}
+              >
+                Au
+              </Text>
+              <Text
+                style={{
+                  fontSize: typography.sm,
+                  color: colors.textPrimary,
+                  marginTop: 2,
+                }}
+              >
+                {toYmd(to) ?? "-"}
               </Text>
             </TouchableOpacity>
           </View>
@@ -397,7 +484,11 @@ export default function AdminStatisticsScreen() {
             >
               <Picker.Item label="Tous les départements" value="" />
               {departments.map((d) => (
-                <Picker.Item key={String(d.id)} label={d.name} value={String(d.id)} />
+                <Picker.Item
+                  key={String(d.id)}
+                  label={d.name}
+                  value={String(d.id)}
+                />
               ))}
             </Picker>
           </View>
@@ -415,7 +506,13 @@ export default function AdminStatisticsScreen() {
               fetchStats();
             }}
           >
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: typography.sm }}>
+            <Text
+              style={{
+                color: "#fff",
+                fontWeight: "700",
+                fontSize: typography.sm,
+              }}
+            >
               Appliquer les filtres
             </Text>
           </TouchableOpacity>
@@ -430,20 +527,37 @@ export default function AdminStatisticsScreen() {
               marginBottom: spacing.md,
             }}
           >
-            <Text style={{ color: colors.error ?? "#b91c1c", fontSize: typography.sm }}>{error}</Text>
+            <Text
+              style={{
+                color: colors.error ?? "#b91c1c",
+                fontSize: typography.sm,
+              }}
+            >
+              {error}
+            </Text>
           </View>
         ) : null}
 
         {loading && !stats ? (
-          <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 24 }} />
+          <ActivityIndicator
+            size="large"
+            color={colors.primary}
+            style={{ marginTop: 24 }}
+          />
         ) : null}
 
         {stats ? (
           <>
             <Text style={styles.sectionTitle}>Utilisateurs</Text>
-            <Text style={{ fontSize: typography.xs, color: colors.textMuted, marginBottom: spacing.sm }}>
-              Période API : {(stats.from ?? stats.From)?.slice?.(0, 10) ?? "—"} →{" "}
-              {(stats.to ?? stats.To)?.slice?.(0, 10) ?? "—"}
+            <Text
+              style={{
+                fontSize: typography.xs,
+                color: colors.textMuted,
+                marginBottom: spacing.sm,
+              }}
+            >
+              Période API : {(stats.from ?? stats.From)?.slice?.(0, 10) ?? "—"}{" "}
+              → {(stats.to ?? stats.To)?.slice?.(0, 10) ?? "—"}
               {(stats.departmentId ?? stats.DepartmentId) != null
                 ? ` · Dépt. #${stats.departmentId ?? stats.DepartmentId}`
                 : " · Tous départements"}
@@ -485,7 +599,9 @@ export default function AdminStatisticsScreen() {
               />
             </View>
 
-            <Text style={[styles.sectionTitle, { marginTop: spacing.lg }]}>Infrastructure</Text>
+            <Text style={[styles.sectionTitle, { marginTop: spacing.lg }]}>
+              Infrastructure
+            </Text>
             <View style={styles.row}>
               <StatCard
                 label="Départements"
@@ -523,11 +639,16 @@ export default function AdminStatisticsScreen() {
               />
             </View>
 
-            <Text style={[styles.sectionTitle, { marginTop: spacing.lg }]}>Activité (période)</Text>
+            <Text style={[styles.sectionTitle, { marginTop: spacing.lg }]}>
+              Activité (période)
+            </Text>
             <View style={styles.row}>
               <StatCard
                 label="Congés (chevauch.)"
-                value={stats.leaveRequestsOverlappingPeriod ?? stats.LeaveRequestsOverlappingPeriod}
+                value={
+                  stats.leaveRequestsOverlappingPeriod ??
+                  stats.LeaveRequestsOverlappingPeriod
+                }
                 colors={colors}
                 spacing={spacing}
                 borderRadius={borderRadius}
@@ -536,7 +657,8 @@ export default function AdminStatisticsScreen() {
               <StatCard
                 label="Rés. salles (chevauch.)"
                 value={
-                  stats.roomReservationsOverlappingPeriod ?? stats.RoomReservationsOverlappingPeriod
+                  stats.roomReservationsOverlappingPeriod ??
+                  stats.RoomReservationsOverlappingPeriod
                 }
                 colors={colors}
                 spacing={spacing}
@@ -544,10 +666,14 @@ export default function AdminStatisticsScreen() {
                 typography={typography}
               />
             </View>
+
             <View style={[styles.row, { marginTop: spacing.sm }]}>
               <StatCard
                 label="Rés. sièges (jours)"
-                value={stats.seatReservationsInPeriod ?? stats.SeatReservationsInPeriod}
+                value={
+                  stats.seatReservationsInPeriod ??
+                  stats.SeatReservationsInPeriod
+                }
                 colors={colors}
                 spacing={spacing}
                 borderRadius={borderRadius}
@@ -555,31 +681,30 @@ export default function AdminStatisticsScreen() {
               />
               <StatCard
                 label="Demandes générales"
-                value={stats.generalRequestsCreatedInPeriod ?? stats.GeneralRequestsCreatedInPeriod}
+                value={
+                  stats.generalRequestsCreatedInPeriod ??
+                  stats.GeneralRequestsCreatedInPeriod
+                }
                 colors={colors}
                 spacing={spacing}
                 borderRadius={borderRadius}
                 typography={typography}
               />
             </View>
+
             <View style={[styles.row, { marginTop: spacing.sm }]}>
               <StatCard
-                label="Absences"
-                value={stats.absenceRequestsInPeriod ?? stats.AbsenceRequestsInPeriod}
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-              <StatCard
                 label="Événements (début)"
-                value={stats.eventsStartingInPeriod ?? stats.EventsStartingInPeriod}
+                value={
+                  stats.eventsStartingInPeriod ?? stats.EventsStartingInPeriod
+                }
                 colors={colors}
                 spacing={spacing}
                 borderRadius={borderRadius}
                 typography={typography}
               />
             </View>
+
             <View style={[styles.row, { marginTop: spacing.sm }]}>
               <StatCard
                 label="Participants évén."
@@ -594,23 +719,15 @@ export default function AdminStatisticsScreen() {
               />
               <StatCard
                 label="Annonces créées"
-                value={stats.announcementsCreatedInPeriod ?? stats.AnnouncementsCreatedInPeriod}
+                value={
+                  stats.announcementsCreatedInPeriod ??
+                  stats.AnnouncementsCreatedInPeriod
+                }
                 colors={colors}
                 spacing={spacing}
                 borderRadius={borderRadius}
                 typography={typography}
               />
-            </View>
-            <View style={[styles.row, { marginTop: spacing.sm }]}>
-              <StatCard
-                label="Demandes internes"
-                value={stats.internalRequestsCreatedInPeriod ?? stats.InternalRequestsCreatedInPeriod}
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-              <View style={{ flex: 1, minWidth: "46%" }} />
             </View>
 
             <StatusList
@@ -621,41 +738,34 @@ export default function AdminStatisticsScreen() {
               borderRadius={borderRadius}
               typography={typography}
             />
+
             <StatusList
               title="Réservations de salle par statut"
-              items={stats.roomReservationByStatus ?? stats.RoomReservationByStatus}
+              items={
+                stats.roomReservationByStatus ?? stats.RoomReservationByStatus
+              }
               colors={colors}
               spacing={spacing}
               borderRadius={borderRadius}
               typography={typography}
             />
+
             <StatusList
               title="Réservations de siège par statut"
-              items={stats.seatReservationByStatus ?? stats.SeatReservationByStatus}
+              items={
+                stats.seatReservationByStatus ?? stats.SeatReservationByStatus
+              }
               colors={colors}
               spacing={spacing}
               borderRadius={borderRadius}
               typography={typography}
             />
+
             <StatusList
               title="Demandes générales par statut"
-              items={stats.generalRequestByStatus ?? stats.GeneralRequestByStatus}
-              colors={colors}
-              spacing={spacing}
-              borderRadius={borderRadius}
-              typography={typography}
-            />
-            <StatusList
-              title="Absences par statut"
-              items={stats.absenceByStatus ?? stats.AbsenceByStatus}
-              colors={colors}
-              spacing={spacing}
-              borderRadius={borderRadius}
-              typography={typography}
-            />
-            <StatusList
-              title="Demandes internes par statut"
-              items={stats.internalRequestByStatus ?? stats.InternalRequestByStatus}
+              items={
+                stats.generalRequestByStatus ?? stats.GeneralRequestByStatus
+              }
               colors={colors}
               spacing={spacing}
               borderRadius={borderRadius}
@@ -681,7 +791,12 @@ export default function AdminStatisticsScreen() {
       ) : null}
 
       {picker && Platform.OS === "ios" ? (
-        <Modal transparent animationType="slide" visible onRequestClose={() => setPicker(null)}>
+        <Modal
+          transparent
+          animationType="slide"
+          visible
+          onRequestClose={() => setPicker(null)}
+        >
           <TouchableOpacity
             style={{
               flex: 1,
@@ -708,7 +823,13 @@ export default function AdminStatisticsScreen() {
                   }}
                 >
                   <TouchableOpacity onPress={() => setPicker(null)}>
-                    <Text style={{ color: colors.primary, fontWeight: "700", fontSize: typography.base }}>
+                    <Text
+                      style={{
+                        color: colors.primary,
+                        fontWeight: "700",
+                        fontSize: typography.base,
+                      }}
+                    >
                       OK
                     </Text>
                   </TouchableOpacity>
@@ -730,6 +851,23 @@ export default function AdminStatisticsScreen() {
           </TouchableOpacity>
         </Modal>
       ) : null}
+      <TouchableOpacity
+        style={[
+          styles.chatbotButton,
+          {
+            backgroundColor: colors.primary,
+            bottom: insets.bottom + 20,
+          },
+        ]}
+        onPress={() => setChatbotVisible(true)}
+      >
+        <Ionicons name="sparkles" size={28} color="#fff" />
+      </TouchableOpacity>
+
+      <ChatbotModal
+        visible={chatbotVisible}
+        onClose={() => setChatbotVisible(false)}
+      />
     </View>
   );
 }

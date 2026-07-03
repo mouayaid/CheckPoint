@@ -7,11 +7,13 @@ public class SeatReservationDto
     public int Id { get; set; }
     public int SeatId { get; set; }
     public string SeatLabel { get; set; } = string.Empty;
+    public string SeatQrCodeValue { get; set; } = string.Empty;
     public string OfficeTableName { get; set; } = string.Empty;
     public int UserId { get; set; }
     public string UserName { get; set; } = string.Empty;
     public DateTime Date { get; set; }
     public SeatReservationStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
+    public DateTime? CheckedInAt { get; set; }
 }
 

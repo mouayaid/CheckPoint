@@ -12,7 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { useTheme } from "../context/ThemeContext";
 import { useDepartmentChannel } from "../context/DepartmentChannelContext";
-import { useAuth } from "../context/AuthContext";
+import { useRoles } from "../hooks/useRoles";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const BAR_HEIGHT = 72;
@@ -37,6 +37,11 @@ function AnimatedTabItem({
   const labelAnim = useRef(new Animated.Value(focused ? 1 : 0)).current;
   const iconLiftAnim = useRef(new Animated.Value(focused ? -1 : 0)).current;
   const iconScaleAnim = useRef(new Animated.Value(1)).current;
+  const notifyPulseAnim = useRef(new Animated.Value(0)).current;
+
+  const hasChannelNotification =
+    route.name === "Channel" && channelUnreadCount > 0;
+  const unreadLabel = channelUnreadCount > 9 ? "9+" : String(channelUnreadCount);
 
   useEffect(() => {
     Animated.parallel([
@@ -56,6 +61,33 @@ function AnimatedTabItem({
       }),
     ]).start();
   }, [focused]);
+
+  useEffect(() => {
+    if (!hasChannelNotification || focused) {
+      notifyPulseAnim.stopAnimation();
+      notifyPulseAnim.setValue(0);
+      return undefined;
+    }
+
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(notifyPulseAnim, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(notifyPulseAnim, {
+          toValue: 0,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    loop.start();
+
+    return () => loop.stop();
+  }, [focused, hasChannelNotification, notifyPulseAnim]);
 
   const handlePressIn = () => {
     Animated.parallel([
@@ -107,6 +139,14 @@ function AnimatedTabItem({
   });
 
   const iconScale = Animated.multiply(iconScaleAnim, focused ? 1 : 1);
+  const notifyScale = notifyPulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.92, 1.18],
+  });
+  const notifyOpacity = notifyPulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.16, 0.34],
+  });
 
   return (
     <Pressable
@@ -117,6 +157,7 @@ function AnimatedTabItem({
       style={[styles.tabButton, { width, height: TAB_HEIGHT }]}
       accessibilityRole="button"
       accessibilityState={focused ? { selected: true } : {}}
+      testID={`tab.${route.name}`}
     >
       <Animated.View
         style={[
@@ -130,27 +171,49 @@ function AnimatedTabItem({
         <Animated.View
           style={[
             styles.iconWrap,
+            hasChannelNotification && !focused && styles.iconWrapUnread,
             {
               transform: [{ translateY: iconLiftAnim }, { scale: iconScale }],
             },
           ]}
         >
+          {hasChannelNotification && !focused ? (
+            <Animated.View
+              style={[
+                styles.notifyHalo,
+                {
+                  backgroundColor: colors.error ?? "#ef4444",
+                  opacity: notifyOpacity,
+                  transform: [{ scale: notifyScale }],
+                },
+              ]}
+            />
+          ) : null}
+
           <Ionicons
             name={icon}
             size={21}
-            color={focused ? colors.primary : colors.textSecondary}
+            color={
+              focused
+                ? colors.primary
+                : hasChannelNotification
+                  ? colors.error ?? "#ef4444"
+                  : colors.textSecondary
+            }
           />
 
-          {route.name === "Channel" && channelUnreadCount > 0 ? (
+          {hasChannelNotification ? (
             <View
               style={[
-                styles.dot,
+                styles.unreadBadge,
                 {
                   backgroundColor: colors.error ?? "#ef4444",
                   borderColor: colors.surface,
                 },
               ]}
-            />
+            >
+              <Text style={styles.unreadBadgeText}>{unreadLabel}</Text>
+            </View>
           ) : null}
         </Animated.View>
 
@@ -192,19 +255,13 @@ function AnimatedTabItem({
 export default function CustomBottomTabBar({ state, navigation }) {
   const { colors, typography, shadows, darkMode } = useTheme();
   const { channelUnreadCount } = useDepartmentChannel();
-  const { user } = useAuth();
+  const { canReviewRequests } = useRoles();
   const insets = useSafeAreaInsets();
 
   const [barWidth, setBarWidth] = useState(0);
 
   const pillTranslateX = useRef(new Animated.Value(0)).current;
   const pillScaleX = useRef(new Animated.Value(1)).current;
-
-  const role = user?.roleName ?? user?.roleId;
-
-  const isAdmin = role === "Admin" || role === 3;
-  const isHR = role === "HR" || role === 4;
-  const canReviewRequests = isAdmin || isHR;
 
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
@@ -487,8 +544,20 @@ const styles = StyleSheet.create({
   iconWrap: {
     position: "relative",
     width: 23,
+    height: 28,
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  iconWrapUnread: {
+    borderRadius: 999,
+  },
+
+  notifyHalo: {
+    position: "absolute",
+    width: 34,
+    height: 34,
+    borderRadius: 999,
   },
 
   activeLabel: {
@@ -496,13 +565,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  dot: {
+  unreadBadge: {
     position: "absolute",
-    top: -4,
-    right: -6,
-    width: 9,
-    height: 9,
+    top: -7,
+    right: -13,
+    minWidth: 18,
+    height: 18,
     borderRadius: 999,
-    borderWidth: 1.5,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+
+  unreadBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "800",
+    includeFontPadding: false,
   },
 });

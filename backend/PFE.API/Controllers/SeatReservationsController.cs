@@ -99,6 +99,22 @@ public class SeatReservationsController : ControllerBase
         }
     }
 
+    [HttpPost("checkout")]
+    public async Task<ActionResult<ApiResponse<SeatReservationDto>>> CheckOut()
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        try
+        {
+            var result = await _seatReservationService.CheckOutAsync(userId);
+            return Ok(ApiResponse<SeatReservationDto>.SuccessResponse(result, "Seat check-out successful"));
+        }
+        catch (FrontendValidationException ex)
+        {
+            return StatusCode(ex.StatusCode, ApiResponse<SeatReservationDto>.ErrorResponse(ex.Message, ex.Errors));
+        }
+    }
+
     [HttpGet("my-month")]
     public async Task<ActionResult<ApiResponse<List<MonthCheckInDto>>>> GetMyMonthReservations(
         [FromQuery] int year, 

@@ -1,3 +1,4 @@
+import logger from "../utils/logger";
 import React, {
   useEffect,
   useMemo,
@@ -25,7 +26,7 @@ import { useTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
 import { departmentChannelService } from "../services/api/departmentChannelService";
 import { Card, Button } from "../components";
-import { roleToString } from "../utils/helpers";
+import { useRoles } from "../hooks/useRoles";
 import { useFocusEffect } from "@react-navigation/native";
 import { useDepartmentChannel } from "../context/DepartmentChannelContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -52,7 +53,7 @@ const isPollClosed = (poll) =>
   poll.isClosed ||
   (poll.expiresAt && new Date(poll.expiresAt).getTime() <= Date.now());
 
-const PollItem = React.memo(({ poll, roleName, votingId, onVote }) => {
+const PollItem = React.memo(({ poll, canVotePoll, votingId, onVote }) => {
   const { colors, spacing, borderRadius, typography } = useTheme();
 
   const styles = useMemo(
@@ -61,7 +62,7 @@ const PollItem = React.memo(({ poll, roleName, votingId, onVote }) => {
   );
 
   const closed = isPollClosed(poll);
-  const canVote = !closed && !poll.hasVoted && roleName === "Employee";
+  const canVote = !closed && !poll.hasVoted && canVotePoll;
   const isVoting = votingId === poll.id;
   const totalVotes = poll.options.reduce(
     (sum, o) => sum + (o.voteCount || 0),
@@ -136,7 +137,7 @@ const PollItem = React.memo(({ poll, roleName, votingId, onVote }) => {
 });
 
 const FeedItem = React.memo(
-  ({ item, roleName, votingId, onVote, styles, colors }) => {
+  ({ item, canVotePoll, votingId, onVote, styles, colors }) => {
     const isPoll = item.messageType === "Poll";
 
     return (
@@ -188,7 +189,7 @@ const FeedItem = React.memo(
         {isPoll ? (
           <PollItem
             poll={item.poll}
-            roleName={roleName}
+            canVotePoll={canVotePoll}
             votingId={votingId}
             onVote={onVote}
           />
@@ -211,14 +212,11 @@ export default function DepartmentChannelScreen() {
   const headerHeight = useHeaderHeight();
   const flatListRef = useRef(null);
 
-  const keyboardHeight = useRef(new Animated.Value(0)).current;
-
   const { user } = useAuth();
+  const { canPublishDepartmentChannel, canVotePoll } = useRoles();
   const { refreshChannelInfo } = useDepartmentChannel();
 
   const departmentId = user?.departmentId ?? user?.DepartmentId ?? null;
-  const roleName = roleToString(user?.roleName ?? user?.roleId ?? user?.role);
-  const isManager = roleName === "Manager" || roleName === "Admin";
 
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -233,24 +231,12 @@ export default function DepartmentChannelScreen() {
   const [votingId, setVotingId] = useState(null);
 
   useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", (e) => {
+    const showSub = Keyboard.addListener("keyboardDidShow", () => {
       setKeyboardVisible(true);
-
-      Animated.timing(keyboardHeight, {
-        toValue: e.endCoordinates.height,
-        duration: 250,
-        useNativeDriver: false,
-      }).start();
     });
 
     const hideSub = Keyboard.addListener("keyboardDidHide", () => {
       setKeyboardVisible(false);
-
-      Animated.timing(keyboardHeight, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: false,
-      }).start();
     });
 
     return () => {
@@ -263,24 +249,17 @@ export default function DepartmentChannelScreen() {
     try {
       await departmentChannelService.markRead();
     } catch (error) {
-      console.log("Failed to mark channel as read", error);
+      logger.debug("Failed to mark channel as read", error);
     }
   };
 
   const loadFeed = useCallback(
     async (asRefresh = false) => {
-      if (!departmentId) {
-        setItems([]);
-        setLoading(false);
-        setRefreshing(false);
-        return;
-      }
-
       try {
         if (asRefresh) setRefreshing(true);
         else setLoading(true);
 
-        const res = await departmentChannelService.getFeed(departmentId);
+        const res = await departmentChannelService.getMyFeed();
         setItems(Array.isArray(res) ? res : (res?.data ?? []));
       } catch (error) {
         Alert.alert(
@@ -292,7 +271,7 @@ export default function DepartmentChannelScreen() {
         setRefreshing(false);
       }
     },
-    [departmentId],
+    [],
   );
 
   useFocusEffect(
@@ -411,14 +390,14 @@ export default function DepartmentChannelScreen() {
     ({ item }) => (
       <FeedItem
         item={item}
-        roleName={roleName}
+        canVotePoll={canVotePoll}
         votingId={votingId}
         onVote={handleVote}
         styles={styles}
         colors={colors}
       />
     ),
-    [roleName, votingId, handleVote, styles, colors],
+    [canVotePoll, votingId, handleVote, styles, colors],
   );
 
   const keyExtractor = useCallback((item) => String(item.id), []);
@@ -492,21 +471,12 @@ export default function DepartmentChannelScreen() {
         )}
       </View>
 
-      {isManager && (
+      {canPublishDepartmentChannel && (
         <Animated.View
           style={[
             styles.composerContainer,
             {
               paddingBottom: composerBottomPadding,
-              transform: [
-                {
-                  translateY: keyboardHeight.interpolate({
-                    inputRange: [0, 400],
-                    outputRange: [0, -500],
-                    extrapolate: "clamp",
-                  }),
-                },
-              ],
             },
           ]}
         >

@@ -1,3 +1,4 @@
+import logger from "../../utils/logger";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
@@ -16,7 +17,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRoute } from "@react-navigation/native";
 import { useTheme } from "../../context/ThemeContext";
-import { useAuth } from "../../context/AuthContext";
+import { useRoles } from "../../hooks/useRoles";
 import { eventService } from "../../services/api";
 import { Card, Input } from "../../components";
 import EmptyState from "../../components/EmptyState";
@@ -504,23 +505,13 @@ const EditEventModal = ({
 
 const EventManagementScreen = () => {
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
-  const { user } = useAuth();
+  const { canManageEvents } = useRoles();
   const route = useRoute();
 
   const styles = useMemo(
     () => createStyles(colors, spacing, typography, borderRadius, shadows),
     [colors, spacing, typography, borderRadius, shadows],
   );
-
-  const roleId = user?.roleId ?? user?.role;
-  const roleName = user?.roleName;
-  const normalizedRoleName = String(roleName ?? "")
-    .trim()
-    .toLowerCase();
-
-  const canManage =
-    [2, 3, 4].includes(roleId) ||
-    ["manager", "admin", "hr"].includes(normalizedRoleName);
 
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -597,7 +588,7 @@ const EventManagementScreen = () => {
 
       setEvents(uniq);
     } catch (e) {
-      console.log("EVENT MANAGEMENT LOAD ERROR:", {
+      logger.debug("EVENT MANAGEMENT LOAD ERROR:", {
         message: e?.message,
         status: e?.response?.status,
         data: e?.response?.data,
@@ -640,7 +631,7 @@ const EventManagementScreen = () => {
         setEvents((prev) => [created, ...prev]);
       }
     } catch (e) {
-      console.log("EVENT SAVE ERROR:", {
+      logger.debug("EVENT SAVE ERROR:", {
         message: e?.message,
         status: e?.response?.status,
         data: e?.response?.data,
@@ -777,11 +768,11 @@ const EventManagementScreen = () => {
     );
   };
 
-  if (!canManage) {
+  if (!canManageEvents) {
     return (
       <View style={styles.accessDenied}>
         <Text style={styles.accessDeniedText}>
-          Accès réservé aux managers, admins et RH.
+          Accès réservé aux managers et admins.
         </Text>
       </View>
     );

@@ -11,5 +11,7 @@ public interface IAdminUserService
     Task<UserDto?> ChangeUserRoleAsync(int userId, ChangeUserRoleDto dto);
     Task<UserDto?> RejectUserAsync(int userId, int reviewerId, RejectUserDto dto);
     Task<UserDto?> UpdateUserAsync(int userId, UpdateUserDto dto);
-    Task<bool> DeleteUserAsync(int userId);
+    Task<bool> DeactivateUserAsync(int userId, int currentUserId);
+    Task<bool> ReactivateUserAsync(int userId);
+    Task<bool> DeleteUserAsync(int userId, int currentUserId);
 }

@@ -10,17 +10,19 @@ import {
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { axiosInstance } from "../services/api";
+import { notificationService } from "../services/api";
 import { EmptyState } from "../components";
+import { useNotifications } from "../context/NotificationsContext";
 import { useTheme } from "../context/ThemeContext";
 
 const normalizeNotification = (item) => ({
   id: item.id || item.Id,
   title: item.title || item.Title || "Notification",
-  message: item.message || item.Message || "",
+  message: item.message || item.Message || item.content || item.Content || "",
   type: item.type || item.Type || "Info",
-  isRead: item.isRead ?? item.IsRead ?? false,
-  createdAt: item.createdAt || item.CreatedAt || null,
+  isRead: item.isRead ?? item.IsRead ?? item.read ?? item.Read ?? false,
+  createdAt:
+    item.createdAt || item.CreatedAt || item.dateCreation || item.DateCreation || null,
 });
 
 const formatNotificationTime = (isoDate) => {
@@ -50,6 +52,7 @@ const formatNotificationTime = (isoDate) => {
 
 const NotificationsScreen = () => {
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
+  const { refreshNotifications } = useNotifications();
   const styles = useMemo(
     () =>
       createStyles(colors, spacing, borderRadius, typography, shadows),
@@ -61,6 +64,7 @@ const NotificationsScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [markingAllRead, setMarkingAllRead] = useState(false);
   const [filter, setFilter] = useState("All");
+  const [error, setError] = useState(null);
 
   const filterLabel = (key) => {
     switch (key) {
@@ -129,15 +133,22 @@ const NotificationsScreen = () => {
     if (showLoader) setLoading(true);
 
     try {
-      const res = await axiosInstance.get("/Notifications");
+      setError(null);
+      const res = await notificationService.getNotifications();
       const success = res?.data?.success ?? res?.success;
 
       if (!success) {
         setNotifications([]);
+        setError("Impossible de charger les notifications.");
         return;
       }
 
-      const list = res?.data?.data || res?.data || res?.data?.items || res?.data?.notifications || res?.data || [];
+      const list =
+        res?.data?.data ||
+        res?.data ||
+        res?.items ||
+        res?.notifications ||
+        [];
       const normalized = Array.isArray(list)
         ? list.map(normalizeNotification)
         : [];
@@ -146,6 +157,7 @@ const NotificationsScreen = () => {
     } catch (err) {
       console.log("Notification error:", err?.response?.data || err.message);
       setNotifications([]);
+      setError("Impossible de charger les notifications.");
     } finally {
       if (showLoader) setLoading(false);
     }
@@ -165,7 +177,8 @@ const NotificationsScreen = () => {
 
     setMarkingAllRead(true);
     try {
-      await axiosInstance.put("/Notifications/read-all");
+      setError(null);
+      await notificationService.markAllAsRead();
 
       setNotifications((prev) =>
         prev.map((item) => ({
@@ -174,12 +187,15 @@ const NotificationsScreen = () => {
         }))
       );
 
+      await refreshNotifications();
       await loadNotifications(false);
     } catch (err) {
       console.log(
         "Notification mark-all error:",
         err?.response?.data || err.message
       );
+      setError("Impossible de marquer les notifications comme lues.");
+      await loadNotifications(false);
     } finally {
       setMarkingAllRead(false);
     }
@@ -187,11 +203,25 @@ const NotificationsScreen = () => {
 
   const handleNotificationPress = async (item) => {
     if (item.isRead) return;
+
     setNotifications((prev) =>
       prev.map((notif) =>
         notif.id === item.id ? { ...notif, isRead: true } : notif
       )
     );
+
+    try {
+      setError(null);
+      await notificationService.markAsRead(item.id);
+      await refreshNotifications();
+    } catch (err) {
+      console.log(
+        "Notification mark-read error:",
+        err?.response?.data || err.message
+      );
+      setError("Impossible de marquer cette notification comme lue.");
+      await loadNotifications(false);
+    }
   };
 
   useFocusEffect(
@@ -224,13 +254,6 @@ const NotificationsScreen = () => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.screenTitle}>Notifications</Text>
-          <Text style={styles.screenSubtitle}>
-            Restez informé de votre activité récente
-          </Text>
-        </View>
-
         <TouchableOpacity
           style={[
             styles.markAllButton,
@@ -279,12 +302,15 @@ const NotificationsScreen = () => {
         <EmptyState
           iconName="notifications-outline"
           title={
-            filter === "Unread"
+            error ||
+            (filter === "Unread"
               ? "Aucune notification non lue"
-              : "Aucune notification"
+              : "Aucune notification")
           }
           subtitle={
-            filter === "Unread"
+            error
+              ? "Veuillez reessayer plus tard."
+              : filter === "Unread"
               ? "Vous êtes à jour."
               : "Vous êtes à jour !"
           }

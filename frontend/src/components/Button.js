@@ -16,6 +16,9 @@ export function Button({
   variant = "primary", // 'primary' | 'secondary' | 'ghost' | 'danger'
   style,
   textStyle,
+  testID,
+  accessibilityLabel,
+  ...rest
 }) {
   const { colors, spacing, borderRadius, typography } = useTheme();
   
@@ -78,17 +81,20 @@ export function Button({
   const styles = StyleSheet.create({
     button: {
       height: 54,
+      minHeight: 48,
       borderRadius: borderRadius.lg,
       alignItems: "center",
       justifyContent: "center",
       marginTop: spacing.sm,
       borderWidth: 1,
       overflow: "hidden",
+      paddingHorizontal: spacing.md,
     },
 
     text: {
       fontSize: typography.base,
       fontFamily: typography.fontFamily.semibold,
+      textAlign: "center",
     },
 
     disabled: {
@@ -104,6 +110,8 @@ export function Button({
         onPressOut={handlePressOut}
         disabled={disabled || loading}
         activeOpacity={0.9}
+        testID={testID}
+        accessibilityLabel={accessibilityLabel}
         style={[
           styles.button,
           {
@@ -113,11 +121,17 @@ export function Button({
           disabled && styles.disabled,
           style,
         ]}
+        {...rest}
       >
         {loading ? (
           <ActivityIndicator color={palette.spinner} />
         ) : (
-          <Text style={[styles.text, { color: palette.text }, textStyle]}>
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
+            style={[styles.text, { color: palette.text }, textStyle]}
+          >
             {title}
           </Text>
         )}

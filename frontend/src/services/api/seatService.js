@@ -21,10 +21,14 @@ export const seatService = {
   },
 
   checkInReservation: async (qrCode) => {
-  return await axiosInstance.post("/SeatReservations/check-in", {
-    qrCode,
-  });
-},
+    return await axiosInstance.post("/SeatReservations/checkin", {
+      qrCodeValue: qrCode,
+    });
+  },
+
+  checkOutReservation: async () => {
+    return await axiosInstance.post("/SeatReservations/checkout");
+  },
 
   getMyMonthReservations: async (year, month) => {
     return await axiosInstance.get("/SeatReservations/my-month", {

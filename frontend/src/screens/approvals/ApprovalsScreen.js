@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -20,6 +20,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { Card } from "../../components";
 import { useTheme } from "../../context/ThemeContext";
 import api from "../../services/api/axiosInstance";
+import { useRoles } from "../../hooks/useRoles";
+import { leaveTypeToString } from "../../utils/helpers";
 
 if (
   Platform.OS === "android" &&
@@ -34,11 +36,98 @@ const ROLE_OPTIONS = [
   { label: "Admin", value: 3, icon: "shield-checkmark-outline" },
 ];
 
+const GENERAL_REQUEST_CATEGORIES = [
+  { label: "Autorisation de sortie", value: 1, name: "ExitAuthorization" },
+  { label: "Récupération", value: 2, name: "Recovery" },
+  { label: "Télétravail", value: 3, name: "RemoteWork" },
+  { label: "Documents", value: 4, name: "Document" },
+];
+
+const ADMIN_ROLE_ID = 3;
+
+const REQUEST_SUBTYPE_FILTERS = [
+  { key: "all", label: "Toutes" },
+  { key: "leave", label: "Congés" },
+  { key: "RemoteWork", label: "Télétravail" },
+  { key: "ExitAuthorization", label: "Sorties" },
+  { key: "Recovery", label: "Récupérations" },
+  { key: "Document", label: "Documents" },
+];
+
 const DEFAULT_LEAVE_BALANCE = "18";
 const DEFAULT_YEARLY_SALARY = "50000";
+const PAID_LEAVE_TYPES = ["PaidLeave", "HalfDayPaidLeave"];
+const LEAVE_TYPE_LABELS_FR = {
+  PaidLeave: "Congés payés",
+  UnpaidLeave: "Congés sans solde",
+  HalfDayPaidLeave: "Demi-journée congés payés",
+  SpecialLeave: "Congés spéciaux",
+  MaternityLeave: "Congés maternité",
+  HalfDayUnpaidLeave: "Demi-journée sans solde",
+};
+const DAY_PERIOD_LABELS_FR = {
+  Morning: "Matin",
+  Afternoon: "Après-midi",
+  1: "Matin",
+  2: "Après-midi",
+};
+
+const formatRequestedDays = (days) => {
+  const value = Number(days);
+  if (Number.isNaN(value)) return "";
+  return String(value).replace(".", ",");
+};
+
+const deductsPaidLeaveBalance = (leaveType) =>
+  PAID_LEAVE_TYPES.includes(leaveType);
+
+const normalizeMainFilterParam = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+
+  if (["demandes", "requests", "general", "leave", "leaves"].includes(normalized)) {
+    return "general";
+  }
+
+  if (["utilisateurs", "users"].includes(normalized)) {
+    return "users";
+  }
+
+  if (["tout", "all"].includes(normalized)) {
+    return "all";
+  }
+
+  return null;
+};
+
+const normalizeRequestTypeParam = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+
+  if (!normalized || ["all", "toutes", "tout"].includes(normalized)) {
+    return "all";
+  }
+
+  if (["conge", "congé", "conges", "congés", "leave", "leaves", "leaverequest"].includes(normalized)) {
+    return "leave";
+  }
+
+  const category = GENERAL_REQUEST_CATEGORIES.find((entry) => {
+    const label = entry.label.toLowerCase();
+    const name = entry.name.toLowerCase();
+
+    return (
+      name === normalized ||
+      label === normalized ||
+      (entry.name === "ExitAuthorization" && ["sortie", "sorties"].includes(normalized)) ||
+      (entry.name === "Document" && ["documents", "document"].includes(normalized))
+    );
+  });
+
+  return category?.name ?? "all";
+};
 
 const ApprovalsScreen = () => {
   const route = useRoute();
+  const { isAdmin } = useRoles();
 
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
 
@@ -48,16 +137,31 @@ const ApprovalsScreen = () => {
   );
 
   const [activeTab, setActiveTab] = useState("all");
+  const [requestSubtypeFilter, setRequestSubtypeFilter] = useState("all");
   useFocusEffect(
     useCallback(() => {
-      if (route.params?.filter === "leaves") {
-        setActiveTab("leave");
-      } else if (route.params?.filter === "users") {
-        setActiveTab("users");
+      const legacyFilter = String(route.params?.filter ?? "").toLowerCase();
+      const nextTab = normalizeMainFilterParam(
+        route.params?.mainFilter ?? route.params?.filter,
+      );
+      const nextSubtype = normalizeRequestTypeParam(
+        route.params?.requestType ??
+          (legacyFilter === "leaves" ? "leave" : undefined),
+      );
+
+      if (nextTab) {
+        setActiveTab(nextTab);
       }
-    }, [route.params?.filter]),
+
+      if (nextTab === "general" || route.params?.requestType) {
+        setRequestSubtypeFilter(nextSubtype);
+      } else if (nextTab) {
+        setRequestSubtypeFilter("all");
+      }
+    }, [route.params?.filter, route.params?.mainFilter, route.params?.requestType]),
   );
   const [leaveRequests, setLeaveRequests] = useState([]);
+  const [generalRequests, setGeneralRequests] = useState([]);
   const [pendingUsers, setPendingUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [expandedItems, setExpandedItems] = useState({});
@@ -66,8 +170,14 @@ const ApprovalsScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   const [leaveActionState, setLeaveActionState] = useState({});
+  const [generalActionState, setGeneralActionState] = useState({});
   const [userActionState, setUserActionState] = useState({});
   const [formByUserId, setFormByUserId] = useState({});
+  const [deductByRequestId, setDeductByRequestId] = useState({});
+  const requestSubtypeScrollRef = useRef(null);
+  const requestSubtypeScrollOffsetRef = useRef(0);
+  const requestSubtypePendingRestoreOffsetRef = useRef(null);
+  const requestSubtypeRestoreFrameRef = useRef(null);
 
   const toggleExpanded = (key) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -86,7 +196,7 @@ const ApprovalsScreen = () => {
   };
 
   const normalizeDateRange = (start, end) => {
-    return `${normalizeDate(start)} → ${normalizeDate(end)}`;
+    return `${normalizeDate(start)} -> ${normalizeDate(end)}`;
   };
 
   const extractArray = (res) => {
@@ -126,22 +236,38 @@ const ApprovalsScreen = () => {
   };
 
   const loadApprovals = useCallback(async (isRefresh = false) => {
+    if (!isAdmin) {
+      setLeaveRequests([]);
+      setGeneralRequests([]);
+      setPendingUsers([]);
+      setDepartments([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
     try {
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
 
-      const [leaveRes, usersRes, depsRes] = await Promise.allSettled([
+      const [leaveRes, generalRes, usersRes, depsRes] = await Promise.allSettled([
         api.get("/Leave/pending-review"),
+        api.get("/GeneralRequests", { params: { status: "Pending" } }),
         api.get("/admin/users/pending"),
         api.get("/Departments"),
       ]);
 
       let leaveData = [];
+      let generalData = [];
       let usersData = [];
       let depsData = [];
 
       if (leaveRes.status === "fulfilled") {
         leaveData = extractArray(leaveRes.value);
+      }
+
+      if (generalRes.status === "fulfilled") {
+        generalData = extractArray(generalRes.value);
       }
 
       if (usersRes.status === "fulfilled") {
@@ -156,6 +282,7 @@ const ApprovalsScreen = () => {
       }
 
       setLeaveRequests(leaveData);
+      setGeneralRequests(generalData);
       setPendingUsers(usersData);
       setDepartments(depsData);
 
@@ -169,8 +296,10 @@ const ApprovalsScreen = () => {
             next[userId] = {
               leaveBalance: DEFAULT_LEAVE_BALANCE,
               yearlySalary: DEFAULT_YEARLY_SALARY,
-              role: normalizeRoleValue(user?.role ?? user?.Role),
-              departmentId: null,
+              role: normalizeRoleValue(
+                user?.roleId ?? user?.RoleId ?? user?.role ?? user?.Role,
+              ),
+              departmentId: user?.departmentId ?? user?.DepartmentId ?? null,
             };
           }
         });
@@ -184,12 +313,13 @@ const ApprovalsScreen = () => {
       );
 
       setLeaveRequests([]);
+      setGeneralRequests([]);
       setPendingUsers([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   useFocusEffect(
     useCallback(() => {
@@ -200,6 +330,46 @@ const ApprovalsScreen = () => {
   const onRefresh = useCallback(async () => {
     await loadApprovals(true);
   }, [loadApprovals]);
+
+  const restoreRequestSubtypeScrollOffset = useCallback(() => {
+    if (activeTab !== "general") {
+      return;
+    }
+
+    const offset =
+      requestSubtypePendingRestoreOffsetRef.current ??
+      requestSubtypeScrollOffsetRef.current;
+
+    if (!requestSubtypeScrollRef.current || offset <= 1) {
+      return;
+    }
+
+    if (requestSubtypeRestoreFrameRef.current) {
+      cancelAnimationFrame(requestSubtypeRestoreFrameRef.current);
+    }
+
+    requestSubtypeRestoreFrameRef.current = requestAnimationFrame(() => {
+      requestSubtypeScrollRef.current?.scrollTo({
+        x: offset,
+        y: 0,
+        animated: false,
+      });
+      requestSubtypeScrollOffsetRef.current = offset;
+      requestSubtypePendingRestoreOffsetRef.current = null;
+      requestSubtypeRestoreFrameRef.current = null;
+    });
+  }, [activeTab]);
+
+  useEffect(() => {
+    restoreRequestSubtypeScrollOffset();
+
+    return () => {
+      if (requestSubtypeRestoreFrameRef.current) {
+        cancelAnimationFrame(requestSubtypeRestoreFrameRef.current);
+        requestSubtypeRestoreFrameRef.current = null;
+      }
+    };
+  }, [requestSubtypeFilter, restoreRequestSubtypeScrollOffset]);
 
   const updateForm = useCallback((userId, field, value) => {
     setFormByUserId((prev) => ({
@@ -226,14 +396,53 @@ const ApprovalsScreen = () => {
     });
   };
 
+  const getGeneralCategoryLabel = (category) => {
+    const item = GENERAL_REQUEST_CATEGORIES.find(
+      (entry) =>
+        entry.value === category ||
+        entry.name.toLowerCase() === String(category).toLowerCase(),
+    );
+
+    return item?.label ?? "Autre";
+  };
+
+  const getGeneralCategoryName = (category) => {
+    const item = GENERAL_REQUEST_CATEGORIES.find(
+      (entry) =>
+        entry.value === category ||
+        entry.name.toLowerCase() === String(category).toLowerCase(),
+    );
+
+    return item?.name ?? null;
+  };
+
+  const setGeneralAction = (requestId, action) => {
+    setGeneralActionState((prev) => ({
+      ...prev,
+      [requestId]: action,
+    }));
+  };
+
+  const clearGeneralAction = (requestId) => {
+    setGeneralActionState((prev) => {
+      const next = { ...prev };
+      delete next[requestId];
+      return next;
+    });
+  };
+
   const approveLeave = async (item) => {
     const requestId = getItemId(item);
+    const typeName = leaveTypeToString(item?.type ?? item?.leaveType ?? item?.Type);
 
     try {
       setLeaveAction(requestId, "approving");
 
       await api.put(`/Leave/requests/${requestId}/approve`, {
         comment: "Approved by Admin",
+        deductFromLeaveBalance:
+          deductsPaidLeaveBalance(typeName) &&
+          (deductByRequestId[requestId] ?? true),
       });
 
       setLeaveRequests((prev) =>
@@ -269,6 +478,52 @@ const ApprovalsScreen = () => {
       );
     } finally {
       clearLeaveAction(requestId);
+    }
+  };
+
+  const approveGeneralRequest = async (item) => {
+    const requestId = getItemId(item);
+
+    try {
+      setGeneralAction(requestId, "approving");
+
+      await api.put(`/GeneralRequests/${requestId}/approve`, {
+        comment: "Approved by Admin",
+      });
+
+      setGeneralRequests((prev) =>
+        prev.filter((request) => getItemId(request) !== requestId),
+      );
+    } catch (error) {
+      Alert.alert(
+        "Erreur",
+        getErrorMessage(error, "Impossible d'approuver la demande générale."),
+      );
+    } finally {
+      clearGeneralAction(requestId);
+    }
+  };
+
+  const rejectGeneralRequest = async (item) => {
+    const requestId = getItemId(item);
+
+    try {
+      setGeneralAction(requestId, "rejecting");
+
+      await api.put(`/GeneralRequests/${requestId}/reject`, {
+        comment: "Rejected by Admin",
+      });
+
+      setGeneralRequests((prev) =>
+        prev.filter((request) => getItemId(request) !== requestId),
+      );
+    } catch (error) {
+      Alert.alert(
+        "Erreur",
+        getErrorMessage(error, "Impossible de rejeter la demande générale."),
+      );
+    } finally {
+      clearGeneralAction(requestId);
     }
   };
 
@@ -315,7 +570,9 @@ const ApprovalsScreen = () => {
       return;
     }
 
-    if (!form.departmentId) {
+    const isAdminApproval = form.role === ADMIN_ROLE_ID;
+
+    if (!isAdminApproval && !form.departmentId) {
       Alert.alert("Validation", "Veuillez sélectionner un département.");
       return;
     }
@@ -327,7 +584,7 @@ const ApprovalsScreen = () => {
         leaveBalance,
         yearlySalary,
         roleId: form.role,
-        departmentId: form.departmentId,
+        departmentId: isAdminApproval ? null : form.departmentId,
       });
 
       setPendingUsers((prev) => prev.filter((u) => getUserId(u) !== userId));
@@ -388,7 +645,12 @@ const ApprovalsScreen = () => {
         key={option.value}
         activeOpacity={0.85}
         disabled={disabled}
-        onPress={() => updateForm(userId, "role", option.value)}
+        onPress={() => {
+          updateForm(userId, "role", option.value);
+          if (option.value === ADMIN_ROLE_ID) {
+            updateForm(userId, "departmentId", null);
+          }
+        }}
         style={[
           styles.roleChip,
           selected && styles.roleChipSelected,
@@ -450,16 +712,31 @@ const ApprovalsScreen = () => {
     const isApproving = action === "approving";
     const isRejecting = action === "rejecting";
     const isBusy = !!action;
-
     const userName =
       item?.userName ?? item?.UserName ?? `Utilisateur #${item?.userId ?? ""}`;
 
-    const leaveType = item?.type ?? item?.leaveType ?? item?.Type ?? "Congé";
+    const typeName = leaveTypeToString(
+      item?.type ?? item?.leaveType ?? item?.Type,
+    );
+    const canDeduct = deductsPaidLeaveBalance(typeName);
+    const shouldDeduct = canDeduct && (deductByRequestId[requestId] ?? true);
+    const leaveType = LEAVE_TYPE_LABELS_FR[typeName] ?? typeName ?? "Congé";
+    const requestedDays = item?.requestedDays ?? item?.RequestedDays;
+    const dayPeriod = item?.dayPeriod ?? item?.DayPeriod;
+    const dayPeriodLabel =
+      DAY_PERIOD_LABELS_FR[dayPeriod] ??
+      DAY_PERIOD_LABELS_FR[item?.dayPeriodLabel ?? item?.DayPeriodLabel];
+    const fromTime = item?.fromTime ?? item?.FromTime;
+    const toTime = item?.toTime ?? item?.ToTime;
     const reason = item?.reason ?? item?.Reason ?? "Aucun motif fourni";
     const createdAt = item?.createdAt ?? item?.CreatedAt;
 
     return (
-      <Card style={[styles.card, !expanded && styles.compactCard]}>
+      <Card
+        testID={`approvals.leaveCard.${requestId}`}
+        style={[styles.card, !expanded && styles.compactCard]}
+      >
+        <View testID="leave.requestCard" style={styles.e2eHiddenMarker} />
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={() => toggleExpanded(rowKey)}
@@ -474,10 +751,13 @@ const ApprovalsScreen = () => {
           </View>
 
           <View style={styles.headerTextWrap}>
-            <Text style={styles.name}>Demande de congé</Text>
+            <Text style={styles.name}>Congé</Text>
             <Text style={styles.email}>{userName}</Text>
             <Text style={styles.smallPreview}>
               {normalizeDateRange(item?.startDate, item?.endDate)}
+            </Text>
+            <Text style={styles.smallPreview} numberOfLines={1}>
+              {reason}
             </Text>
           </View>
 
@@ -514,8 +794,50 @@ const ApprovalsScreen = () => {
                   size={16}
                   color={colors.textSecondary}
                 />
-                <Text style={styles.metaText}>Type : {leaveType}</Text>
+                <Text style={styles.metaText}>
+                  Nature de demande : {leaveType}
+                </Text>
               </View>
+
+              {requestedDays !== undefined && requestedDays !== null && (
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="calculator-outline"
+                    size={16}
+                    color={colors.textSecondary}
+                  />
+                  <Text style={styles.metaText}>
+                    Nombre de jours : {formatRequestedDays(requestedDays)}
+                  </Text>
+                </View>
+              )}
+
+              {!!dayPeriodLabel && (
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="partly-sunny-outline"
+                    size={16}
+                    color={colors.textSecondary}
+                  />
+                  <Text style={styles.metaText}>
+                    Période de la journée : {dayPeriodLabel}
+                  </Text>
+                </View>
+              )}
+
+              {!!fromTime && !!toTime && (
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="time-outline"
+                    size={16}
+                    color={colors.textSecondary}
+                  />
+                  <Text style={styles.metaText}>
+                    De {String(fromTime).slice(0, 5)} à{" "}
+                    {String(toTime).slice(0, 5)}
+                  </Text>
+                </View>
+              )}
 
               <View style={styles.metaRow}>
                 <Ionicons
@@ -538,10 +860,214 @@ const ApprovalsScreen = () => {
               </View>
             </View>
 
+            {canDeduct && (
+              <TouchableOpacity
+                testID="leave.adminDeductBalanceToggle"
+                activeOpacity={0.85}
+                onPress={() =>
+                  setDeductByRequestId((prev) => ({
+                    ...prev,
+                    [requestId]: !shouldDeduct,
+                  }))
+                }
+                disabled={isBusy}
+                style={[styles.checkboxRow, isBusy && styles.disabledButton]}
+              >
+                <View
+                  testID={`approvals.leaveDeduct.${requestId}`}
+                  style={styles.e2eHiddenMarker}
+                />
+                <View
+                  style={[
+                    styles.checkboxBox,
+                    shouldDeduct && styles.checkboxBoxChecked,
+                  ]}
+                >
+                  {shouldDeduct ? (
+                    <Ionicons
+                      name="checkmark-outline"
+                      size={15}
+                      color={colors.textOnPrimary}
+                    />
+                  ) : null}
+                </View>
+
+                <Text style={styles.checkboxLabel}>
+                  Déduire du solde de congés payés
+                </Text>
+              </TouchableOpacity>
+            )}
+
             <View style={styles.actionsRow}>
               <TouchableOpacity
+                testID={`approvals.leaveReject.${requestId}`}
                 activeOpacity={0.85}
                 onPress={() => rejectLeave(item)}
+                disabled={isBusy}
+                style={[
+                  styles.secondaryButton,
+                  isBusy && styles.disabledButton,
+                ]}
+              >
+                <View testID="leave.rejectButton" style={styles.e2eHiddenMarker} />
+                {isRejecting ? (
+                  <ActivityIndicator size="small" color={colors.text} />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="close-outline"
+                      size={18}
+                      color={colors.text}
+                    />
+                    <Text style={styles.secondaryButtonText}>Rejeter</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                testID="leave.adminValidateButton"
+                activeOpacity={0.85}
+                onPress={() => approveLeave(item)}
+                disabled={isBusy}
+                style={[styles.primaryButton, isBusy && styles.disabledButton]}
+              >
+                <View
+                  testID={`approvals.leaveApprove.${requestId}`}
+                  style={styles.e2eHiddenMarker}
+                />
+                <View testID="leave.approveButton" style={styles.e2eHiddenMarker} />
+                {isApproving ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={colors.textOnPrimary}
+                  />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="checkmark-outline"
+                      size={18}
+                      color={colors.textOnPrimary}
+                    />
+                    <Text style={styles.primaryButtonText}>Approuver</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </Card>
+    );
+  };
+
+  const renderGeneralRequestCard = (item) => {
+    const requestId = getItemId(item);
+    const rowKey = `general-${requestId}`;
+    const expanded = !!expandedItems[rowKey];
+
+    const action = generalActionState[requestId];
+    const isApproving = action === "approving";
+    const isRejecting = action === "rejecting";
+    const isBusy = !!action;
+
+    const userName =
+      item?.userName ?? item?.UserName ?? `Utilisateur #${item?.userId ?? ""}`;
+    const title = item?.title ?? item?.Title ?? "Demande générale";
+    const description = item?.description ?? item?.Description ?? "";
+    const category = item?.category ?? item?.Category;
+    const categoryLabel = getGeneralCategoryLabel(category);
+    const createdAt = item?.createdAt ?? item?.CreatedAt;
+
+    return (
+      <Card
+        testID={`approvals.generalCard.${requestId}`}
+        style={[styles.card, !expanded && styles.compactCard]}
+      >
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => toggleExpanded(rowKey)}
+          style={styles.compactRow}
+        >
+          <View style={styles.avatarWrap}>
+            <Ionicons
+              name="document-text-outline"
+              size={22}
+              color={colors.primary}
+            />
+          </View>
+
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.name}>{categoryLabel}</Text>
+            <Text style={styles.email}>{userName}</Text>
+            <Text style={styles.smallPreview} numberOfLines={1}>
+              {title}
+            </Text>
+            <Text style={styles.smallPreview}>
+              {categoryLabel}
+            </Text>
+          </View>
+
+          <View style={styles.rowRight}>
+            <View style={styles.pendingBadge}>
+              <Text style={styles.pendingBadgeText}>En attente</Text>
+            </View>
+
+            <Ionicons
+              name={expanded ? "chevron-up-outline" : "chevron-down-outline"}
+              size={22}
+              color={colors.textSecondary}
+            />
+          </View>
+        </TouchableOpacity>
+
+        {expanded && (
+          <View style={styles.expandedContent}>
+            <View style={styles.infoBlock}>
+              <View style={styles.metaRow}>
+                <Ionicons
+                  name="folder-open-outline"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.metaText}>
+                  Type : {categoryLabel}
+                </Text>
+              </View>
+
+              <View style={styles.metaRow}>
+                <Ionicons
+                  name="document-text-outline"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.metaText}>{title}</Text>
+              </View>
+
+              <View style={styles.metaRow}>
+                <Ionicons
+                  name="chatbox-ellipses-outline"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.metaText}>{description}</Text>
+              </View>
+
+              <View style={styles.metaRow}>
+                <Ionicons
+                  name="time-outline"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.metaText}>
+                  Soumise le {normalizeDate(createdAt)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.actionsRow}>
+              <TouchableOpacity
+                testID={`approvals.generalReject.${requestId}`}
+                activeOpacity={0.85}
+                onPress={() => rejectGeneralRequest(item)}
                 disabled={isBusy}
                 style={[
                   styles.secondaryButton,
@@ -563,8 +1089,9 @@ const ApprovalsScreen = () => {
               </TouchableOpacity>
 
               <TouchableOpacity
+                testID={`approvals.generalApprove.${requestId}`}
                 activeOpacity={0.85}
-                onPress={() => approveLeave(item)}
+                onPress={() => approveGeneralRequest(item)}
                 disabled={isBusy}
                 style={[styles.primaryButton, isBusy && styles.disabledButton]}
               >
@@ -607,6 +1134,10 @@ const ApprovalsScreen = () => {
     const createdAt = item?.createdAt ?? item?.CreatedAt;
 
     const selectedRole = form.role;
+    const isAdminSelection = selectedRole === ADMIN_ROLE_ID;
+    const departmentDisplayName = isAdminSelection
+      ? "Administration globale"
+      : departmentName;
     const roleMeta = getRoleMeta(selectedRole);
 
     const action = userActionState[userId];
@@ -628,7 +1159,7 @@ const ApprovalsScreen = () => {
           <View style={styles.headerTextWrap}>
             <Text style={styles.name}>{fullName}</Text>
             <Text style={styles.email}>{email}</Text>
-            <Text style={styles.smallPreview}>{departmentName}</Text>
+            <Text style={styles.smallPreview}>{departmentDisplayName}</Text>
           </View>
 
           <View style={styles.rowRight}>
@@ -653,7 +1184,7 @@ const ApprovalsScreen = () => {
                   size={16}
                   color={colors.textSecondary}
                 />
-                <Text style={styles.metaText}>{departmentName}</Text>
+                <Text style={styles.metaText}>{departmentDisplayName}</Text>
               </View>
 
               <View style={styles.metaRow}>
@@ -737,6 +1268,7 @@ const ApprovalsScreen = () => {
               </View>
             </View>
 
+            {!isAdminSelection && (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Attribuer un département</Text>
 
@@ -761,6 +1293,7 @@ const ApprovalsScreen = () => {
                 </ScrollView>
               )}
             </View>
+            )}
 
             <View style={styles.actionsRow}>
               <TouchableOpacity
@@ -859,12 +1392,12 @@ const ApprovalsScreen = () => {
       {
         key: "all",
         label: "Tout",
-        count: leaveRequests.length + pendingUsers.length,
+        count: leaveRequests.length + generalRequests.length + pendingUsers.length,
       },
       {
-        key: "leave",
-        label: "Congés",
-        count: leaveRequests.length,
+        key: "general",
+        label: "Demandes",
+        count: leaveRequests.length + generalRequests.length,
       },
       {
         key: "users",
@@ -881,8 +1414,14 @@ const ApprovalsScreen = () => {
           return (
             <TouchableOpacity
               key={tab.key}
+              testID={`approvals.tab.${tab.key}`}
               activeOpacity={0.85}
-              onPress={() => setActiveTab(tab.key)}
+              onPress={() => {
+                setActiveTab(tab.key);
+                if (tab.key !== "general") {
+                  setRequestSubtypeFilter("all");
+                }
+              }}
               style={[styles.tabButton, isActive && styles.tabButtonActive]}
             >
               <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
@@ -911,12 +1450,134 @@ const ApprovalsScreen = () => {
     );
   };
 
+  const renderRequestSubtypeChips = () => {
+    if (activeTab !== "general") {
+      return null;
+    }
+
+    const countsBySubtype = generalRequests.reduce(
+      (acc, item) => {
+        const categoryName = getGeneralCategoryName(
+          item?.category ?? item?.Category,
+        );
+
+        if (categoryName) {
+          acc[categoryName] = (acc[categoryName] ?? 0) + 1;
+        }
+
+        return acc;
+      },
+      {
+        all: leaveRequests.length + generalRequests.length,
+        leave: leaveRequests.length,
+      },
+    );
+
+    return (
+      <ScrollView
+        ref={requestSubtypeScrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.requestSubtypeContent}
+        style={styles.requestSubtypeContainer}
+        scrollEventThrottle={16}
+        onScroll={(event) => {
+          const offset = event.nativeEvent.contentOffset.x;
+          const pendingOffset =
+            requestSubtypePendingRestoreOffsetRef.current;
+
+          if (pendingOffset !== null && pendingOffset > 1 && offset <= 1) {
+            return;
+          }
+
+          requestSubtypeScrollOffsetRef.current = offset;
+
+          if (
+            pendingOffset !== null &&
+            Math.abs(offset - pendingOffset) <= 1
+          ) {
+            requestSubtypePendingRestoreOffsetRef.current = null;
+          }
+        }}
+        onLayout={restoreRequestSubtypeScrollOffset}
+      >
+        {REQUEST_SUBTYPE_FILTERS.map((filter) => {
+          const selected = requestSubtypeFilter === filter.key;
+          const count = countsBySubtype[filter.key] ?? 0;
+
+          return (
+            <TouchableOpacity
+              key={filter.key}
+              testID={`approvals.requestType.${filter.key}`}
+              activeOpacity={0.85}
+              onPress={() => {
+                requestSubtypePendingRestoreOffsetRef.current =
+                  requestSubtypeScrollOffsetRef.current;
+                setRequestSubtypeFilter(filter.key);
+              }}
+              style={[
+                styles.requestSubtypeChip,
+                selected && styles.requestSubtypeChipActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.requestSubtypeText,
+                  selected && styles.requestSubtypeTextActive,
+                ]}
+              >
+                {filter.label}
+              </Text>
+
+              <View
+                style={[
+                  styles.requestSubtypeCount,
+                  selected && styles.requestSubtypeCountActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.requestSubtypeCountText,
+                    selected && styles.requestSubtypeCountTextActive,
+                  ]}
+                >
+                  {count}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    );
+  };
+
+  const renderListHeader = () => (
+    <View>
+      {renderTabs()}
+      {renderRequestSubtypeChips()}
+    </View>
+  );
+
   const listData = useMemo(() => {
     const rows = [];
+    const showRequests = activeTab === "all" || activeTab === "general";
+    const showLeaveRequests =
+      activeTab === "all" ||
+      (activeTab === "general" &&
+        (requestSubtypeFilter === "all" || requestSubtypeFilter === "leave"));
+    const filteredGeneralRequests =
+      activeTab === "general" && requestSubtypeFilter !== "all"
+        ? generalRequests.filter(
+            (item) =>
+              getGeneralCategoryName(item?.category ?? item?.Category) ===
+              requestSubtypeFilter,
+          )
+        : generalRequests;
 
     const noLeaveRequests = leaveRequests.length === 0;
+    const noFilteredGeneralRequests = filteredGeneralRequests.length === 0;
     const noPendingUsers = pendingUsers.length === 0;
-    const fullyEmpty = noLeaveRequests && noPendingUsers;
+    const fullyEmpty = noLeaveRequests && generalRequests.length === 0 && noPendingUsers;
 
     if (fullyEmpty) {
       rows.push({
@@ -927,7 +1588,7 @@ const ApprovalsScreen = () => {
       return rows;
     }
 
-    if (activeTab === "all" || activeTab === "leave") {
+    if (showRequests && showLeaveRequests) {
       rows.push({
         type: "sectionHeader",
         key: "leave-header",
@@ -948,6 +1609,36 @@ const ApprovalsScreen = () => {
           rows.push({
             type: "leave",
             key: `leave-${id}`,
+            item,
+          });
+        });
+      }
+    }
+
+    if (
+      activeTab === "all" ||
+      (activeTab === "general" && requestSubtypeFilter !== "leave")
+    ) {
+      rows.push({
+        type: "sectionHeader",
+        key: "general-header",
+        title: "Demandes générales",
+        count: filteredGeneralRequests.length,
+        icon: "document-text-outline",
+      });
+
+      if (noFilteredGeneralRequests) {
+        rows.push({
+          type: "emptyGeneral",
+          key: "empty-general",
+        });
+      } else {
+        filteredGeneralRequests.forEach((item) => {
+          const id = getItemId(item);
+
+          rows.push({
+            type: "general",
+            key: `general-${id}`,
             item,
           });
         });
@@ -982,7 +1673,7 @@ const ApprovalsScreen = () => {
     }
 
     return rows;
-  }, [activeTab, leaveRequests, pendingUsers]);
+  }, [activeTab, leaveRequests, generalRequests, pendingUsers, requestSubtypeFilter]);
 
   const renderItem = ({ item }) => {
     switch (item.type) {
@@ -995,6 +1686,9 @@ const ApprovalsScreen = () => {
       case "leave":
         return renderLeaveCard(item.item);
 
+      case "general":
+        return renderGeneralRequestCard(item.item);
+
       case "user":
         return renderUserCard(item.item);
 
@@ -1002,6 +1696,12 @@ const ApprovalsScreen = () => {
         return renderEmptyCard(
           "Aucune demande de congé en attente",
           "Toutes les demandes de congé ont été traitées.",
+        );
+
+      case "emptyGeneral":
+        return renderEmptyCard(
+          "Aucune demande générale en attente",
+          "Toutes les demandes générales ont été traitées.",
         );
 
       case "emptyUsers":
@@ -1024,6 +1724,22 @@ const ApprovalsScreen = () => {
     );
   }
 
+  if (!isAdmin) {
+    return (
+      <View style={styles.centered}>
+        <Ionicons
+          name="lock-closed-outline"
+          size={42}
+          color={colors.textSecondary}
+        />
+        <Text style={styles.emptyTitle}>Accès réservé aux admins</Text>
+        <Text style={styles.emptyText}>
+          Seuls les administrateurs peuvent gérer les demandes.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
     <FlatList
@@ -1032,7 +1748,7 @@ const ApprovalsScreen = () => {
       data={listData}
       keyExtractor={(item) => item.key}
       renderItem={renderItem}
-      ListHeaderComponent={renderTabs}
+      ListHeaderComponent={renderListHeader}
       showsVerticalScrollIndicator={false}
       refreshControl={
         <RefreshControl
@@ -1055,7 +1771,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     content: {
       padding: spacing.lg,
-      paddingBottom: spacing.xxl + 90,
+      paddingBottom: spacing.xxl + 112,
     },
 
     tabsContainer: {
@@ -1118,6 +1834,67 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       color: colors.textOnPrimary,
     },
 
+    requestSubtypeContainer: {
+      marginBottom: spacing.lg,
+    },
+
+    requestSubtypeContent: {
+      gap: spacing.sm,
+      paddingRight: spacing.md,
+    },
+
+    requestSubtypeChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+
+    requestSubtypeChipActive: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primary,
+    },
+
+    requestSubtypeText: {
+      fontSize: typography.sm,
+      fontWeight: typography.medium,
+      color: colors.textSecondary,
+    },
+
+    requestSubtypeTextActive: {
+      color: colors.textOnPrimary,
+      fontWeight: typography.semibold,
+    },
+
+    requestSubtypeCount: {
+      minWidth: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 6,
+    },
+
+    requestSubtypeCountActive: {
+      backgroundColor: "rgba(255,255,255,0.18)",
+    },
+
+    requestSubtypeCountText: {
+      fontSize: 11,
+      fontWeight: typography.semibold,
+      color: colors.textSecondary,
+    },
+
+    requestSubtypeCountTextActive: {
+      color: colors.textOnPrimary,
+    },
+
     sectionHeader: {
       marginBottom: spacing.md,
       marginTop: spacing.sm,
@@ -1163,6 +1940,11 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     compactCard: {
       paddingVertical: spacing.md,
+    },
+
+    e2eHiddenMarker: {
+      width: 0,
+      height: 0,
     },
 
     compactRow: {
@@ -1279,6 +2061,37 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       marginTop: spacing.xs,
       fontSize: 12,
       color: colors.textSecondary,
+    },
+
+    checkboxRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+      paddingVertical: spacing.sm,
+    },
+
+    checkboxBox: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+    },
+
+    checkboxBoxChecked: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+
+    checkboxLabel: {
+      flex: 1,
+      fontSize: typography.sm,
+      color: colors.text,
+      fontWeight: typography.medium,
     },
 
     roleRow: {

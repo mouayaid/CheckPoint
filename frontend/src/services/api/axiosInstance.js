@@ -1,17 +1,39 @@
 import axios from "axios";
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
+import Constants from "expo-constants";
+import { STORAGE_KEYS } from "../../utils/constants";
+import { isE2EMode } from "../../utils/e2eMode";
 
-const API_HOST = "10.42.0.32"; // e.g. '192.168.1.10' for real device
+const API_HOST = Constants.expoConfig?.extra?.apiHost || null;
+
 const getBaseUrl = () => {
-  if (!__DEV__) return "https://your-api-domain.com/api";
+  if (isE2EMode()) {
+    return Constants.expoConfig?.extra?.e2eApiUrl || "http://10.0.2.2:5000/api";
+  }
+
+  if (!__DEV__) {
+    const productionApiUrl =
+      Constants.expoConfig?.extra?.apiUrl ?? Constants.manifest?.extra?.apiUrl;
+
+    if (!productionApiUrl) {
+      throw new Error(
+        "Missing production API URL. Configure EXPO_PUBLIC_PRODUCTION_API_URL or EXPO_PUBLIC_STAGING_API_URL before building.",
+      );
+    }
+
+    return productionApiUrl;
+  }
+
   if (API_HOST) return `http://${API_HOST}:5000/api`;
+
   return Platform.OS === "android"
     ? "http://10.0.2.2:5000/api"
     : "http://localhost:5000/api";
 };
-const BASE_URL = getBaseUrl();
-console.log("API BASE URL:", BASE_URL);
+
+export const BASE_URL = getBaseUrl();
 
 const axiosInstance = axios.create({
   baseURL: BASE_URL,
@@ -21,50 +43,129 @@ const axiosInstance = axios.create({
   },
 });
 
+let isRefreshing = false;
+let refreshSubscribers = [];
+
+const subscribeTokenRefresh = (callback) => {
+  refreshSubscribers.push(callback);
+};
+
+const onRefreshed = (accessToken) => {
+  const subscribers = refreshSubscribers;
+  refreshSubscribers = [];
+  subscribers.forEach((cb) => cb(accessToken));
+};
+
+const clearStoredAuthAndSignalSignOut = async () => {
+  await Promise.all([
+    SecureStore.deleteItemAsync(STORAGE_KEYS.USER_TOKEN),
+    SecureStore.deleteItemAsync(STORAGE_KEYS.REFRESH_TOKEN),
+    AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA),
+  ]);
+
+  delete axiosInstance.defaults.headers.common.Authorization;
+
+  try {
+    globalThis.__CHECKPOINT_ON_SIGN_OUT__?.();
+  } catch {}
+};
+
 axiosInstance.interceptors.request.use(
   async (config) => {
-    try {
-      const token = await AsyncStorage.getItem("userToken");
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    } catch (error) {
-      console.error("Error getting token from storage:", error);
+    const token = await SecureStore.getItemAsync(STORAGE_KEYS.USER_TOKEN);
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
     }
+
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  },
+  (error) => Promise.reject(error),
 );
 
 axiosInstance.interceptors.response.use(
-  (response) => {
-    return response.data;
-  },
+  (response) => response.data,
+
   async (error) => {
     const originalRequest = error.config;
 
-    if (error.response?.status === 401) {
+    const isUnauthorized = error.response?.status === 401;
+    const requestUrl = originalRequest?.url || "";
+    const isRefreshCall =
+      requestUrl.includes("/Auth/refresh") ||
+      requestUrl.endsWith("/Auth/refresh");
+
+    if (
+      isUnauthorized &&
+      originalRequest &&
+      !originalRequest._retry &&
+      !isRefreshCall
+    ) {
+      originalRequest._retry = true;
+
       try {
-        await AsyncStorage.removeItem("userToken");
-        await AsyncStorage.removeItem("userData");
-      } catch (storageError) {
-        console.error("Error clearing storage:", storageError);
+        const retryOriginalRequest = (newAccessToken) => {
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+          return axiosInstance(originalRequest);
+        };
+
+        if (isRefreshing) {
+          return new Promise((resolve, reject) => {
+            subscribeTokenRefresh((newAccessToken) => {
+              if (!newAccessToken) {
+                reject(error);
+                return;
+              }
+              resolve(retryOriginalRequest(newAccessToken));
+            });
+          });
+        }
+
+        isRefreshing = true;
+
+        const refreshToken = await SecureStore.getItemAsync(
+          STORAGE_KEYS.REFRESH_TOKEN,
+        );
+        if (!refreshToken) {
+          throw new Error("No refresh token found");
+        }
+
+        const refreshResponse = await axios.post(`${BASE_URL}/Auth/refresh`, {
+          refreshToken,
+        });
+
+        const payload =
+          refreshResponse?.data?.data ?? refreshResponse?.data ?? {};
+        const newAccessToken = payload.accessToken ?? payload.token;
+        const newRefreshToken = payload.refreshToken;
+
+        if (!newAccessToken || !newRefreshToken) {
+          throw new Error("Invalid refresh response payload");
+        }
+
+        await SecureStore.setItemAsync(STORAGE_KEYS.USER_TOKEN, newAccessToken);
+        await SecureStore.setItemAsync(
+          STORAGE_KEYS.REFRESH_TOKEN,
+          newRefreshToken,
+        );
+
+        axiosInstance.defaults.headers.common.Authorization = `Bearer ${newAccessToken}`;
+
+        onRefreshed(newAccessToken);
+        return retryOriginalRequest(newAccessToken);
+      } catch (refreshError) {
+        onRefreshed(null);
+        await clearStoredAuthAndSignalSignOut();
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
       }
     }
 
     if (!error.response) {
       error.message = "Erreur réseau. Veuillez vérifier votre connexion.";
     }
-
-    console.log("AXIOS REAL ERROR:", {
-      message: error?.message,
-      status: error?.response?.status,
-      data: error?.response?.data,
-      url: error?.config?.url,
-      baseURL: error?.config?.baseURL,
-    });
 
     return Promise.reject({
       message:
@@ -79,20 +180,28 @@ axiosInstance.interceptors.response.use(
   },
 );
 
-axiosInstance.setAuthToken = async (token) => {
+axiosInstance.setAuthToken = async (token, refreshToken = null) => {
   if (token) {
-    await AsyncStorage.setItem("userToken", token);
-    axiosInstance.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+    await SecureStore.setItemAsync(STORAGE_KEYS.USER_TOKEN, token);
+
+    if (refreshToken) {
+      await SecureStore.setItemAsync(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
+    }
+
+    axiosInstance.defaults.headers.common.Authorization = `Bearer ${token}`;
   } else {
-    await AsyncStorage.removeItem("userToken");
-    delete axiosInstance.defaults.headers.common["Authorization"];
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.USER_TOKEN);
+    await SecureStore.deleteItemAsync(STORAGE_KEYS.REFRESH_TOKEN);
+    delete axiosInstance.defaults.headers.common.Authorization;
   }
 };
 
 axiosInstance.clearAuthToken = async () => {
-  await AsyncStorage.removeItem("userToken");
-  await AsyncStorage.removeItem("userData");
-  delete axiosInstance.defaults.headers.common["Authorization"];
+  await SecureStore.deleteItemAsync(STORAGE_KEYS.USER_TOKEN);
+  await SecureStore.deleteItemAsync(STORAGE_KEYS.REFRESH_TOKEN);
+  await AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA);
+
+  delete axiosInstance.defaults.headers.common.Authorization;
 };
 
 export default axiosInstance;

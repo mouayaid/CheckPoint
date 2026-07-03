@@ -40,20 +40,32 @@ import {
 } from "../utils/helpers";
 import { useTheme } from "../context/ThemeContext";
 
-const LEAVE_TYPES = ["Vacation", "Sick", "Personal"];
+const LEAVE_TYPES = [
+  "PaidLeave",
+  "UnpaidLeave",
+  "HalfDayPaidLeave",
+  "HalfDayUnpaidLeave",
+  "SpecialLeave",
+  "MaternityLeave",
+];
+
+const HALF_DAY_TYPES = ["HalfDayPaidLeave", "HalfDayUnpaidLeave"];
 const FILTERS_EMPLOYEE = ["All", "Pending", "Approved", "Rejected"];
 
 const FILTER_LABELS_FR = {
-  All: "Tous",
+  All: "Toutes",
   Pending: "En attente",
   Approved: "Approuvées",
   Rejected: "Rejetées",
 };
 
 const LEAVE_TYPE_LABELS_FR = {
-  Vacation: "Vacances",
-  Sick: "Maladie",
-  Personal: "Personnel",
+  PaidLeave: "Congés payés",
+  UnpaidLeave: "Congés sans solde",
+  HalfDayPaidLeave: "Demi-journée congés payés",
+  SpecialLeave: "Congés spéciaux",
+  MaternityLeave: "Congés maternité",
+  HalfDayUnpaidLeave: "Demi-journée sans solde",
 };
 
 const formatDateValue = (date) => {
@@ -79,14 +91,26 @@ const getDayCount = (start, end) => {
 };
 
 const normalizeStatus = (status) =>
-  String(status || "")
-    .trim()
-    .toLowerCase();
+  String(status || "").trim().toLowerCase();
 
 const normalizeDateOnly = (date) => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
   return d;
+};
+
+const getToday = () => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+};
+
+const isValidTime = (value) => /^([01]\d|2[0-3]):[0-5]\d$/.test(value || "");
+
+const timeToMinutes = (value) => {
+  if (!isValidTime(value)) return null;
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
 };
 
 export default function LeaveRequestScreen() {
@@ -121,13 +145,17 @@ export default function LeaveRequestScreen() {
   const [loadingBalance, setLoadingBalance] = useState(false);
 
   const [modalVisible, setModalVisible] = useState(false);
-  const [type, setType] = useState("Vacation");
+  const [type, setType] = useState("");
+  const [halfDayPeriod, setHalfDayPeriod] = useState("");
+  const [fromTime, setFromTime] = useState("");
+  const [toTime, setToTime] = useState("");
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
   const [reason, setReason] = useState("");
   const [creating, setCreating] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
@@ -140,16 +168,48 @@ export default function LeaveRequestScreen() {
 
   const role = roleToString(user?.role);
   const isManager = role === "Manager" || role === "Admin";
+  const isHalfDay = HALF_DAY_TYPES.includes(type);
+
+  const requestedDays = getDayCount(startDate, endDate);
+  const effectiveRequestedDays = isHalfDay ? 0.5 : requestedDays;
+  const trimmedReason = reason.trim();
+
+  const halfDayLabel =
+    halfDayPeriod === "Morning"
+      ? "Matin"
+      : halfDayPeriod === "Afternoon"
+        ? "Après-midi"
+        : "";
+
+  const openCreateForm = () => {
+    const today = getToday();
+    setType("");
+    setHalfDayPeriod("");
+    setFromTime("");
+    setToTime("");
+    setStartDate(today);
+    setEndDate(today);
+    setReason("");
+    setShowStartPicker(false);
+    setShowEndPicker(false);
+    setCreating(false);
+    setSubmitAttempted(false);
+    setModalVisible(true);
+  };
 
   const resetCreateModal = () => {
     setModalVisible(false);
-    setType("Vacation");
+    setType("");
+    setHalfDayPeriod("");
+    setFromTime("");
+    setToTime("");
     setStartDate(null);
     setEndDate(null);
     setReason("");
     setShowStartPicker(false);
     setShowEndPicker(false);
     setCreating(false);
+    setSubmitAttempted(false);
   };
 
   const resetReviewModal = () => {
@@ -169,7 +229,6 @@ export default function LeaveRequestScreen() {
     setLoadingBalance(true);
     try {
       const res = await profileService.getProfile();
-
       const payload = res?.data?.data || res?.data || null;
 
       const userProfile =
@@ -208,14 +267,16 @@ export default function LeaveRequestScreen() {
         : await leaveService.getMyLeaveRequests();
 
       if (res?.success) {
-        const normalized = (res.data || []).map((request) => ({
-          ...request,
-          normalizedStatus: normalizeStatus(
-            requestStatusToString(request.status),
-          ),
-          statusLabel: requestStatusToString(request.status),
-          typeLabel: leaveTypeToString(request.type),
-        }));
+        const normalized = (res.data || [])
+          .map((request) => ({
+            ...request,
+            normalizedStatus: normalizeStatus(
+              requestStatusToString(request.status),
+            ),
+            statusLabel: requestStatusToString(request.status),
+            typeLabel: leaveTypeToString(request.type),
+          }))
+          .filter((request) => request.normalizedStatus !== "cancelled");
 
         setRequests(normalized);
       } else {
@@ -251,19 +312,10 @@ export default function LeaveRequestScreen() {
     if (isReviewMode) return;
 
     if (!loadingBalance && openCreateModal) {
-      if (leaveBalance > 0) {
-        setModalVisible(true);
-      }
-
+      openCreateForm();
       navigation.setParams({ openCreateModal: false });
     }
-  }, [
-    isReviewMode,
-    openCreateModal,
-    loadingBalance,
-    leaveBalance,
-    navigation,
-  ]);
+  }, [isReviewMode, openCreateModal, loadingBalance, leaveBalance, navigation]);
 
   useEffect(() => {
     if (openPendingTab || isReviewMode) {
@@ -282,12 +334,37 @@ export default function LeaveRequestScreen() {
     }
   };
 
-  const requestedDays = getDayCount(startDate, endDate);
-  const trimmedReason = reason.trim();
-
   const formValidationMessage = useMemo(() => {
-    if (!startDate || !endDate || !trimmedReason) {
-      return "Veuillez remplir tous les champs";
+    if (leaveBalance !== null && leaveBalance <= 0) {
+      return "Vous ne disposez plus de jours de congé.";
+    }
+
+    if (!type) {
+      return "Veuillez sélectionner un type de congé.";
+    }
+
+    if (!startDate) {
+      return "Veuillez sélectionner une date de début.";
+    }
+
+    if (!endDate) {
+      return "Veuillez sélectionner une date de fin.";
+    }
+
+    if (isHalfDay && !halfDayPeriod) {
+      return "Veuillez sélectionner la période : matin ou après-midi.";
+    }
+
+    if (isHalfDay && (!isValidTime(fromTime) || !isValidTime(toTime))) {
+      return "Veuillez saisir les heures au format HH:mm.";
+    }
+
+    if (isHalfDay && timeToMinutes(fromTime) >= timeToMinutes(toTime)) {
+      return "L'heure de fin doit être supérieure à l'heure de début.";
+    }
+
+    if (!trimmedReason) {
+      return "Veuillez saisir le motif de votre demande.";
     }
 
     if (trimmedReason.length < 5) {
@@ -309,13 +386,13 @@ export default function LeaveRequestScreen() {
     }
 
     if (normalizedEnd < normalizedStart) {
-      return "La date de fin doit être après la date de début";
+      return "La date de fin doit être après la date de début.";
     }
 
     if (
       leaveBalance !== null &&
-      requestedDays !== null &&
-      requestedDays > leaveBalance
+      effectiveRequestedDays !== null &&
+      effectiveRequestedDays > leaveBalance
     ) {
       return `Il vous reste seulement ${leaveBalance} jour${
         leaveBalance === 1 ? "" : "s"
@@ -324,7 +401,7 @@ export default function LeaveRequestScreen() {
 
     const hasOverlap = requests.some((request) => {
       const status = normalizeStatus(request.statusLabel);
-      if (status === "rejected" || status === "cancelled") return false;
+      if (status !== "pending" && status !== "approved") return false;
 
       const requestStart = normalizeDateOnly(request.startDate);
       const requestEnd = normalizeDateOnly(request.endDate);
@@ -333,7 +410,7 @@ export default function LeaveRequestScreen() {
     });
 
     if (hasOverlap) {
-      return "Vous avez déjà une demande de congé qui chevauche ces dates";
+      return "Vous avez déjà une demande de congé en attente ou approuvée qui chevauche ces dates.";
     }
 
     return null;
@@ -342,18 +419,24 @@ export default function LeaveRequestScreen() {
     endDate,
     trimmedReason,
     leaveBalance,
-    requestedDays,
+    effectiveRequestedDays,
     requests,
+    isHalfDay,
+    type,
+    halfDayPeriod,
+    fromTime,
+    toTime,
   ]);
 
   const isCreateDisabled =
     creating ||
     loadingBalance ||
     leaveBalance === null ||
-    leaveBalance <= 0 ||
-    !!formValidationMessage;
+    leaveBalance <= 0;
 
   const handleCreate = async () => {
+    setSubmitAttempted(true);
+
     if (formValidationMessage) {
       Alert.alert("Erreur", formValidationMessage);
       return;
@@ -362,12 +445,23 @@ export default function LeaveRequestScreen() {
     setCreating(true);
 
     try {
-      const res = await leaveService.createLeaveRequest({
+      const payload = {
         type: leaveTypeToInt(type),
         startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
+        endDate: isHalfDay ? startDate.toISOString() : endDate.toISOString(),
         reason: trimmedReason,
-      });
+      };
+
+      if (isHalfDay) {
+        payload.dayPeriod = halfDayPeriod;
+        payload.fromTime = fromTime;
+        payload.toTime = toTime;
+        payload.halfDayPeriod = halfDayPeriod;
+        payload.startTime = fromTime;
+        payload.endTime = toTime;
+      }
+
+      const res = await leaveService.createLeaveRequest(payload);
 
       if (res?.success) {
         Alert.alert("Succès", "Demande de congé créée");
@@ -535,40 +629,17 @@ export default function LeaveRequestScreen() {
         {!isReviewMode && (
           <>
             <TouchableOpacity
-              style={[
-                styles.createButton,
-                !loadingBalance &&
-                  leaveBalance <= 0 &&
-                  styles.createButtonDisabled,
-              ]}
+              style={styles.createButton}
               activeOpacity={0.9}
               onPress={() => {
                 if (loadingBalance) return;
-
-                if (leaveBalance > 0) {
-                  setModalVisible(true);
-                  return;
-                }
-
-                Alert.alert(
-                  "Aucun solde de congés",
-                  "Vous n'avez plus de jours de congé. Vous pouvez tout de même consulter vos demandes précédentes ci-dessous.",
-                );
+                openCreateForm();
               }}
             >
-              <Text
-                style={[
-                  styles.createButtonText,
-                  !loadingBalance &&
-                    leaveBalance <= 0 &&
-                    styles.createButtonTextDisabled,
-                ]}
-              >
+              <Text style={styles.createButtonText}>
                 {loadingBalance
                   ? "Vérification du solde..."
-                  : leaveBalance > 0
-                    ? "+ Créer une demande"
-                    : "Voir les demandes précédentes"}
+                  : "+ Créer une demande"}
               </Text>
             </TouchableOpacity>
 
@@ -580,8 +651,7 @@ export default function LeaveRequestScreen() {
                   color={colors.warning}
                 />
                 <Text style={styles.balanceWarningText}>
-                  Votre solde de congés est à 0. Vous ne pouvez pas créer une
-                  nouvelle demande.
+                  Vous ne disposez plus de jours de congé.
                 </Text>
               </View>
             )}
@@ -643,6 +713,7 @@ export default function LeaveRequestScreen() {
           filteredRequests.map((request) => {
             const statusStyle = getStatusStyles(request.statusLabel);
             const dayCount = getDayCount(request.startDate, request.endDate);
+            const isRequestHalfDay = HALF_DAY_TYPES.includes(request.typeLabel);
 
             return (
               <View
@@ -663,8 +734,9 @@ export default function LeaveRequestScreen() {
                     </Text>
 
                     <Text style={styles.requestDates}>
-                      {formatDateReadable(request.startDate)} -{" "}
-                      {formatDateReadable(request.endDate)}
+                      {formatDateReadable(request.startDate)}
+                      {!isRequestHalfDay &&
+                        ` - ${formatDateReadable(request.endDate)}`}
                     </Text>
                   </View>
 
@@ -679,7 +751,9 @@ export default function LeaveRequestScreen() {
                   <View style={styles.metaPill}>
                     <Text style={styles.metaPillLabel}>Durée</Text>
                     <Text style={styles.metaPillText}>
-                      {dayCount} {dayCount === 1 ? "jour" : "jours"}
+                      {isRequestHalfDay
+                        ? "0.5 jour"
+                        : `${dayCount} ${dayCount === 1 ? "jour" : "jours"}`}
                     </Text>
                   </View>
 
@@ -737,212 +811,353 @@ export default function LeaveRequestScreen() {
         transparent
         onRequestClose={resetCreateModal}
       >
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={resetCreateModal} />
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={resetCreateModal}
+          />
           <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHandle} />
+            <View style={styles.modalContent}>
+              <View style={styles.modalHandle} />
 
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.modalScrollContent}
-            >
-              <Text style={styles.modalTitle}>Nouvelle demande de congé</Text>
-              <Text style={styles.modalSubtitle}>
-                Renseignez les détails de votre demande
-              </Text>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <Text style={styles.modalTitle}>Nouvelle demande de congé</Text>
+                <Text style={styles.modalSubtitle}>
+                  Renseignez les détails de votre demande
+                </Text>
 
-              <View style={styles.section}>
-                <Text style={styles.label}>Type de congé</Text>
+                <View style={styles.balanceInfoCard}>
+                  <Text style={styles.balanceInfoLabel}>Solde disponible :</Text>
+                  <Text style={styles.balanceInfoValue}>
+                    {loadingBalance
+                      ? "Chargement..."
+                      : `${leaveBalance ?? 0} jour${
+                          leaveBalance === 1 ? "" : "s"
+                        }`}
+                  </Text>
+                </View>
 
-                <View style={styles.typeChipRow}>
-                  {LEAVE_TYPES.map((item) => {
-                    const selected = type === item;
-                    return (
-                      <TouchableOpacity
-                        key={item}
-                        style={[
-                          styles.typeChip,
-                          selected && styles.typeChipActive,
-                        ]}
-                        activeOpacity={0.85}
-                        onPress={() => setType(item)}
-                      >
+                <View style={styles.section}>
+                  <Text style={styles.label}>Type de congé</Text>
+
+                  <View style={styles.typeChipRow}>
+                    {LEAVE_TYPES.map((item) => {
+                      const selected = type === item;
+                      return (
+                        <TouchableOpacity
+                          key={item}
+                          style={[
+                            styles.typeChip,
+                            selected && styles.typeChipActive,
+                          ]}
+                          activeOpacity={0.85}
+                          onPress={() => {
+                            setType(item);
+
+                            if (HALF_DAY_TYPES.includes(item)) {
+                              setEndDate(startDate);
+                              setHalfDayPeriod("");
+                              setFromTime("");
+                              setToTime("");
+                            } else {
+                              setHalfDayPeriod("");
+                              setFromTime("");
+                              setToTime("");
+                              if (startDate && !endDate) {
+                                setEndDate(startDate);
+                              }
+                            }
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.typeChipText,
+                              selected && styles.typeChipTextActive,
+                            ]}
+                          >
+                            {LEAVE_TYPE_LABELS_FR[item] ?? item}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {isHalfDay && (
+                  <View style={styles.section}>
+                    <Text style={styles.label}>Période</Text>
+
+                    <View style={styles.typeChipRow}>
+                      {[
+                        {
+                          key: "Morning",
+                          label: "Matin",
+                          time: "08:00 - 12:00",
+                        },
+                        {
+                          key: "Afternoon",
+                          label: "Après-midi",
+                          time: "13:00 - 17:00",
+                        },
+                      ].map((period) => {
+                        const selected = halfDayPeriod === period.key;
+
+                        return (
+                          <TouchableOpacity
+                            key={period.key}
+                            style={[
+                              styles.typeChip,
+                              selected && styles.typeChipActive,
+                            ]}
+                            activeOpacity={0.85}
+                            onPress={() => {
+                              setHalfDayPeriod(period.key);
+                              if (period.key === "Morning") {
+                                setFromTime("08:00");
+                                setToTime("12:00");
+                              } else {
+                                setFromTime("13:00");
+                                setToTime("17:00");
+                              }
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.typeChipText,
+                                selected && styles.typeChipTextActive,
+                              ]}
+                            >
+                              {period.label}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.fieldHelperText,
+                                selected && { color: colors.textOnPrimary },
+                              ]}
+                            >
+                              {period.time}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    <View style={styles.timeRow}>
+                      <View style={styles.timeField}>
+                        <Text style={styles.timeLabel}>De</Text>
+                        <TextInput
+                          style={styles.timeInput}
+                          value={fromTime}
+                          onChangeText={setFromTime}
+                          placeholder="08:00"
+                          placeholderTextColor={colors.textTertiary}
+                          keyboardType="numbers-and-punctuation"
+                          maxLength={5}
+                        />
+                      </View>
+
+                      <View style={styles.timeField}>
+                        <Text style={styles.timeLabel}>À</Text>
+                        <TextInput
+                          style={styles.timeInput}
+                          value={toTime}
+                          onChangeText={setToTime}
+                          placeholder="12:00"
+                          placeholderTextColor={colors.textTertiary}
+                          keyboardType="numbers-and-punctuation"
+                          maxLength={5}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                <View style={styles.section}>
+                  <Text style={styles.label}>{isHalfDay ? "Date" : "Dates"}</Text>
+
+                  <View style={styles.dateRow}>
+                    <Pressable
+                      style={styles.dateField}
+                      onPress={() => setShowStartPicker(true)}
+                    >
+                      <View style={styles.dateIconRow}>
+                        <Ionicons
+                          name="calendar-outline"
+                          size={16}
+                          color={colors.textSecondary}
+                        />
                         <Text
                           style={[
-                            styles.typeChipText,
-                            selected && styles.typeChipTextActive,
+                            styles.dateText,
+                            !startDate && styles.placeholderText,
                           ]}
                         >
-                          {LEAVE_TYPE_LABELS_FR[item] ?? item}
+                          {startDate
+                            ? formatDateValue(startDate)
+                            : isHalfDay
+                              ? "Date"
+                              : "Date de début"}
                         </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-
-              <View style={styles.section}>
-                <Text style={styles.label}>Dates</Text>
-
-                <View style={styles.dateRow}>
-                  <Pressable
-                    style={styles.dateField}
-                    onPress={() => setShowStartPicker(true)}
-                  >
-                    <View style={styles.dateIconRow}>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={16}
-                        color={colors.textSecondary}
-                      />
-                      <Text
-                        style={[
-                          styles.dateText,
-                          !startDate && styles.placeholderText,
-                        ]}
-                      >
-                        {startDate
-                          ? formatDateValue(startDate)
-                          : "Date de début"}
+                      </View>
+                      <Text style={styles.dateFieldLabel}>
+                        {isHalfDay ? "Date" : "Début"}
                       </Text>
-                    </View>
-                    <Text style={styles.dateFieldLabel}>Début</Text>
-                  </Pressable>
+                    </Pressable>
 
-                  <Pressable
-                    style={styles.dateField}
-                    onPress={() => setShowEndPicker(true)}
-                  >
-                    <View style={styles.dateIconRow}>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={16}
-                        color={colors.textSecondary}
-                      />
-                      <Text
-                        style={[
-                          styles.dateText,
-                          !endDate && styles.placeholderText,
-                        ]}
+                    {!isHalfDay && (
+                      <Pressable
+                        style={styles.dateField}
+                        onPress={() => setShowEndPicker(true)}
                       >
-                        {endDate ? formatDateValue(endDate) : "Date de fin"}
-                      </Text>
-                    </View>
-                    <Text style={styles.dateFieldLabel}>Fin</Text>
-                  </Pressable>
-                </View>
-
-                {startDate && endDate && (
-                  <View style={styles.helperCard}>
-                    <Text style={styles.helperLabel}>Durée</Text>
-                    <Text style={styles.helperText}>
-                      {requestedDays} {requestedDays === 1 ? "jour" : "jours"}
-                    </Text>
+                        <View style={styles.dateIconRow}>
+                          <Ionicons
+                            name="calendar-outline"
+                            size={16}
+                            color={colors.textSecondary}
+                          />
+                          <Text
+                            style={[
+                              styles.dateText,
+                              !endDate && styles.placeholderText,
+                            ]}
+                          >
+                            {endDate
+                              ? formatDateValue(endDate)
+                              : "Date de fin"}
+                          </Text>
+                        </View>
+                        <Text style={styles.dateFieldLabel}>Fin</Text>
+                      </Pressable>
+                    )}
                   </View>
-                )}
 
-                {showStartPicker && (
-                  <DateTimePicker
-                    value={startDate || new Date()}
-                    mode="date"
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    minimumDate={new Date()}
-                    onChange={(event, date) => {
-                      setShowStartPicker(false);
-                      if (event.type === "dismissed") return;
-                      setStartDate(date);
-                      if (endDate && date && endDate < date) {
-                        setEndDate(date);
-                      }
-                    }}
-                  />
-                )}
+                  {(isHalfDay ? startDate : startDate && endDate) && (
+                    <View style={styles.helperCard}>
+                      <Text style={styles.helperLabel}>Durée</Text>
+                        <Text style={styles.helperText}>
+                        {isHalfDay
+                          ? `0.5 jour${
+                              halfDayLabel ? ` - ${halfDayLabel}` : ""
+                            }${fromTime && toTime ? ` (${fromTime} - ${toTime})` : ""}`
+                          : `${requestedDays} ${
+                              requestedDays === 1 ? "jour" : "jours"
+                            }`}
+                      </Text>
+                    </View>
+                  )}
 
-                {showEndPicker && (
-                  <DateTimePicker
-                    value={endDate || startDate || new Date()}
-                    mode="date"
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    minimumDate={startDate || new Date()}
-                    onChange={(event, date) => {
-                      setShowEndPicker(false);
-                      if (event.type === "dismissed") return;
-                      setEndDate(date);
-                    }}
-                  />
-                )}
-              </View>
+                  {showStartPicker && (
+                    <DateTimePicker
+                      value={startDate || new Date()}
+                      mode="date"
+                      display={Platform.OS === "ios" ? "spinner" : "default"}
+                      minimumDate={new Date()}
+                      onChange={(event, date) => {
+                        setShowStartPicker(false);
+                        if (event.type === "dismissed") return;
 
-              <View style={styles.section}>
-                <Text style={styles.label}>Motif</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  placeholder="Écrivez un motif court..."
-                  placeholderTextColor={colors.textTertiary}
-                  value={reason}
-                  onChangeText={setReason}
-                  multiline
-                  maxLength={300}
-                />
-                <Text style={styles.fieldHelperText}>
-                  Ajoutez une explication courte et claire (
-                  {trimmedReason.length}/300).
-                </Text>
-              </View>
+                        setStartDate(date);
 
-              {!!formValidationMessage &&
-                !(
-                  formValidationMessage ===
-                    "Veuillez remplir tous les champs" &&
-                  !startDate &&
-                  !endDate &&
-                  !trimmedReason
-                ) && (
-                  <View style={styles.validationCard}>
-                    <Ionicons
-                      name="information-circle-outline"
-                      size={18}
-                      color={colors.warning}
+                        if (isHalfDay) {
+                          setEndDate(date);
+                        } else if (endDate && date && endDate < date) {
+                          setEndDate(date);
+                        }
+                      }}
                     />
-                    <Text style={styles.validationText}>
-                      {formValidationMessage}
-                    </Text>
-                  </View>
-                )}
+                  )}
 
-              <View style={styles.modalButtons}>
-                <TouchableOpacity
-                  style={[styles.button, styles.cancelBtn]}
-                  activeOpacity={0.85}
-                  onPress={resetCreateModal}
-                  disabled={creating}
-                >
-                  <Text style={styles.cancelBtnText}>Annuler</Text>
-                </TouchableOpacity>
+                  {showEndPicker && !isHalfDay && (
+                    <DateTimePicker
+                      value={endDate || startDate || new Date()}
+                      mode="date"
+                      display={Platform.OS === "ios" ? "spinner" : "default"}
+                      minimumDate={new Date()}
+                      onChange={(event, date) => {
+                        setShowEndPicker(false);
+                        if (event.type === "dismissed") return;
+                        setEndDate(date);
+                      }}
+                    />
+                  )}
+                </View>
 
-                <TouchableOpacity
-                  style={[
-                    styles.button,
-                    styles.primaryBtn,
-                    isCreateDisabled && styles.primaryBtnDisabled,
-                  ]}
-                  activeOpacity={isCreateDisabled ? 1 : 0.9}
-                  onPress={handleCreate}
-                  disabled={isCreateDisabled}
-                >
-                  <Text
-                    style={[
-                      styles.primaryBtnText,
-                      isCreateDisabled && styles.primaryBtnTextDisabled,
-                    ]}
-                  >
-                    {creating ? "Création..." : "Créer"}
+                <View style={styles.section}>
+                  <Text style={styles.label}>Motif</Text>
+                  <TextInput
+                    style={[styles.input, styles.textArea]}
+                    placeholder="Écrivez un motif court..."
+                    placeholderTextColor={colors.textTertiary}
+                    value={reason}
+                    onChangeText={setReason}
+                    multiline
+                    maxLength={300}
+                  />
+                  <Text style={styles.fieldHelperText}>
+                    Ajoutez une explication courte et claire (
+                    {trimmedReason.length}/300).
                   </Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
+                </View>
+
+                {submitAttempted &&
+                  !!formValidationMessage &&
+                  !(
+                    formValidationMessage ===
+                      "Veuillez remplir tous les champs" &&
+                    !startDate &&
+                    !endDate &&
+                    !trimmedReason
+                  ) && (
+                    <View style={styles.validationCard}>
+                      <Ionicons
+                        name="information-circle-outline"
+                        size={18}
+                        color={colors.warning}
+                      />
+                      <Text style={styles.validationText}>
+                        {formValidationMessage}
+                      </Text>
+                    </View>
+                  )}
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.button, styles.cancelBtn]}
+                    activeOpacity={0.85}
+                    onPress={resetCreateModal}
+                    disabled={creating}
+                  >
+                    <Text style={styles.cancelBtnText}>Annuler</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.button,
+                      styles.primaryBtn,
+                      isCreateDisabled && styles.primaryBtnDisabled,
+                    ]}
+                    activeOpacity={isCreateDisabled ? 1 : 0.9}
+                    onPress={handleCreate}
+                    disabled={isCreateDisabled}
+                  >
+                    <Text
+                      style={[
+                        styles.primaryBtnText,
+                        isCreateDisabled && styles.primaryBtnTextDisabled,
+                      ]}
+                    >
+                      {creating ? "Création..." : "Créer"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -953,108 +1168,116 @@ export default function LeaveRequestScreen() {
         transparent
         onRequestClose={resetReviewModal}
       >
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={resetReviewModal} />
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={resetReviewModal}
+          />
           <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHandle} />
+            <View style={styles.modalContent}>
+              <View style={styles.modalHandle} />
 
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.modalScrollContent}
-            >
-              <Text style={styles.modalTitle}>Traiter la demande</Text>
-              <Text style={styles.modalSubtitle}>
-                Ajoutez un commentaire optionnel et choisissez une action
-              </Text>
-
-              {selectedRequest && (
-                <View style={styles.reviewSummaryCard}>
-                  {!!selectedRequest.employeeName && (
-                    <Text style={styles.reviewSummaryEmployee}>
-                      {selectedRequest.employeeName}
-                    </Text>
-                  )}
-
-                  <Text style={styles.reviewSummaryType}>
-                    {leaveTypeToString(selectedRequest.type)}
-                  </Text>
-
-                  <Text style={styles.reviewSummaryDates}>
-                    {formatDateReadable(selectedRequest.startDate)} -{" "}
-                    {formatDateReadable(selectedRequest.endDate)}
-                  </Text>
-
-                  {!!selectedRequest.reason && (
-                    <Text style={styles.reviewSummaryReason}>
-                      {selectedRequest.reason}
-                    </Text>
-                  )}
-                </View>
-              )}
-
-              <View style={styles.section}>
-                <Text style={styles.label}>
-                  Commentaire du responsable (optionnel)
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <Text style={styles.modalTitle}>Traiter la demande</Text>
+                <Text style={styles.modalSubtitle}>
+                  Ajoutez un commentaire optionnel et choisissez une action
                 </Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  placeholder="Écrivez un commentaire court..."
-                  placeholderTextColor={colors.textTertiary}
-                  value={reviewComment}
-                  onChangeText={setReviewComment}
-                  multiline
-                />
-              </View>
 
-              <View style={styles.reviewActionRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.button,
-                    styles.cancelBtn,
-                    styles.reviewThirdButton,
-                  ]}
-                  activeOpacity={0.85}
-                  onPress={resetReviewModal}
-                  disabled={!!reviewingAction}
-                >
-                  <Text style={styles.cancelBtnText}>Annuler</Text>
-                </TouchableOpacity>
+                {selectedRequest && (
+                  <View style={styles.reviewSummaryCard}>
+                    {!!selectedRequest.employeeName && (
+                      <Text style={styles.reviewSummaryEmployee}>
+                        {selectedRequest.employeeName}
+                      </Text>
+                    )}
 
-                <TouchableOpacity
-                  style={[
-                    styles.button,
-                    styles.rejectButton,
-                    styles.reviewThirdButton,
-                  ]}
-                  activeOpacity={0.9}
-                  onPress={() => handleReview("Rejected")}
-                  disabled={!!reviewingAction}
-                >
-                  <Text style={styles.reviewButtonText}>
-                    {reviewingAction === "Rejected" ? "Rejet..." : "Rejeter"}
+                    <Text style={styles.reviewSummaryType}>
+                      {LEAVE_TYPE_LABELS_FR[
+                        leaveTypeToString(selectedRequest.type)
+                      ] ?? leaveTypeToString(selectedRequest.type)}
+                    </Text>
+
+                    <Text style={styles.reviewSummaryDates}>
+                      {formatDateReadable(selectedRequest.startDate)} -{" "}
+                      {formatDateReadable(selectedRequest.endDate)}
+                    </Text>
+
+                    {!!selectedRequest.reason && (
+                      <Text style={styles.reviewSummaryReason}>
+                        {selectedRequest.reason}
+                      </Text>
+                    )}
+                  </View>
+                )}
+
+                <View style={styles.section}>
+                  <Text style={styles.label}>
+                    Commentaire du responsable (optionnel)
                   </Text>
-                </TouchableOpacity>
+                  <TextInput
+                    style={[styles.input, styles.textArea]}
+                    placeholder="Écrivez un commentaire court..."
+                    placeholderTextColor={colors.textTertiary}
+                    value={reviewComment}
+                    onChangeText={setReviewComment}
+                    multiline
+                  />
+                </View>
 
-                <TouchableOpacity
-                  style={[
-                    styles.button,
-                    styles.approveButton,
-                    styles.reviewThirdButton,
-                  ]}
-                  activeOpacity={0.9}
-                  onPress={() => handleReview("Approved")}
-                  disabled={!!reviewingAction}
-                >
-                  <Text style={styles.reviewButtonText}>
-                    {reviewingAction === "Approved"
-                      ? "Approbation..."
-                      : "Approuver"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
+                <View style={styles.reviewActionRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.button,
+                      styles.cancelBtn,
+                      styles.reviewThirdButton,
+                    ]}
+                    activeOpacity={0.85}
+                    onPress={resetReviewModal}
+                    disabled={!!reviewingAction}
+                  >
+                    <Text style={styles.cancelBtnText}>Annuler</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.button,
+                      styles.rejectButton,
+                      styles.reviewThirdButton,
+                    ]}
+                    activeOpacity={0.9}
+                    onPress={() => handleReview("Rejected")}
+                    disabled={!!reviewingAction}
+                  >
+                    <Text style={styles.reviewButtonText}>
+                      {reviewingAction === "Rejected" ? "Rejet..." : "Rejeter"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.button,
+                      styles.approveButton,
+                      styles.reviewThirdButton,
+                    ]}
+                    activeOpacity={0.9}
+                    onPress={() => handleReview("Approved")}
+                    disabled={!!reviewingAction}
+                  >
+                    <Text style={styles.reviewButtonText}>
+                      {reviewingAction === "Approved"
+                        ? "Approbation..."
+                        : "Approuver"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1497,6 +1720,28 @@ const createStyles = (
       marginBottom: spacing.lg,
     },
 
+    balanceInfoCard: {
+      backgroundColor: colors.infoLight,
+      borderWidth: 1,
+      borderColor: colors.info,
+      borderRadius: borderRadius.md,
+      padding: spacing.md,
+      marginBottom: spacing.lg,
+    },
+
+    balanceInfoLabel: {
+      fontSize: typography.xs,
+      fontWeight: typography.bold,
+      color: colors.info,
+      marginBottom: spacing.xs,
+    },
+
+    balanceInfoValue: {
+      fontSize: typography.lg,
+      color: colors.text,
+      fontWeight: typography.bold,
+    },
+
     section: {
       marginBottom: spacing.lg,
     },
@@ -1536,6 +1781,35 @@ const createStyles = (
 
     typeChipTextActive: {
       color: colors.textOnPrimary,
+    },
+
+    timeRow: {
+      flexDirection: "row",
+      gap: spacing.sm,
+      marginTop: spacing.md,
+    },
+
+    timeField: {
+      flex: 1,
+    },
+
+    timeLabel: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      fontWeight: typography.bold,
+      marginBottom: spacing.xs,
+    },
+
+    timeInput: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: borderRadius.md,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      fontSize: typography.base,
+      backgroundColor: colors.background,
+      color: colors.text,
+      fontWeight: typography.semibold,
     },
 
     dateRow: {

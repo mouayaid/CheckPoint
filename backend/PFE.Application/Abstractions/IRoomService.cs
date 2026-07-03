@@ -6,6 +6,7 @@ namespace PFE.Application.Abstractions;
 public interface IRoomService
 {
     Task<List<RoomDto>> GetAllAsync();
+    Task<List<RoomDto>> GetAllForManagementAsync();
     Task<RoomDto?> GetByIdAsync(int id);
     Task<RoomDto> CreateAsync(CreateRoomDto dto);
     Task<RoomDto?> UpdateAsync(int id, UpdateRoomDto dto);

@@ -45,7 +45,7 @@ public class LeaveController : ControllerBase
         return Ok(ApiResponse<List<LeaveRequestDto>>.SuccessResponse(requests));
     }
 
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Admin")]
     [HttpGet("pending-review")]
     public async Task<IActionResult> GetPendingForReview()
     {
@@ -55,7 +55,7 @@ public class LeaveController : ControllerBase
         return Ok(requests);
     }
 
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Admin")]
     [HttpPut("requests/{id}/approve")]
     public async Task<IActionResult> Approve(int id, [FromBody] ApproveLeaveRequestDto dto)
     {
@@ -65,12 +65,26 @@ public class LeaveController : ControllerBase
         return Ok(result);
     }
 
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Admin")]
     [HttpPut("requests/{id}/reject")]
     public async Task<IActionResult> Reject(int id, [FromBody] RejectLeaveRequestDto dto)
     {
         var reviewerId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         var result = await _leaveService.RejectLeaveRequestAsync(id, reviewerId, dto);
+
+        return Ok(result);
+    }
+
+    [HttpPut("requests/{id}/cancel")]
+    public async Task<IActionResult> Cancel(int id)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _leaveService.CancelLeaveRequestAsync(id, userId);
+
+        if (result == null)
+        {
+            return NotFound(ApiResponse<LeaveRequestDto>.ErrorResponse("Leave request not found"));
+        }
 
         return Ok(result);
     }

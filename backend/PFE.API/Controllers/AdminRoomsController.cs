@@ -21,7 +21,7 @@ public class AdminRoomsController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<ApiResponse<List<RoomDto>>>> GetAllRooms()
     {
-        var rooms = await _roomService.GetAllAsync();
+        var rooms = await _roomService.GetAllForManagementAsync();
         return Ok(ApiResponse<List<RoomDto>>.SuccessResponse(rooms));
     }
 

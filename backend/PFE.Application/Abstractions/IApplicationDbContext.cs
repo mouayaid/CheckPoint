@@ -8,8 +8,6 @@ public interface IApplicationDbContext
     DbSet<User> Users { get; }
     DbSet<Department> Departments { get; }
 
-    DbSet<InternalRequest> InternalRequests { get; }
-
     DbSet<OfficeTable> OfficeTables { get; }
     DbSet<Seat> Seats { get; }
     DbSet<SeatReservation> SeatReservations { get; }
@@ -18,7 +16,6 @@ public interface IApplicationDbContext
     DbSet<RoomReservation> RoomReservations { get; }
 
     DbSet<LeaveRequest> LeaveRequests { get; }
-    DbSet<AbsenceRequest> AbsenceRequests { get; }
     DbSet<GeneralRequest> GeneralRequests { get; }
 
     DbSet<Event> Events { get; }
@@ -33,6 +30,11 @@ public interface IApplicationDbContext
     DbSet<DepartmentChannelReadState> DepartmentChannelReadStates { get; }
     DbSet<DepartmentPollVote> DepartmentPollVotes { get; }
     DbSet<Announcement> Announcements { get; }
+    DbSet<MeetingTranscription> MeetingTranscriptions { get; set; }
+
+    DbSet<RefreshToken> RefreshTokens { get; }
+
+    DbSet<PasswordResetOtp> PasswordResetOtps { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

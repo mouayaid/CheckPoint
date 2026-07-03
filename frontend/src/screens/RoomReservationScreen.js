@@ -13,14 +13,10 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
-  TextInput,
   Modal,
-  Pressable,
   Platform,
   RefreshControl,
-  LayoutAnimation,
   UIManager,
-  KeyboardAvoidingView,
   ActivityIndicator,
 } from "react-native";
 
@@ -31,28 +27,19 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import roomService from "../services/api/roomService";
 import { roomReservationService } from "../services/api/roomReservationService";
 import { useTheme } from "../context/ThemeContext";
-import { Button, Card } from "../components";
-
-const QUICK_DURATIONS = [
-  { label: "30 min", minutes: 30 },
-  { label: "1 h", minutes: 60 },
-  { label: "2 h", minutes: 120 },
-];
-
-const MY_RESERVATION_FILTERS = ["All", "Upcoming", "Past"];
-
-const MY_RESERVATION_FILTER_LABELS_FR = {
-  All: "Tout",
-  Upcoming: "À venir",
-  Past: "Passées",
-};
+import RoomFilterBar from "../components/rooms/RoomFilterBar";
+import RoomList from "../components/rooms/RoomList";
+import ReservationModal from "../components/rooms/ReservationModal";
+import MyReservations from "../components/rooms/MyReservations";
+import ConfirmActionModal from "../components/common/ConfirmActionModal";
+import FeedbackModal from "../components/FeedbackModal";
+import { useFeedback } from "../hooks/useFeedback";
 
 const formatDateKey = (date) => {
   const y = date.getFullYear();
@@ -84,21 +71,6 @@ const getWorkWeekDays = (baseDate) => {
   });
 };
 
-const sameDateKey = (a, b) => formatDateKey(a) === formatDateKey(b);
-
-const formatTime = (dateObj) => {
-  if (!dateObj) return "";
-  const hh = String(dateObj.getHours()).padStart(2, "0");
-  const mm = String(dateObj.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
-};
-
-const formatRange = (isoStart, isoEnd) => {
-  const s = new Date(isoStart);
-  const e = new Date(isoEnd);
-  return `${formatTime(s)} – ${formatTime(e)}`;
-};
-
 const formatReservationDate = (start, end) => {
   const s = new Date(start);
   const e = new Date(end);
@@ -125,24 +97,83 @@ const combineDateAndTime = (dateStr, timeDateObj) => {
   return new Date(y, m - 1, d, hh, mm, 0, 0);
 };
 
+function normalizeStatusKey(status) {
+  if (typeof status === "number" && Number.isFinite(status)) {
+    // Backend ReservationStatus: Pending=0, Active=1, Cancelled=2, Completed=3, Rejected=4, InProgress=5
+    const map = {
+      0: "pending",
+      1: "active",
+      2: "cancelled",
+      3: "completed",
+      4: "rejected",
+      5: "inprogress",
+    };
+    return map[status] ?? String(status);
+  }
+  return String(status ?? "").toLowerCase();
+}
+
+const getBlockingRange = (reservation) => {
+  const key = normalizeStatusKey(reservation.status ?? reservation.Status);
+  if (key !== "pending" && key !== "active" && key !== "inprogress") {
+    return null;
+  }
+
+  const startSource =
+    key === "inprogress"
+      ? reservation.startedAt ||
+        reservation.StartedAt ||
+        reservation.startDateTime ||
+        reservation.startDate ||
+        reservation.start
+      : reservation.startDateTime || reservation.startDate || reservation.start;
+
+  const start = new Date(startSource);
+  if (Number.isNaN(start.getTime())) return null;
+
+  if (key === "inprogress") {
+    return { start, end: null };
+  }
+
+  const end = new Date(
+    reservation.endDateTime || reservation.endDate || reservation.end,
+  );
+  if (Number.isNaN(end.getTime())) return null;
+
+  return { start, end };
+};
+
+const overlapsBlockingReservation = (reservation, start, end) => {
+  const range = getBlockingRange(reservation);
+  if (!range) return false;
+  if (range.end == null) return range.start < end;
+  return start < range.end && end > range.start;
+};
+
+const isInstantBlockedByReservation = (reservation, instant) => {
+  const range = getBlockingRange(reservation);
+  if (!range) return false;
+  if (range.end == null) return range.start <= instant;
+  return instant >= range.start && instant <= range.end;
+};
+
+
 const findNextAvailableSlot = (reservations, dateStr, durationMinutes = 60) => {
   const [y, m, d] = dateStr.split("-").map(Number);
   const workStart = new Date(y, m - 1, d, 8, 0, 0, 0);
-  const workEnd = new Date(y, m - 1, d, 18, 0, 0, 0);
-  const sorted = [...reservations].sort(
-    (a, b) =>
-      new Date(a.startDateTime || a.startDate || a.start) -
-      new Date(b.startDateTime || b.startDate || b.start),
-  );
+  const workEnd = new Date(y, m - 1, d, 17, 0, 0, 0);
+  const sorted = reservations
+    .map((reservation) => getBlockingRange(reservation))
+    .filter(Boolean)
+    .sort((a, b) => a.start - b.start);
   let candidateStart = new Date(workStart);
-  for (const r of sorted) {
-    const existingStart = new Date(r.startDateTime || r.startDate || r.start);
-    const existingEnd = new Date(r.endDateTime || r.endDate || r.end);
+  for (const range of sorted) {
     const candidateEnd = new Date(candidateStart);
     candidateEnd.setMinutes(candidateEnd.getMinutes() + durationMinutes);
-    if (candidateEnd <= existingStart)
+    if (candidateEnd <= range.start)
       return { start: candidateStart, end: candidateEnd };
-    if (candidateStart < existingEnd) candidateStart = new Date(existingEnd);
+    if (range.end == null) return null;
+    if (candidateStart < range.end) candidateStart = new Date(range.end);
   }
   const finalEnd = new Date(candidateStart);
   finalEnd.setMinutes(finalEnd.getMinutes() + durationMinutes);
@@ -153,6 +184,18 @@ const findNextAvailableSlot = (reservations, dateStr, durationMinutes = 60) => {
 const getDurationMinutes = (start, end) => {
   if (!start || !end) return 0;
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+};
+
+const isWithinWorkHours = (start, end) => {
+  if (!start || !end) return false;
+
+  const workStart = new Date(start);
+  workStart.setHours(8, 0, 0, 0);
+
+  const workEnd = new Date(start);
+  workEnd.setHours(17, 0, 0, 0);
+
+  return start >= workStart && end <= workEnd;
 };
 
 const formatDuration = (minutes) => {
@@ -175,29 +218,10 @@ function getErrorMessage(error, fallback) {
   );
 }
 
-function normalizeStatusKey(status) {
-  if (typeof status === "number" && Number.isFinite(status)) {
-    // Backend ReservationStatus: Pending=0, Active=1, Cancelled=2, Completed=3, Rejected=4, InProgress=5
-    const map = {
-      0: "pending",
-      1: "active",
-      2: "cancelled",
-      3: "completed",
-      4: "rejected",
-      5: "inprogress",
-    };
-    return map[status] ?? String(status);
-  }
-  return String(status ?? "").toLowerCase();
-}
-
 /** Start / finish meeting actions for a room reservation row */
 function getRoomResActionState(reservation) {
   const key = normalizeStatusKey(reservation.status ?? reservation.Status);
-  const isStarted = !!(
-    reservation.startedAt ||
-    reservation.StartedAt
-  );
+  const isStarted = !!(reservation.startedAt || reservation.StartedAt);
   const canStart = key === "active" && !isStarted;
   const canFinish =
     (key === "inprogress" || isStarted) &&
@@ -208,7 +232,7 @@ function getRoomResActionState(reservation) {
 
 function parseRoomQrPayload(data) {
   const trimmed = String(data ?? "").trim();
-  const match = trimmed.match(/^room:(\d+)$/i);
+  const match = trimmed.match(/^ROOM:(\d+)$/);
   if (!match) return null;
   return parseInt(match[1], 10);
 }
@@ -223,86 +247,9 @@ function reservationRoomIdOf(r) {
   return Number.isFinite(n) ? n : null;
 }
 
-function StatusBadge({ status, colors }) {
-  const key = normalizeStatusKey(status);
-
-  const configs = {
-    pending: {
-      label: "En attente",
-      bg: colors.warningLight,
-      fg: colors.warning,
-      dot: colors.warning,
-    },
-    active: {
-      label: "Active",
-      bg: colors.successLight,
-      fg: colors.success,
-      dot: colors.success,
-    },
-    approved: {
-      label: "Active",
-      bg: colors.successLight,
-      fg: colors.success,
-      dot: colors.success,
-    },
-    inprogress: {
-      label: "En cours",
-      bg: colors.infoLight,
-      fg: colors.info,
-      dot: colors.info,
-    },
-    completed: {
-      label: "Terminée",
-      bg: colors.surfaceMuted,
-      fg: colors.textSecondary,
-      dot: colors.textTertiary,
-    },
-    rejected: {
-      label: "Rejetée",
-      bg: colors.errorLight,
-      fg: colors.error,
-      dot: colors.error,
-    },
-    cancelled: {
-      label: "Annulée",
-      bg: colors.surfaceMuted,
-      fg: colors.textSecondary,
-      dot: colors.border,
-    },
-  };
-
-  const config = configs[key] || {
-    label: String(status ?? "—"),
-    bg: colors.surfaceMuted,
-    fg: colors.textSecondary,
-    dot: colors.textTertiary,
-  };
-
-  return (
-    <View style={[badgeStyles.badge, { backgroundColor: config.bg }]}>
-      <View style={[badgeStyles.dot, { backgroundColor: config.dot }]} />
-      <Text style={[badgeStyles.text, { color: config.fg }]}>
-        {config.label}
-      </Text>
-    </View>
-  );
-}
-
-const badgeStyles = StyleSheet.create({
-  badge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 9999,
-  },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  text: { fontSize: 11, fontWeight: "700", letterSpacing: 0.2 },
-});
-
-export default function RoomReservationScreen() {
+export default function RoomReservationScreen({ navigation }) {
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
+  const { feedback, showFeedback, hideFeedback } = useFeedback();
   const styles = useMemo(
     () => createStyles(colors, spacing, borderRadius, typography, shadows),
     [colors, spacing, borderRadius, typography, shadows],
@@ -320,8 +267,6 @@ export default function RoomReservationScreen() {
 
   const [startTime, setStartTime] = useState(null);
   const [endTime, setEndTime] = useState(null);
-  const [showStartPicker, setShowStartPicker] = useState(false);
-  const [showEndPicker, setShowEndPicker] = useState(false);
   const [purpose, setPurpose] = useState("");
 
   const [dayReservations, setDayReservations] = useState([]);
@@ -336,7 +281,10 @@ export default function RoomReservationScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [reserving, setReserving] = useState(false);
-  const [reservationFilter, setReservationFilter] = useState("All");
+  const [cancelReservationId, setCancelReservationId] = useState(null);
+  const [cancellingReservation, setCancellingReservation] = useState(false);
+  const [finishReservationId, setFinishReservationId] = useState(null);
+  const [finishingReservation, setFinishingReservation] = useState(false);
 
   const [scannerVisible, setScannerVisible] = useState(false);
   const [scanningResId, setScanningResId] = useState(null);
@@ -440,6 +388,7 @@ export default function RoomReservationScreen() {
     if (scanLockRef.current) return;
     scanLockRef.current = true;
     setScanning(true);
+    console.log("QR DATA:", data);
 
     const releaseScan = () => {
       scanLockRef.current = false;
@@ -451,7 +400,7 @@ export default function RoomReservationScreen() {
       releaseScan();
       Alert.alert(
         "QR invalide",
-        "Ce code ne correspond pas à une salle. Utilisez le QR fixe sur la salle (format room:ID).",
+        "Ce code ne correspond pas à une salle. Utilisez le QR fixe sur la salle (format ROOM:ID).",
       );
       return;
     }
@@ -471,22 +420,24 @@ export default function RoomReservationScreen() {
     }
 
     try {
-      if (scanningAction === "start") {
-        await roomReservationService.scanStart(scanningResId, roomId);
-        await Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Success,
-        );
-        Alert.alert("Check-in réussi", "La réunion a démarré.");
-      } else {
+      if (scanningAction === "finish") {
         await roomReservationService.scanFinish(scanningResId, roomId);
-        await Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Success,
-        );
-        Alert.alert("Réunion terminée", "La réunion est clôturée.");
+      } else {
+        await roomReservationService.scanStart(scanningResId, roomId);
       }
+      await Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Success,
+      );
       setScannerVisible(false);
       await loadMyReservations();
       await loadRoomStatusesForSelectedDate();
+      showFeedback({
+        type: "success",
+        title: scanningAction === "finish" ? "Réunion terminée" : "Réunion démarrée",
+        message: scanningAction === "finish"
+          ? "La réunion est terminée."
+          : "La réunion a démarré.",
+      });
     } catch (error) {
       Alert.alert("Erreur", getErrorMessage(error, "Action impossible."));
     } finally {
@@ -496,7 +447,10 @@ export default function RoomReservationScreen() {
 
   const fetchReservationsForRoomAndDate = async (roomId, date) => {
     try {
-      const res = await roomService.getReservationsForDay(roomId, date);
+      const res = await roomReservationService.getReservationsForDay(
+        roomId,
+        date,
+      );
       if (res?.success)
         return { ok: true, data: res.data || [], message: null };
       return {
@@ -591,17 +545,13 @@ export default function RoomReservationScreen() {
     setModalScheduleError(null);
     setSelectedRoom(null);
     setModalVisible(false);
-    setShowStartPicker(false);
-    setShowEndPicker(false);
     setReserving(false);
   };
 
   const hasOverlap = (newStart, newEnd) =>
-    dayReservations.some((r) => {
-      const existingStart = new Date(r.startDateTime || r.startDate || r.start);
-      const existingEnd = new Date(r.endDateTime || r.endDate || r.end);
-      return newStart < existingEnd && newEnd > existingStart;
-    });
+    dayReservations.some((r) =>
+      overlapsBlockingReservation(r, newStart, newEnd),
+    );
 
   const handleOpenModal = async (room) => {
     setSelectedRoom(room);
@@ -683,6 +633,13 @@ export default function RoomReservationScreen() {
       Alert.alert("Plage invalide", "L'heure de fin doit être après le début.");
       return;
     }
+    if (!isWithinWorkHours(startDateTime, endDateTime)) {
+      Alert.alert(
+        "Horaire non autorisé",
+        "Les réservations sont possibles uniquement entre 08:00 et 17:00.",
+      );
+      return;
+    }
     if (hasOverlap(startDateTime, endDateTime)) {
       Alert.alert(
         "Conflit horaire",
@@ -698,7 +655,7 @@ export default function RoomReservationScreen() {
         endDateTime: endDateTime.toISOString(),
         purpose: purpose.trim(),
       };
-      const response = await roomService.createReservation(payload);
+      const response = await roomReservationService.createReservation(payload);
       if (response?.success) {
         const created = response.data;
         const newId = reservationIdOf(created);
@@ -714,23 +671,20 @@ export default function RoomReservationScreen() {
         resetModal();
 
         if (canOfferScan) {
-          Alert.alert(
-            "Réservation créée",
-            "Pour démarrer la réunion, scannez le QR fixe de la salle (comme pour votre poste au bureau).",
-            [
-              { text: "Plus tard", style: "cancel" },
-              {
-                text: "Scanner le QR",
-                onPress: () => handleScanPress(newId, "start"),
-              },
-            ],
-          );
+          showFeedback({
+            type: "success",
+            title: "Réservation confirmée",
+            message: "Votre salle est réservée. Vous pouvez démarrer la réunion en scannant le QR de la salle.",
+            cancelText: "Plus tard",
+            confirmText: "Scanner le QR",
+            onConfirm: () => handleScanPress(newId, "start"),
+          });
         } else {
-          Alert.alert(
-            "Réservation créée",
-            response.message || "Votre réservation a été créée.",
-            [{ text: "OK" }],
-          );
+          showFeedback({
+            type: "success",
+            title: "Réservation confirmée",
+            message: response.message || "Votre réservation est confirmée.",
+          });
         }
       } else {
         Alert.alert("Échec", response?.message || "Une erreur s'est produite.");
@@ -756,11 +710,9 @@ export default function RoomReservationScreen() {
       return { label: "Libre", color: colors.success };
     if (selectedDate === todayStr) {
       const now = new Date();
-      const busyNow = reservations.some((r) => {
-        const start = new Date(r.startDateTime || r.startDate || r.start);
-        const end = new Date(r.endDateTime || r.endDate || r.end);
-        return now >= start && now <= end;
-      });
+      const busyNow = reservations.some((r) =>
+        isInstantBlockedByReservation(r, now),
+      );
       if (busyNow) return { label: "Occupée", color: colors.error };
     }
     return {
@@ -791,46 +743,6 @@ export default function RoomReservationScreen() {
     return { freeAllDay, partial };
   }, [rooms, roomDayStatusMap, roomDayLoadError]);
 
-  const filteredMyReservations = useMemo(() => {
-    const now = new Date();
-    const sorted = [...myReservations].sort(
-      (a, b) =>
-        new Date(b.startDateTime || b.startDate || b.start) -
-        new Date(a.startDateTime || a.startDate || a.start),
-    );
-    if (reservationFilter === "Upcoming")
-      return sorted.filter(
-        (r) => new Date(r.endDateTime || r.endDate || r.end) >= now,
-      );
-    if (reservationFilter === "Past")
-      return sorted.filter(
-        (r) => new Date(r.endDateTime || r.endDate || r.end) < now,
-      );
-    return sorted;
-  }, [myReservations, reservationFilter]);
-
-  /** Today’s reservation that can start or finish — same idea as the desk status card */
-  const highlightedMeetingReservation = useMemo(() => {
-    const candidates = myReservations
-      .map((r) => {
-        const start = new Date(r.startDateTime || r.startDate || r.start);
-        if (Number.isNaN(start.getTime())) return null;
-        if (formatDateKey(start) !== todayStr) return null;
-        const state = getRoomResActionState(r);
-        if (!state.canStart && !state.canFinish) return null;
-        return { reservation: r, ...state, start };
-      })
-      .filter(Boolean);
-    if (candidates.length === 0) return null;
-    const finishing = candidates.find(
-      (c) => c.key === "inprogress" && c.canFinish,
-    );
-    if (finishing) return finishing;
-    const starting = candidates.find((c) => c.canStart);
-    if (starting) return starting;
-    return candidates.sort((a, b) => a.start - b.start)[0];
-  }, [myReservations, todayStr]);
-
   const durationMinutes =
     startTime && endTime
       ? getDurationMinutes(
@@ -860,19 +772,91 @@ export default function RoomReservationScreen() {
     !!combinedStart &&
     !!combinedEnd &&
     combinedEnd > combinedStart &&
+    isWithinWorkHours(combinedStart, combinedEnd) &&
     !modalScheduleError;
+
+  const handleCancelReservation = async (reservationId) => {
+    setCancelReservationId(reservationId);
+  };
+
+  const handleFinishReservation = async (reservationId) => {
+    setFinishReservationId(reservationId);
+  };
+
+  const closeFinishModal = () => {
+    if (!finishingReservation) setFinishReservationId(null);
+  };
+
+  const confirmFinishReservation = async () => {
+    if (!finishReservationId) return;
+
+    setFinishingReservation(true);
+    try {
+      await roomReservationService.finishReservation(finishReservationId);
+      await Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Success,
+      );
+
+      await Promise.all([
+        loadMyReservations(),
+        loadRoomStatusesForSelectedDate(),
+        modalVisible && selectedRoom?.id
+          ? loadReservationsForSelected()
+          : Promise.resolve(),
+      ]);
+
+      setFinishReservationId(null);
+      showFeedback({
+        type: "success",
+        title: "Réunion terminée",
+        message: "La salle est maintenant libérée.",
+      });
+    } catch (error) {
+      Alert.alert(
+        "Erreur",
+        getErrorMessage(error, "Impossible de terminer la réunion."),
+      );
+    } finally {
+      setFinishingReservation(false);
+    }
+  };
+
+  const closeCancelModal = () => {
+    if (!cancellingReservation) setCancelReservationId(null);
+  };
+
+  const confirmCancelReservation = async () => {
+    if (!cancelReservationId) return;
+
+    setCancellingReservation(true);
+    try {
+      await roomReservationService.cancelReservation(cancelReservationId);
+
+      await Promise.all([
+        loadMyReservations(),
+        loadRoomStatusesForSelectedDate(),
+        modalVisible && selectedRoom?.id
+          ? loadReservationsForSelected()
+          : Promise.resolve(),
+      ]);
+
+      setCancelReservationId(null);
+      Alert.alert(
+        "Réservation annulée",
+        "La réservation a été annulée.",
+      );
+    } catch (error) {
+      Alert.alert(
+        "Erreur",
+        getErrorMessage(error, "Impossible d'annuler la réservation."),
+      );
+    } finally {
+      setCancellingReservation(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
-      {/* ── Header ── */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Salles</Text>
-          <Text style={styles.headerSub}>Réservation & gestion</Text>
-        </View>
-        <View style={styles.headerAccentDot} />
-      </View>
-
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -884,484 +868,41 @@ export default function RoomReservationScreen() {
           />
         }
       >
-        {highlightedMeetingReservation ? (
-          <Card
-            style={[
-              styles.meetingHeroCard,
-              highlightedMeetingReservation.key === "inprogress" &&
-                styles.meetingHeroCardLive,
-            ]}
-          >
-            <View style={styles.meetingHeroRow}>
-              <View style={styles.meetingHeroIconWrap}>
-                <Ionicons
-                  name="qr-code-outline"
-                  size={20}
-                  color={colors.primary}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.meetingHeroKicker}>
-                  Réunion aujourd&apos;hui
-                </Text>
-                <Text style={styles.meetingHeroTitle} numberOfLines={1}>
-                  {highlightedMeetingReservation.reservation.roomName ??
-                    highlightedMeetingReservation.reservation.RoomName ??
-                    "Salle"}
-                </Text>
-                <Text style={styles.meetingHeroSub} numberOfLines={2}>
-                  {formatReservationDate(
-                    highlightedMeetingReservation.reservation.startDateTime,
-                    highlightedMeetingReservation.reservation.endDateTime,
-                  )}
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.meetingHeroHint}>
-              Scannez le QR fixe sur la porte de la salle pour confirmer votre
-              présence (comme au bureau).
-            </Text>
-            {highlightedMeetingReservation.canStart ? (
-              <Button
-                title="Scanner QR"
-                onPress={() =>
-                  handleScanPress(
-                    reservationIdOf(highlightedMeetingReservation.reservation),
-                    "start",
-                  )
-                }
-                disabled={scanning}
-                style={styles.meetingHeroBtn}
-              />
-            ) : null}
-            {highlightedMeetingReservation.canFinish ? (
-              <Button
-                title="Scanner QR — Terminer"
-                variant="secondary"
-                onPress={() =>
-                  handleScanPress(
-                    reservationIdOf(highlightedMeetingReservation.reservation),
-                    "finish",
-                  )
-                }
-                disabled={scanning}
-                style={
-                  highlightedMeetingReservation.canStart
-                    ? styles.meetingHeroBtnSecond
-                    : styles.meetingHeroBtn
-                }
-              />
-            ) : null}
-          </Card>
-        ) : null}
+        <RoomFilterBar
+          weekStartDate={weekStartDate}
+          setWeekStartDate={setWeekStartDate}
+          selectedDate={selectedDate}
+          setSelectedDate={setSelectedDate}
+          workDays={workDays}
+          today={today}
+          roomDayLoadError={roomDayLoadError}
+          selectedDateReadable={selectedDateReadable}
+          selectedDayRoomSummary={selectedDayRoomSummary}
+        />
 
-        {/* ══ Calendar Card ══ */}
-        <View style={styles.card}>
-          <View style={styles.weekNav}>
-            <TouchableOpacity
-              style={styles.navBtn}
-              onPress={() => {
-                const prev = new Date(weekStartDate);
-                prev.setDate(prev.getDate() - 7);
-                setWeekStartDate(prev);
-                setSelectedDate(formatDateKey(getWorkWeekDays(prev)[0]));
-              }}
-            >
-              <Ionicons name="chevron-back" size={16} color={colors.text} />
-            </TouchableOpacity>
-            <Text style={styles.weekRange}>
-              {workDays[0].toLocaleDateString("fr-FR", {
-                day: "numeric",
-                month: "short",
-              })}
-              {" – "}
-              {workDays[4].toLocaleDateString("fr-FR", {
-                day: "numeric",
-                month: "short",
-              })}
-            </Text>
-            <TouchableOpacity
-              style={styles.navBtn}
-              onPress={() => {
-                const next = new Date(weekStartDate);
-                next.setDate(next.getDate() + 7);
-                setWeekStartDate(next);
-                setSelectedDate(formatDateKey(getWorkWeekDays(next)[0]));
-              }}
-            >
-              <Ionicons name="chevron-forward" size={16} color={colors.text} />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.dayRow}>
-            {workDays.map((day) => {
-              const isSelected = selectedDate === formatDateKey(day);
-              const isToday = sameDateKey(day, today);
-              return (
-                <TouchableOpacity
-                  key={formatDateKey(day)}
-                  style={[styles.dayPill, isSelected && styles.dayPillSelected]}
-                  onPress={() => setSelectedDate(formatDateKey(day))}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.dayPillWeekday,
-                      isSelected && styles.dayPillWeekdaySelected,
-                    ]}
-                  >
-                    {day.toLocaleDateString("fr-FR", { weekday: "narrow" })}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.dayPillNum,
-                      isSelected && styles.dayPillNumSelected,
-                    ]}
-                  >
-                    {day.getDate()}
-                  </Text>
-                  {isToday && (
-                    <View
-                      style={[
-                        styles.todayDot,
-                        isSelected && styles.todayDotSelected,
-                      ]}
-                    />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {roomDayLoadError ? (
-            <View style={styles.alertStrip}>
-              <Ionicons
-                name="warning-outline"
-                size={15}
-                color={colors.warning}
-              />
-              <Text style={styles.alertStripText}>
-                Disponibilités indisponibles — actualisez.
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.summaryStrip}>
-              <Text style={styles.summaryDate}>{selectedDateReadable}</Text>
-              {selectedDayRoomSummary && (
-                <View style={styles.summaryPills}>
-                  <View
-                    style={[
-                      styles.countPill,
-                      { backgroundColor: colors.successLight },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.countDot,
-                        { backgroundColor: colors.success },
-                      ]}
-                    />
-                    <Text
-                      style={[styles.countPillText, { color: colors.success }]}
-                    >
-                      {selectedDayRoomSummary.freeAllDay} libres
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.countPill,
-                      { backgroundColor: colors.warningLight },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        styles.countDot,
-                        { backgroundColor: colors.warning },
-                      ]}
-                    />
-                    <Text
-                      style={[styles.countPillText, { color: colors.warning }]}
-                    >
-                      {selectedDayRoomSummary.partial} réservées
-                    </Text>
-                  </View>
-                </View>
-              )}
-            </View>
-          )}
-        </View>
-
-        {/* ══ My Reservations ══ */}
-        <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionHeading}>Mes réservations</Text>
-            <Text style={styles.sectionCaption}>
-              Scannez le QR pour démarrer / terminer
-            </Text>
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabRow}
-          >
-            {MY_RESERVATION_FILTERS.map((filter) => {
-              const active = reservationFilter === filter;
-              return (
-                <TouchableOpacity
-                  key={filter}
-                  style={[styles.tab, active && styles.tabActive]}
-                  onPress={() => {
-                    LayoutAnimation.configureNext(
-                      LayoutAnimation.Presets.easeInEaseOut,
-                    );
-                    setReservationFilter(filter);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[styles.tabText, active && styles.tabTextActive]}
-                  >
-                    {MY_RESERVATION_FILTER_LABELS_FR[filter] ?? filter}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          {loadingMyReservations ? (
-            <Text style={styles.mutedText}>Chargement…</Text>
-          ) : filteredMyReservations.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons
-                name="calendar-outline"
-                size={32}
-                color={colors.border}
-              />
-              <Text style={styles.emptyStateTitle}>Aucune réservation</Text>
-              <Text style={styles.emptyStateText}>
-                Sélectionnez une salle ci-dessous pour créer une demande.
-              </Text>
-            </View>
-          ) : (
-            filteredMyReservations.map((reservation) => {
-              const rid = reservationIdOf(reservation);
-              const { key, canStart, canFinish } =
-                getRoomResActionState(reservation);
-
-              const accentColor =
-                key === "active"
-                  ? colors.success
-                  : key === "inprogress"
-                    ? colors.info
-                    : key === "pending"
-                      ? colors.warning
-                      : key === "rejected"
-                        ? colors.error
-                        : colors.border;
-
-              return (
-                <View
-                  key={rid ?? `${reservation.startDateTime}-${reservation.roomId}`}
-                  style={styles.resCard}
-                >
-                  <View
-                    style={[
-                      styles.resCardAccent,
-                      { backgroundColor: accentColor },
-                    ]}
-                  />
-                  <View style={styles.resCardBody}>
-                    <View style={styles.resCardHeader}>
-                      <Text style={styles.resCardRoom}>
-                        {reservation.roomName || "Salle"}
-                      </Text>
-                      <StatusBadge
-                        status={reservation.status ?? reservation.Status}
-                        colors={colors}
-                      />
-                    </View>
-                    <Text style={styles.resCardDate}>
-                      {formatReservationDate(
-                        reservation.startDateTime,
-                        reservation.endDateTime,
-                      )}
-                    </Text>
-                    {!!reservation.purpose && (
-                      <View style={styles.purposeRow}>
-                        <Ionicons
-                          name="chatbox-ellipses-outline"
-                          size={13}
-                          color={colors.textTertiary}
-                        />
-                        <Text style={styles.purposeText} numberOfLines={2}>
-                          {reservation.purpose}
-                        </Text>
-                      </View>
-                    )}
-                    {!!reservation.managerComment && (
-                      <View style={styles.commentRow}>
-                        <Ionicons
-                          name="information-circle-outline"
-                          size={14}
-                          color={colors.warning}
-                        />
-                        <Text style={styles.commentText}>
-                          {reservation.managerComment}
-                        </Text>
-                      </View>
-                    )}
-                    {(canStart || canFinish) && (
-                      <View style={styles.resCardActions}>
-                        {canStart && (
-                          <TouchableOpacity
-                            style={styles.scanBtn}
-                            onPress={() => handleScanPress(rid, "start")}
-                          >
-                            <Ionicons
-                              name="qr-code-outline"
-                              size={15}
-                              color={colors.textOnPrimary}
-                            />
-                            <Text style={styles.scanBtnText}>Démarrer</Text>
-                          </TouchableOpacity>
-                        )}
-                        {canFinish && (
-                          <TouchableOpacity
-                            style={[styles.scanBtn, styles.scanBtnFinish]}
-                            onPress={() => handleScanPress(rid, "finish")}
-                          >
-                            <Ionicons
-                              name="qr-code-outline"
-                              size={15}
-                              color={colors.info}
-                            />
-                            <Text
-                              style={[
-                                styles.scanBtnText,
-                                { color: colors.info },
-                              ]}
-                            >
-                              Terminer
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    )}
-                  </View>
-                </View>
-              );
+        <MyReservations
+          myReservations={myReservations}
+          loadingMyReservations={loadingMyReservations}
+          reservationIdOf={reservationIdOf}
+          getRoomResActionState={getRoomResActionState}
+          formatReservationDate={formatReservationDate}
+          onScanPress={handleScanPress}
+          onFinishReservation={handleFinishReservation}
+          onCancelReservation={handleCancelReservation}
+          onOpenReservation={(reservation) =>
+            navigation.navigate("MeetingWorkspace", {
+              reservation,
+              reservationId: reservationIdOf(reservation),
             })
-          )}
-        </View>
+          }
+        />
 
-        {/* ══ Rooms list ══ */}
-        <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionHeading}>Salles disponibles</Text>
-            <Text style={styles.sectionCaption}>Appuyez pour réserver</Text>
-          </View>
-
-          {rooms.map((room) => {
-            const avail = getRoomAvailability(room.id);
-            const reservationCount = (roomDayStatusMap[room.id] || []).length;
-            const busyPercent = Math.min(100, (reservationCount / 10) * 100);
-
-            return (
-              <TouchableOpacity
-                key={room.id}
-                style={styles.roomCard}
-                onPress={() => handleOpenModal(room)}
-                activeOpacity={0.88}
-              >
-                <View
-                  style={[styles.roomAccent, { backgroundColor: avail.color }]}
-                />
-                <View style={styles.roomBody}>
-                  <View style={styles.roomTopRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.roomName}>{room.name}</Text>
-                      <Text style={styles.roomMeta}>
-                        Étage {room.floor} · {room.capacity} pers.
-                      </Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.availBadge,
-                        { backgroundColor: avail.color + "22" },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.availDot,
-                          { backgroundColor: avail.color },
-                        ]}
-                      />
-                      <Text
-                        style={[styles.availBadgeText, { color: avail.color }]}
-                      >
-                        {avail.label}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.barWrap}>
-                    <View style={styles.barTrack}>
-                      <View
-                        style={[
-                          styles.barFill,
-                          {
-                            width: `${busyPercent}%`,
-                            backgroundColor: avail.color,
-                          },
-                        ]}
-                      />
-                    </View>
-                    <Text style={styles.barLabel}>
-                      {reservationCount} créneau
-                      {reservationCount !== 1 ? "x" : ""} confirmé
-                      {reservationCount !== 1 ? "s" : ""}
-                    </Text>
-                  </View>
-
-                  <View style={styles.featRow}>
-                    {room.hasProjector && (
-                      <View style={styles.feat}>
-                        <Ionicons
-                          name="videocam-outline"
-                          size={12}
-                          color={colors.primary}
-                        />
-                        <Text style={styles.featText}>Projecteur</Text>
-                      </View>
-                    )}
-                    {room.hasWhiteboard && (
-                      <View style={styles.feat}>
-                        <Ionicons
-                          name="clipboard-outline"
-                          size={12}
-                          color={colors.primary}
-                        />
-                        <Text style={styles.featText}>Tableau blanc</Text>
-                      </View>
-                    )}
-                    {!room.hasProjector && !room.hasWhiteboard && (
-                      <Text style={styles.featNone}>
-                        Pas d'équipement supplémentaire
-                      </Text>
-                    )}
-                    <View style={{ flex: 1 }} />
-                    <Ionicons
-                      name="chevron-forward"
-                      size={15}
-                      color={colors.border}
-                    />
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        <RoomList
+          rooms={rooms}
+          roomDayStatusMap={roomDayStatusMap}
+          getRoomAvailability={getRoomAvailability}
+          onRoomPress={handleOpenModal}
+        />
       </ScrollView>
 
       <Modal
@@ -1381,9 +922,7 @@ export default function RoomReservationScreen() {
               />
               <View style={styles.scannerOverlay} pointerEvents="box-none">
                 <Text style={styles.scannerTitleAbs}>
-                  {scanningAction === "finish"
-                    ? "Scanner pour terminer"
-                    : "Scanner le QR de la salle"}
+                  Scanner le QR de la salle
                 </Text>
                 <View style={styles.qrFrame} />
                 <Text style={styles.scannerHintAbs}>
@@ -1432,290 +971,69 @@ export default function RoomReservationScreen() {
         </View>
       </Modal>
 
-      {/* ══ Reservation Modal ══ */}
-      <Modal
+      <ReservationModal
         visible={modalVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={resetModal}
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-        >
-          <Pressable style={styles.modalBackdrop} onPress={resetModal} />
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
+        resetModal={resetModal}
+        selectedRoom={selectedRoom}
+        selectedDate={selectedDate}
+        selectedDateReadable={selectedDateReadable}
+        modalScheduleError={modalScheduleError}
+        loadingReservations={loadingReservations}
+        dayReservations={dayReservations}
+        startTime={startTime}
+        endTime={endTime}
+        setStartTime={setStartTime}
+        setEndTime={setEndTime}
+        purpose={purpose}
+        setPurpose={setPurpose}
+        durationMinutes={formatDuration(durationMinutes)}
+        overlapWarning={overlapWarning}
+        applyQuickDuration={applyQuickDuration}
+        combineDateAndTime={combineDateAndTime}
+        reserving={reserving}
+        canSubmitRequest={canSubmitRequest}
+        handleReserve={handleReserve}
+      />
 
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.modalBody}
-              keyboardShouldPersistTaps="handled"
-            >
-              <View style={styles.modalHeader}>
-                <View style={{ flex: 1, marginRight: spacing.md }}>
-                  <Text style={styles.modalRoom}>{selectedRoom?.name}</Text>
-                  <Text style={styles.modalDate}>{selectedDateReadable}</Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.modalCloseBtn}
-                  onPress={resetModal}
-                >
-                  <Ionicons
-                    name="close"
-                    size={18}
-                    color={colors.textSecondary}
-                  />
-                </TouchableOpacity>
-              </View>
+      <ConfirmActionModal
+        visible={cancelReservationId != null}
+        title="Annuler la réservation ?"
+        message="Cette action libérera la salle pour ce créneau."
+        cancelLabel="Garder"
+        confirmLabel="Annuler"
+        destructive
+        loading={cancellingReservation}
+        onCancel={closeCancelModal}
+        onConfirm={confirmCancelReservation}
+      />
 
-              <View style={styles.modalDivider} />
+      <ConfirmActionModal
+        visible={finishReservationId != null}
+        title="Terminer la réunion ?"
+        message="La salle sera libérée immédiatement."
+        cancelLabel="Retour"
+        confirmLabel="Terminer"
+        loading={finishingReservation}
+        onCancel={closeFinishModal}
+        onConfirm={confirmFinishReservation}
+      />
 
-              {modalScheduleError && (
-                <View style={styles.errorBanner}>
-                  <Ionicons
-                    name="alert-circle-outline"
-                    size={16}
-                    color={colors.error}
-                  />
-                  <Text style={styles.errorBannerText}>
-                    {modalScheduleError}
-                  </Text>
-                </View>
-              )}
-
-              <Text style={styles.modalSectionLabel}>Créneaux confirmés</Text>
-
-              {loadingReservations ? (
-                <Text style={styles.mutedText}>Chargement du planning…</Text>
-              ) : dayReservations.length === 0 ? (
-                <View style={styles.emptyInline}>
-                  <Text style={styles.emptyInlineText}>
-                    Aucun créneau pour cette journée
-                  </Text>
-                </View>
-              ) : (
-                <View style={styles.timelineWrap}>
-                  {[...dayReservations]
-                    .sort(
-                      (a, b) =>
-                        new Date(a.startDateTime || a.startDate || a.start) -
-                        new Date(b.startDateTime || b.startDate || b.start),
-                    )
-                    .map((r, i) => {
-                      const who =
-                        r.reservedBy?.fullName ||
-                        r.reservedBy?.FullName ||
-                        r.reservedBy?.userName;
-                      return (
-                        <View key={r.id} style={styles.timelineItem}>
-                          <View style={styles.timelineLeft}>
-                            <View style={styles.timelineDot} />
-                            {i < dayReservations.length - 1 && (
-                              <View style={styles.timelineLine} />
-                            )}
-                          </View>
-                          <View style={styles.timelineContent}>
-                            <Text style={styles.timelineTime}>
-                              {formatRange(
-                                r.startDateTime || r.startDate || r.start,
-                                r.endDateTime || r.endDate || r.end,
-                              )}
-                            </Text>
-                            {!!who && (
-                              <Text
-                                style={styles.timelineWho}
-                                numberOfLines={1}
-                              >
-                                {who}
-                              </Text>
-                            )}
-                          </View>
-                        </View>
-                      );
-                    })}
-                </View>
-              )}
-
-              <Text
-                style={[styles.modalSectionLabel, { marginTop: spacing.xxl }]}
-              >
-                Votre créneau
-              </Text>
-
-              <View style={styles.timePickers}>
-                <Pressable
-                  style={styles.timePicker}
-                  onPress={() => setShowStartPicker(true)}
-                >
-                  <Text style={styles.timePickerLabel}>Début</Text>
-                  <Text style={styles.timePickerValue}>
-                    {startTime ? formatTime(startTime) : "--:--"}
-                  </Text>
-                </Pressable>
-                <View style={styles.timePickerSep}>
-                  <Ionicons
-                    name="arrow-forward"
-                    size={16}
-                    color={colors.border}
-                  />
-                </View>
-                <Pressable
-                  style={styles.timePicker}
-                  onPress={() => setShowEndPicker(true)}
-                >
-                  <Text style={styles.timePickerLabel}>Fin</Text>
-                  <Text style={styles.timePickerValue}>
-                    {endTime ? formatTime(endTime) : "--:--"}
-                  </Text>
-                </Pressable>
-              </View>
-
-              {startTime && endTime && (
-                <View style={styles.durationBar}>
-                  <Ionicons
-                    name="time-outline"
-                    size={14}
-                    color={colors.primary}
-                  />
-                  <Text style={styles.durationText}>
-                    {formatDuration(durationMinutes)}
-                  </Text>
-                  {overlapWarning && (
-                    <>
-                      <View style={styles.durationSep} />
-                      <Ionicons
-                        name="warning-outline"
-                        size={14}
-                        color={colors.error}
-                      />
-                      <Text style={styles.durationConflict}>
-                        Conflit détecté
-                      </Text>
-                    </>
-                  )}
-                </View>
-              )}
-
-              <View style={styles.quickRow}>
-                {QUICK_DURATIONS.map((item) => (
-                  <TouchableOpacity
-                    key={item.minutes}
-                    style={styles.quickChip}
-                    onPress={() => applyQuickDuration(item.minutes)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.quickChipText}>{item.label}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {showStartPicker && (
-                <DateTimePicker
-                  value={startTime || new Date()}
-                  mode="time"
-                  is24Hour
-                  display={Platform.OS === "ios" ? "spinner" : "default"}
-                  onChange={(event, date) => {
-                    setShowStartPicker(false);
-                    if (event.type === "dismissed") return;
-                    setStartTime(date);
-                    if (date && endTime) {
-                      const s = combineDateAndTime(selectedDate, date);
-                      const e = combineDateAndTime(selectedDate, endTime);
-                      if (e <= s) {
-                        const ne = new Date(date);
-                        ne.setMinutes(ne.getMinutes() + 30);
-                        setEndTime(ne);
-                      }
-                    }
-                  }}
-                />
-              )}
-
-              {showEndPicker && (
-                <DateTimePicker
-                  value={endTime || startTime || new Date()}
-                  mode="time"
-                  is24Hour
-                  display={Platform.OS === "ios" ? "spinner" : "default"}
-                  onChange={(event, date) => {
-                    setShowEndPicker(false);
-                    if (event.type !== "dismissed") setEndTime(date);
-                  }}
-                />
-              )}
-
-              <Text
-                style={[styles.modalSectionLabel, { marginTop: spacing.xl }]}
-              >
-                Objet <Text style={{ color: colors.error }}>*</Text>
-              </Text>
-              <TextInput
-                style={styles.purposeInput}
-                placeholder="Ex. : Planification sprint avec l'équipe Design"
-                placeholderTextColor={colors.placeholder}
-                value={purpose}
-                onChangeText={setPurpose}
-                multiline
-              />
-
-              {overlapWarning && (
-                <View style={styles.conflictCard}>
-                  <Ionicons
-                    name="alert-circle"
-                    size={18}
-                    color={colors.error}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.conflictTitle}>Conflit horaire</Text>
-                    <Text style={styles.conflictText}>
-                      Ajustez le créneau pour éviter les réservations
-                      existantes.
-                    </Text>
-                  </View>
-                </View>
-              )}
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={styles.cancelBtn}
-                  onPress={resetModal}
-                  disabled={reserving}
-                >
-                  <Text style={styles.cancelBtnText}>Annuler</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.submitBtn,
-                    (!canSubmitRequest || reserving) &&
-                      styles.submitBtnDisabled,
-                  ]}
-                  onPress={handleReserve}
-                  disabled={!canSubmitRequest || reserving}
-                  activeOpacity={0.88}
-                >
-                  {!reserving && (
-                    <Ionicons
-                      name="checkmark-circle-outline"
-                      size={18}
-                      color={colors.textOnPrimary}
-                    />
-                  )}
-                  <Text style={styles.submitBtnText}>
-                    {reserving ? "Envoi…" : "Confirmer"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.footerTip}>
-                Si le créneau a été pris entre-temps, actualisez et choisissez
-                une autre plage.
-              </Text>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      <FeedbackModal
+        visible={feedback.visible}
+        type={feedback.type}
+        title={feedback.title}
+        message={feedback.message}
+        confirmText={feedback.confirmText}
+        cancelText={feedback.cancelText}
+        onConfirm={() => {
+          feedback.onConfirm?.();
+          hideFeedback();
+        }}
+        onCancel={() => {
+          feedback.onCancel?.();
+          hideFeedback();
+        }}
+      />
     </View>
   );
 }
@@ -1754,689 +1072,7 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       backgroundColor: colors.primary,
     },
 
-    scrollContent: { paddingBottom: spacing.xxxl + 16 },
-
-    meetingHeroCard: {
-      marginHorizontal: spacing.lg,
-      marginTop: spacing.md,
-      marginBottom: spacing.sm,
-      padding: spacing.md,
-      borderRadius: borderRadius.lg,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-    },
-    meetingHeroCardLive: {
-      backgroundColor: colors.successLight ?? "rgba(74,222,128,0.15)",
-      borderColor: colors.success,
-    },
-    meetingHeroRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.md,
-    },
-    meetingHeroIconWrap: {
-      width: 40,
-      height: 40,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.surfaceMuted,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    meetingHeroKicker: {
-      fontSize: 10,
-      fontWeight: typography.bold,
-      color: colors.textSecondary,
-      letterSpacing: 0.6,
-      textTransform: "uppercase",
-    },
-    meetingHeroTitle: {
-      fontSize: typography.base,
-      fontWeight: typography.bold,
-      color: colors.text,
-      marginTop: 2,
-    },
-    meetingHeroSub: {
-      fontSize: typography.sm,
-      color: colors.textSecondary,
-      marginTop: 2,
-      fontWeight: typography.medium,
-    },
-    meetingHeroHint: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      marginTop: spacing.sm,
-      lineHeight: 18,
-    },
-    meetingHeroBtn: {
-      marginTop: spacing.md,
-    },
-    meetingHeroBtnSecond: {
-      marginTop: spacing.sm,
-    },
-
-    card: {
-      marginHorizontal: spacing.lg,
-      marginTop: spacing.lg,
-      backgroundColor: colors.surface,
-      borderRadius: borderRadius.xl,
-      padding: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      ...shadows.md,
-    },
-    weekNav: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      marginBottom: spacing.md,
-    },
-    navBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.surfaceMuted,
-      borderWidth: 1,
-      borderColor: colors.border,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    weekRange: {
-      fontSize: typography.sm,
-      fontWeight: typography.bold,
-      color: colors.text,
-    },
-
-    dayRow: { flexDirection: "row", gap: spacing.xs },
-    dayPill: {
-      flex: 1,
-      alignItems: "center",
-      paddingVertical: spacing.md,
-      borderRadius: borderRadius.lg,
-      backgroundColor: colors.surfaceMuted,
-      borderWidth: 1,
-      borderColor: colors.border,
-      position: "relative",
-    },
-    dayPillSelected: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
-    },
-    dayPillWeekday: {
-      fontSize: typography.xs,
-      fontWeight: typography.semibold,
-      color: colors.textSecondary,
-      marginBottom: 3,
-    },
-    dayPillWeekdaySelected: { color: colors.primaryLight },
-    dayPillNum: {
-      fontSize: typography.lg,
-      fontWeight: typography.bold,
-      color: colors.text,
-    },
-    dayPillNumSelected: { color: colors.textOnPrimary },
-    todayDot: {
-      position: "absolute",
-      bottom: 5,
-      width: 4,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: colors.success,
-    },
-    todayDotSelected: { backgroundColor: colors.primaryLight },
-
-    summaryStrip: {
-      marginTop: spacing.md,
-      paddingTop: spacing.md,
-      borderTopWidth: 1,
-      borderTopColor: colors.borderLight,
-    },
-    summaryDate: {
-      fontSize: typography.sm,
-      fontWeight: typography.bold,
-      color: colors.text,
-      marginBottom: spacing.sm,
-      textTransform: "capitalize",
-    },
-    summaryPills: { flexDirection: "row", gap: spacing.sm },
-    countPill: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.xs,
-      paddingHorizontal: spacing.sm + 2,
-      paddingVertical: spacing.xs,
-      borderRadius: borderRadius.full,
-    },
-    countDot: { width: 6, height: 6, borderRadius: 3 },
-    countPillText: { fontSize: typography.xs, fontWeight: typography.bold },
-
-    alertStrip: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-      marginTop: spacing.md,
-      padding: spacing.sm + 2,
-      backgroundColor: colors.warningLight,
-      borderRadius: borderRadius.md,
-      borderWidth: 1,
-      borderColor: colors.warning,
-    },
-    alertStripText: {
-      fontSize: typography.sm,
-      color: colors.text,
-      fontWeight: typography.medium,
-      flex: 1,
-    },
-
-    section: { paddingHorizontal: spacing.lg, marginTop: spacing.xxl },
-    sectionTitleRow: { marginBottom: spacing.md },
-    sectionHeading: {
-      fontSize: typography.lg,
-      fontWeight: typography.bold,
-      color: colors.text,
-      letterSpacing: -0.3,
-    },
-    sectionCaption: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      marginTop: 3,
-      fontWeight: typography.medium,
-    },
-
-    tabRow: { gap: spacing.sm, paddingBottom: spacing.md },
-    tab: {
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm - 1,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.surfaceMuted,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    tabActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    tabText: {
-      fontSize: typography.sm,
-      fontWeight: typography.semibold,
-      color: colors.textSecondary,
-    },
-    tabTextActive: { color: colors.textOnPrimary },
-
-    emptyState: {
-      alignItems: "center",
-      paddingVertical: spacing.xxxl,
-      gap: spacing.sm,
-    },
-    emptyStateTitle: {
-      fontSize: typography.base,
-      fontWeight: typography.semibold,
-      color: colors.textSecondary,
-    },
-    emptyStateText: {
-      fontSize: typography.sm,
-      color: colors.textTertiary,
-      textAlign: "center",
-      maxWidth: 240,
-    },
-
-    resCard: {
-      flexDirection: "row",
-      backgroundColor: colors.surface,
-      borderRadius: borderRadius.lg,
-      marginBottom: spacing.md,
-      overflow: "hidden",
-      borderWidth: 1,
-      borderColor: colors.border,
-      ...shadows.sm,
-    },
-    resCardAccent: { width: 4 },
-    resCardBody: { flex: 1, padding: spacing.md },
-    resCardHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "flex-start",
-      marginBottom: spacing.xs,
-    },
-    resCardRoom: {
-      fontSize: typography.base,
-      fontWeight: typography.bold,
-      color: colors.text,
-      flex: 1,
-      marginRight: spacing.sm,
-    },
-    resCardDate: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      fontWeight: typography.medium,
-      marginBottom: spacing.sm,
-    },
-    purposeRow: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.xs + 2,
-      marginBottom: spacing.xs,
-    },
-    purposeText: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      flex: 1,
-      lineHeight: 17,
-    },
-    commentRow: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.xs + 2,
-      backgroundColor: colors.warningLight,
-      padding: spacing.sm + 2,
-      borderRadius: borderRadius.sm,
-      borderWidth: 1,
-      borderColor: colors.warning,
-      marginTop: spacing.sm,
-    },
-    commentText: {
-      fontSize: typography.xs,
-      color: colors.text,
-      flex: 1,
-      lineHeight: 17,
-    },
-    resCardActions: {
-      flexDirection: "row",
-      gap: spacing.sm,
-      marginTop: spacing.md,
-    },
-    scanBtn: {
-      flex: 1,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: spacing.xs + 2,
-      paddingVertical: spacing.sm + 1,
-      backgroundColor: colors.primary,
-      borderRadius: borderRadius.md,
-    },
-    scanBtnFinish: {
-      backgroundColor: colors.infoLight,
-      borderWidth: 1,
-      borderColor: colors.info,
-    },
-    scanBtnText: {
-      fontSize: typography.sm,
-      fontWeight: typography.bold,
-      color: colors.textOnPrimary,
-    },
-
-    roomCard: {
-      flexDirection: "row",
-      backgroundColor: colors.surface,
-      borderRadius: borderRadius.lg,
-      marginBottom: spacing.md,
-      overflow: "hidden",
-      borderWidth: 1,
-      borderColor: colors.border,
-      ...shadows.sm,
-    },
-    roomAccent: { width: 5 },
-    roomBody: { flex: 1, padding: spacing.md },
-    roomTopRow: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      justifyContent: "space-between",
-      marginBottom: spacing.sm,
-      gap: spacing.sm,
-    },
-    roomName: {
-      fontSize: typography.base,
-      fontWeight: typography.bold,
-      color: colors.text,
-    },
-    roomMeta: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      marginTop: 3,
-      fontWeight: typography.medium,
-    },
-    availBadge: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.xs,
-      paddingHorizontal: spacing.sm + 2,
-      paddingVertical: spacing.xs,
-      borderRadius: borderRadius.full,
-    },
-    availDot: { width: 6, height: 6, borderRadius: 3 },
-    availBadgeText: { fontSize: typography.xs, fontWeight: typography.bold },
-    barWrap: { marginBottom: spacing.sm },
-    barTrack: {
-      height: 3,
-      backgroundColor: colors.borderLight,
-      borderRadius: 2,
-      overflow: "hidden",
-      marginBottom: spacing.xs,
-    },
-    barFill: { height: "100%", borderRadius: 2 },
-    barLabel: {
-      fontSize: 11,
-      color: colors.textTertiary,
-      fontWeight: typography.medium,
-    },
-    featRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      flexWrap: "wrap",
-      gap: spacing.xs,
-    },
-    feat: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.xs - 2,
-      backgroundColor: colors.infoLight,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xs - 1,
-      borderRadius: borderRadius.sm,
-    },
-    featText: {
-      fontSize: 11,
-      color: colors.primary,
-      fontWeight: typography.semibold,
-    },
-    featNone: {
-      fontSize: 11,
-      color: colors.textTertiary,
-      fontWeight: typography.medium,
-    },
-
-    mutedText: {
-      fontSize: typography.sm,
-      color: colors.textTertiary,
-      fontStyle: "italic",
-    },
-
-    modalBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: colors.overlay,
-    },
-    modalSheet: {
-      position: "absolute",
-      bottom: 0,
-      left: 0,
-      right: 0,
-      backgroundColor: colors.surface,
-      borderTopLeftRadius: borderRadius.xl,
-      borderTopRightRadius: borderRadius.xl,
-      maxHeight: "93%",
-      ...shadows.lg,
-    },
-    modalHandle: {
-      alignSelf: "center",
-      width: 40,
-      height: 4,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.border,
-      marginTop: spacing.sm,
-      marginBottom: spacing.xs,
-    },
-    modalBody: {
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.sm,
-      paddingBottom: spacing.xxxl,
-    },
-    modalHeader: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      justifyContent: "space-between",
-      paddingVertical: spacing.md,
-    },
-    modalRoom: {
-      fontSize: typography.xl,
-      fontWeight: typography.bold,
-      color: colors.text,
-      letterSpacing: -0.4,
-    },
-    modalDate: {
-      fontSize: typography.sm,
-      color: colors.textSecondary,
-      marginTop: 3,
-      fontWeight: typography.medium,
-      textTransform: "capitalize",
-    },
-    modalCloseBtn: {
-      width: 34,
-      height: 34,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.surfaceMuted,
-      borderWidth: 1,
-      borderColor: colors.border,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    modalDivider: {
-      height: 1,
-      backgroundColor: colors.borderLight,
-      marginBottom: spacing.lg,
-    },
-    modalSectionLabel: {
-      fontSize: typography.xs,
-      fontWeight: typography.bold,
-      color: colors.textTertiary,
-      letterSpacing: 0.8,
-      textTransform: "uppercase",
-      marginBottom: spacing.sm,
-    },
-
-    errorBanner: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.sm,
-      backgroundColor: colors.errorLight,
-      padding: spacing.md,
-      borderRadius: borderRadius.md,
-      borderWidth: 1,
-      borderColor: colors.error,
-      marginBottom: spacing.md,
-    },
-    errorBannerText: {
-      fontSize: typography.sm,
-      color: colors.error,
-      flex: 1,
-      lineHeight: 18,
-    },
-
-    emptyInline: {
-      backgroundColor: colors.surfaceMuted,
-      borderRadius: borderRadius.md,
-      padding: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.borderLight,
-    },
-    emptyInlineText: {
-      fontSize: typography.sm,
-      color: colors.textSecondary,
-      fontWeight: typography.medium,
-    },
-
-    timelineWrap: { gap: 0 },
-    timelineItem: { flexDirection: "row", gap: spacing.md },
-    timelineLeft: { width: 16, alignItems: "center" },
-    timelineDot: {
-      width: 10,
-      height: 10,
-      borderRadius: 5,
-      backgroundColor: colors.surfaceMuted,
-      borderWidth: 2,
-      borderColor: colors.border,
-      marginTop: 2,
-    },
-    timelineLine: {
-      width: 2,
-      flex: 1,
-      backgroundColor: colors.borderLight,
-      marginVertical: 2,
-    },
-    timelineContent: { flex: 1, paddingBottom: spacing.md },
-    timelineTime: {
-      fontSize: typography.sm,
-      fontWeight: typography.bold,
-      color: colors.text,
-    },
-    timelineWho: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      marginTop: 2,
-      fontWeight: typography.medium,
-    },
-
-    timePickers: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-      marginBottom: spacing.sm,
-    },
-    timePicker: {
-      flex: 1,
-      backgroundColor: colors.inputBackground,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: borderRadius.lg,
-      padding: spacing.md,
-    },
-    timePickerLabel: {
-      fontSize: 11,
-      fontWeight: typography.bold,
-      color: colors.textTertiary,
-      textTransform: "uppercase",
-      letterSpacing: 0.5,
-      marginBottom: spacing.xs,
-    },
-    timePickerValue: {
-      fontSize: typography.xxxl,
-      fontWeight: typography.bold,
-      color: colors.text,
-      letterSpacing: -0.5,
-    },
-    timePickerSep: { paddingTop: spacing.lg },
-
-    durationBar: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.xs + 2,
-      backgroundColor: colors.surfaceMuted,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm + 1,
-      borderRadius: borderRadius.md,
-      marginBottom: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.borderLight,
-    },
-    durationText: {
-      fontSize: typography.sm,
-      fontWeight: typography.bold,
-      color: colors.primary,
-      flex: 1,
-    },
-    durationSep: { width: 1, height: 14, backgroundColor: colors.border },
-    durationConflict: {
-      fontSize: typography.sm,
-      fontWeight: typography.bold,
-      color: colors.error,
-    },
-
-    quickRow: {
-      flexDirection: "row",
-      gap: spacing.sm,
-      marginBottom: spacing.xl,
-    },
-    quickChip: {
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm - 1,
-      borderRadius: borderRadius.full,
-      backgroundColor: colors.surfaceMuted,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    quickChipText: {
-      fontSize: typography.sm,
-      fontWeight: typography.semibold,
-      color: colors.textSecondary,
-    },
-
-    purposeInput: {
-      minHeight: 88,
-      textAlignVertical: "top",
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: borderRadius.md,
-      padding: spacing.md,
-      fontSize: typography.base,
-      color: colors.text,
-      backgroundColor: colors.inputBackground,
-      lineHeight: 22,
-    },
-
-    conflictCard: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.sm,
-      marginTop: spacing.md,
-      backgroundColor: colors.errorLight,
-      padding: spacing.md,
-      borderRadius: borderRadius.md,
-      borderWidth: 1,
-      borderColor: colors.error,
-    },
-    conflictTitle: {
-      fontSize: typography.sm,
-      fontWeight: typography.bold,
-      color: colors.error,
-      marginBottom: 3,
-    },
-    conflictText: {
-      fontSize: typography.xs,
-      color: colors.error,
-      lineHeight: 17,
-    },
-
-    modalActions: {
-      flexDirection: "row",
-      gap: spacing.sm,
-      marginTop: spacing.xl,
-    },
-    cancelBtn: {
-      flex: 1,
-      paddingVertical: spacing.md + 2,
-      borderRadius: borderRadius.md,
-      backgroundColor: colors.surfaceMuted,
-      borderWidth: 1,
-      borderColor: colors.border,
-      alignItems: "center",
-    },
-    cancelBtnText: {
-      fontSize: typography.base,
-      fontWeight: typography.bold,
-      color: colors.textSecondary,
-    },
-    submitBtn: {
-      flex: 2,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: spacing.xs + 2,
-      paddingVertical: spacing.md + 2,
-      backgroundColor: colors.primary,
-      borderRadius: borderRadius.md,
-      ...shadows.md,
-    },
-    submitBtnDisabled: { opacity: 0.4 },
-    submitBtnText: {
-      fontSize: typography.base,
-      fontWeight: typography.bold,
-      color: colors.textOnPrimary,
-    },
-
-    footerTip: {
-      fontSize: typography.xs,
-      color: colors.textTertiary,
-      textAlign: "center",
-      marginTop: spacing.md,
-      lineHeight: 18,
-    },
+    scrollContent: { paddingBottom: 128 },
 
     scannerRoot: { flex: 1, backgroundColor: "#000" },
     scannerOverlay: {

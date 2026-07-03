@@ -5,7 +5,7 @@ public class ProfileHistoryDto
     public List<DeskReservationHistoryDto> DeskReservations { get; set; } = new();
     public List<RoomReservationHistoryDto> RoomReservations { get; set; } = new();
     public List<LeaveRequestHistoryDto> LeaveRequests { get; set; } = new();
-    public List<InternalRequestHistoryDto> InternalRequests { get; set; } = new();
+    public List<GeneralRequestHistoryDto> GeneralRequests { get; set; } = new();
 }
 
 public class DeskReservationHistoryDto
@@ -34,7 +34,7 @@ public class LeaveRequestHistoryDto
     public string Status { get; set; } = string.Empty;
 }
 
-public class InternalRequestHistoryDto
+public class GeneralRequestHistoryDto
 {
     public int Id { get; set; }
     public string Category { get; set; } = string.Empty;

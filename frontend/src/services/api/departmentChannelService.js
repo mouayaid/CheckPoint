@@ -12,6 +12,13 @@ export const departmentChannelService = {
   },
 
   /**
+   * Get the current user's own department feed.
+   */
+  getMyFeed: async () => {
+    return await axiosInstance.get("/DepartmentChannel/feed/my");
+  },
+
+  /**
    * Get current user's department channel info with unread count.
    */
   getMyChannel: async () => {

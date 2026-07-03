@@ -2,7 +2,7 @@ import React from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 
-export function Card({ children, onPress, style, padding = true }) {
+export function Card({ children, onPress, style, padding = true, ...rest }) {
   const { colors, spacing, borderRadius, shadows, darkMode } = useTheme();
 
   const Wrapper = onPress ? TouchableOpacity : View;
@@ -26,6 +26,7 @@ export function Card({ children, onPress, style, padding = true }) {
       onPress={onPress}
       activeOpacity={onPress ? 0.75 : 1}
       style={[styles.card, padding && styles.padding, style]}
+      {...rest}
     >
       {children}
     </Wrapper>

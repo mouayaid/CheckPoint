@@ -1,23 +1,13 @@
 import axiosInstance from './axiosInstance';
 
 export const eventService = {
-  createEvent: async (data) => {
-    const response = await axiosInstance.post("/Events", data);
-    return response.data;
-  },
+  createEvent: (data) => axiosInstance.post("/Events", data),
 
-  getEventsByDate: async (date) => {
-    const response = await axiosInstance.get("/Events", { params: { date } });
-    return response.data;
-  },
+  getEventsByDate: (date) =>
+    axiosInstance.get("/Events", { params: { date } }),
 
-  getEventById: async (id) => {
-    const response = await axiosInstance.get(`/Events/${id}`);
-    return response.data;
-  },
+  getEventById: (id) => axiosInstance.get(`/Events/${id}`),
 
-  rsvpToEvent: async (id, status) => {
-    const response = await axiosInstance.post(`/Events/${id}/rsvp`, { status });
-    return response.data;
-  },
+  rsvpToEvent: (id, status) =>
+    axiosInstance.post(`/Events/${id}/rsvp`, { status }),
 };

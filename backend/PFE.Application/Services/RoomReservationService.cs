@@ -24,29 +24,61 @@ public class RoomReservationService : IRoomReservationService
         _notificationService = notificationService;
     }
 
+    public async Task CleanupExpiredUnstartedReservationsAsync()
+    {
+        var cutoff = DateTime.UtcNow.AddMinutes(-15);
+
+        var expiredReservations = await _context.RoomReservations
+            .Where(r =>
+                (r.Status == ReservationStatus.Pending ||
+                 r.Status == ReservationStatus.Active) &&
+                r.StartedAt == null &&
+                r.EndDateTime < cutoff)
+            .ToListAsync();
+
+        if (expiredReservations.Count > 0)
+        {
+            _context.RoomReservations.RemoveRange(expiredReservations);
+            await _context.SaveChangesAsync();
+        }
+
+        Console.WriteLine(
+            $"Room cleanup: removed {expiredReservations.Count} expired unstarted reservations."
+        );
+    }
+
     public async Task<List<RoomReservationForDayDto>> GetReservationsForDayAsync(int roomId, DateTime date)
     {
+        await CleanupExpiredUnstartedReservationsAsync();
+
         var startOfDay = date.Date;
         var endOfDay = startOfDay.AddDays(1);
 
         var reservations = await _context.RoomReservations
-    .AsNoTracking()
-    .Include(r => r.User)
-        .ThenInclude(u => u.Department)
-    .Include(r => r.Room)
-    .Where(r => r.RoomId == roomId &&
-                r.StartDateTime < endOfDay &&
-                r.EndDateTime > startOfDay)
-    .OrderBy(r => r.StartDateTime)
-    .ToListAsync();
+            .AsNoTracking()
+            .Include(r => r.User)
+                .ThenInclude(u => u.Department)
+            .Include(r => r.Room)
+            .Where(r => r.RoomId == roomId &&
+                        (((r.Status == ReservationStatus.Pending ||
+                           r.Status == ReservationStatus.Active) &&
+                          r.StartDateTime < endOfDay &&
+                          r.EndDateTime > startOfDay) ||
+                         (r.Status == ReservationStatus.InProgress &&
+                          (r.StartedAt ?? r.StartDateTime) < endOfDay)))
+            .OrderBy(r => r.StartDateTime)
+            .ToListAsync();
 
         return _mapper.Map<List<RoomReservationForDayDto>>(reservations);
     }
 
     public async Task<List<RoomReservationDto>> GetPendingReservationsAsync(int managerUserId)
     {
+        await CleanupExpiredUnstartedReservationsAsync();
+
         var manager = await _context.Users
             .Include(u => u.Department)
+            .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == managerUserId);
 
         if (manager == null)
@@ -60,6 +92,9 @@ public class RoomReservationService : IRoomReservationService
 
         if (manager.Role.Name == "Manager")
         {
+            if (!manager.DepartmentId.HasValue)
+                throw new InvalidOperationException("Manager is not assigned to a department.");
+
             query = query.Where(r => r.User.DepartmentId == manager.DepartmentId);
         }
 
@@ -72,12 +107,34 @@ public class RoomReservationService : IRoomReservationService
 
     public async Task<RoomReservationDto> CreateReservationAsync(int creatorId, CreateRoomReservationDto dto)
     {
+        await CleanupExpiredUnstartedReservationsAsync();
+
+        var roomExists = await _context.Rooms
+            .AnyAsync(r => r.Id == dto.RoomId && r.IsActive);
+
+        if (!roomExists)
+            throw new NotFoundException($"Room with id {dto.RoomId} not found.");
+
+        var hasConflict = await _context.RoomReservations
+            .AnyAsync(r =>
+                r.RoomId == dto.RoomId &&
+                (((r.Status == ReservationStatus.Pending ||
+                   r.Status == ReservationStatus.Active) &&
+                  r.StartDateTime < dto.EndDateTime &&
+                  r.EndDateTime > dto.StartDateTime) ||
+                 (r.Status == ReservationStatus.InProgress &&
+                  (r.StartedAt ?? r.StartDateTime) < dto.EndDateTime)));
+
+        if (hasConflict)
+            throw new ConflictException("This room is already reserved for the selected time slot.");
+
         var reservation = new RoomReservation
         {
             RoomId = dto.RoomId,
             StartDateTime = dto.StartDateTime,
             EndDateTime = dto.EndDateTime,
             Purpose = dto.Purpose,
+            // Active is the current confirmed/usable room reservation state.
             Status = ReservationStatus.Active,
             UserId = creatorId,
             CreatedById = creatorId,
@@ -121,6 +178,30 @@ public class RoomReservationService : IRoomReservationService
         await _context.SaveChangesAsync();
     }
 
+    public async Task FinishMeetingAsync(int reservationId, int userId)
+    {
+        if (userId <= 0)
+            throw new BadRequestException("Invalid user.");
+
+        var reservation = await _context.RoomReservations
+            .FirstOrDefaultAsync(r => r.Id == reservationId);
+
+        if (reservation == null)
+            throw new NotFoundException("Reservation not found.");
+
+        if (reservation.Status == ReservationStatus.Completed)
+            throw new ConflictException("Reservation is already completed.");
+
+        if (reservation.Status != ReservationStatus.InProgress)
+            throw new ConflictException("Reservation is not in progress.");
+
+        reservation.Status = ReservationStatus.Completed;
+        reservation.EndedAt = DateTime.UtcNow;
+        reservation.EndedById = userId;
+
+        await _context.SaveChangesAsync();
+    }
+
     public async Task StartMeetingViaQrAsync(int reservationId, int scannedRoomId, int scannerUserId)
     {
         var reservation = await _context.RoomReservations.FindAsync(reservationId);
@@ -140,6 +221,31 @@ public class RoomReservationService : IRoomReservationService
         reservation.StartedAt = DateTime.UtcNow;
         reservation.StartedById = scannerUserId;
         reservation.Status = ReservationStatus.InProgress;
+
+        await _context.SaveChangesAsync();
+    }
+
+    public async Task CancelReservationAsync(int reservationId, int userId)
+    {
+        var reservation = await _context.RoomReservations
+            .FirstOrDefaultAsync(r => r.Id == reservationId);
+
+        if (reservation == null)
+            throw new Exception("Reservation not found.");
+
+        if (reservation.UserId != userId && reservation.CreatedById != userId)
+            throw new Exception("You can only cancel your own reservations.");
+
+        if (reservation.Status == ReservationStatus.InProgress)
+            throw new Exception("Cannot cancel a meeting that has already started.");
+
+        if (reservation.Status == ReservationStatus.Completed)
+            throw new Exception("Cannot cancel a completed meeting.");
+
+        if (reservation.Status == ReservationStatus.Cancelled)
+            throw new Exception("Reservation is already cancelled.");
+
+        reservation.Status = ReservationStatus.Cancelled;
 
         await _context.SaveChangesAsync();
     }

@@ -20,4 +20,6 @@ public interface ILeaveService
         int reviewerId,
         RejectLeaveRequestDto dto
     );
+
+    Task<LeaveRequestDto?> CancelLeaveRequestAsync(int requestId, int userId);
 }

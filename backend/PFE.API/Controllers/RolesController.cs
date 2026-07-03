@@ -21,6 +21,7 @@ public class RolesController : ControllerBase
     public async Task<IActionResult> GetAll()
     {
         var roles = await _context.Roles
+            .Where(r => r.Id == 1 || r.Id == 2 || r.Id == 3)
             .Select(r => new
             {
                 id = r.Id,

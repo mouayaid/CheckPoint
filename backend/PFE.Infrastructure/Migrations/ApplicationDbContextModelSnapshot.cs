@@ -66,62 +66,6 @@ namespace PFE.Infrastructure.Migrations
                     b.ToTable("Announcements");
                 });
 
-            modelBuilder.Entity("PFE.Domain.Entities.AbsenceRequest", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasDefaultValueSql("GETUTCDATE()");
-
-                    b.Property<DateTime>("Date")
-                        .HasColumnType("date");
-
-                    b.Property<string>("ManagerComment")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int?>("ManagerId")
-                        .HasColumnType("int")
-                        .HasComment("Manager who will review this request");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<DateTime?>("ReviewedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int>("Status")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(1);
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ManagerId")
-                        .HasDatabaseName("IX_AbsenceRequests_ManagerId");
-
-                    b.HasIndex("Status")
-                        .HasDatabaseName("IX_AbsenceRequests_Status");
-
-                    b.HasIndex("UserId")
-                        .HasDatabaseName("IX_AbsenceRequests_UserId");
-
-                    b.HasIndex("UserId", "Date")
-                        .HasDatabaseName("IX_AbsenceRequests_User_Date");
-
-                    b.ToTable("AbsenceRequests");
-                });
-
             modelBuilder.Entity("PFE.Domain.Entities.Department", b =>
                 {
                     b.Property<int>("Id")
@@ -438,6 +382,9 @@ namespace PFE.Infrastructure.Migrations
                         .HasColumnType("int")
                         .HasComment("User assigned to handle this request");
 
+                    b.Property<DateTime?>("AuthorizedDate")
+                        .HasColumnType("date");
+
                     b.Property<int>("Category")
                         .HasColumnType("int");
 
@@ -451,18 +398,62 @@ namespace PFE.Infrastructure.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
+                    b.Property<string>("DocumentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<TimeSpan?>("EndTime")
+                        .HasColumnType("time");
+
+                    b.Property<string>("Motif")
+                        .HasMaxLength(600)
+                        .HasColumnType("nvarchar(600)");
+
+                    b.Property<string>("RecoveryNature")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RecoveryPermutationType")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RecoverySlotsJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RequestText")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("RequestType")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("RequiredRecoveryMinutes")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("ResolvedAt")
                         .HasColumnType("datetime2");
+
+                    b.Property<TimeSpan?>("StartTime")
+                        .HasColumnType("time");
 
                     b.Property<int>("Status")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
                         .HasDefaultValue(1);
 
+                    b.Property<string>("Subject")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<int?>("TotalMinutes")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("TotalRecoveryMinutes")
+                        .HasColumnType("int");
 
                     b.Property<int>("UserId")
                         .HasColumnType("int");
@@ -486,54 +477,6 @@ namespace PFE.Infrastructure.Migrations
                     b.ToTable("GeneralRequests");
                 });
 
-            modelBuilder.Entity("PFE.Domain.Entities.InternalRequest", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("AdminComment")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int?>("AssignedToId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Category")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime?>("ResolvedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int>("UserId")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AssignedToId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("InternalRequests");
-                });
-
             modelBuilder.Entity("PFE.Domain.Entities.LeaveRequest", b =>
                 {
                     b.Property<int>("Id")
@@ -550,8 +493,14 @@ namespace PFE.Infrastructure.Migrations
                         .HasColumnType("datetime2")
                         .HasDefaultValueSql("GETUTCDATE()");
 
+                    b.Property<int?>("DayPeriod")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("EndDate")
                         .HasColumnType("date");
+
+                    b.Property<TimeSpan?>("FromTime")
+                        .HasColumnType("time");
 
                     b.Property<string>("ManagerComment")
                         .HasMaxLength(1000)
@@ -561,6 +510,10 @@ namespace PFE.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
+
+                    b.Property<decimal?>("RequestedDays")
+                        .IsRequired()
+                        .HasColumnType("decimal(5,2)");
 
                     b.Property<DateTime?>("ReviewedAt")
                         .HasColumnType("datetime2");
@@ -575,6 +528,9 @@ namespace PFE.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
                         .HasDefaultValue(1);
+
+                    b.Property<TimeSpan?>("ToTime")
+                        .HasColumnType("time");
 
                     b.Property<int>("Type")
                         .HasColumnType("int");
@@ -603,6 +559,41 @@ namespace PFE.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_LeaveRequests_EndDate_After_StartDate", "[EndDate] >= [StartDate]");
                         });
+                });
+
+            modelBuilder.Entity("PFE.Domain.Entities.MeetingTranscription", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AudioFilePath")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("RoomReservationId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Summary")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Tasks")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("TranscriptText")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoomReservationId");
+
+                    b.ToTable("MeetingTranscriptions");
                 });
 
             modelBuilder.Entity("PFE.Domain.Entities.Notification", b =>
@@ -700,6 +691,70 @@ namespace PFE.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("OfficeTables");
+                });
+
+            modelBuilder.Entity("PFE.Domain.Entities.PasswordResetOtp", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("OtpCode")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("PasswordResetOtps");
+                });
+
+            modelBuilder.Entity("PFE.Domain.Entities.RefreshToken", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsRevoked")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("RefreshTokens");
                 });
 
             modelBuilder.Entity("PFE.Domain.Entities.Role", b =>
@@ -908,6 +963,10 @@ namespace PFE.Infrastructure.Migrations
                     b.HasIndex("OfficeTableId")
                         .HasDatabaseName("IX_Seats_OfficeTableId");
 
+                    b.HasIndex("OfficeTableId", "Label")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Seats_Table_Label_Unique");
+
                     b.ToTable("Seats");
                 });
 
@@ -985,7 +1044,7 @@ namespace PFE.Infrastructure.Migrations
                         .HasColumnType("datetime2")
                         .HasDefaultValueSql("GETUTCDATE()");
 
-                    b.Property<int>("DepartmentId")
+                    b.Property<int?>("DepartmentId")
                         .HasColumnType("int");
 
                     b.Property<string>("Email")
@@ -1003,8 +1062,8 @@ namespace PFE.Infrastructure.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(false);
 
-                    b.Property<int?>("LeaveBalance")
-                        .HasColumnType("int")
+                    b.Property<decimal?>("LeaveBalance")
+                        .HasColumnType("decimal(5,2)")
                         .HasComment("Remaining leave days balance");
 
                     b.Property<string>("PasswordHash")
@@ -1057,26 +1116,6 @@ namespace PFE.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("CreatedBy");
-                });
-
-            modelBuilder.Entity("PFE.Domain.Entities.AbsenceRequest", b =>
-                {
-                    b.HasOne("PFE.Domain.Entities.User", "Manager")
-                        .WithMany("ManagedAbsenceRequests")
-                        .HasForeignKey("ManagerId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("FK_AbsenceRequests_Manager");
-
-                    b.HasOne("PFE.Domain.Entities.User", "User")
-                        .WithMany("AbsenceRequests")
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("FK_AbsenceRequests_User");
-
-                    b.Navigation("Manager");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("PFE.Domain.Entities.DepartmentChannelMessage", b =>
@@ -1233,23 +1272,6 @@ namespace PFE.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
-            modelBuilder.Entity("PFE.Domain.Entities.InternalRequest", b =>
-                {
-                    b.HasOne("PFE.Domain.Entities.User", "AssignedTo")
-                        .WithMany()
-                        .HasForeignKey("AssignedToId");
-
-                    b.HasOne("PFE.Domain.Entities.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("AssignedTo");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("PFE.Domain.Entities.LeaveRequest", b =>
                 {
                     b.HasOne("PFE.Domain.Entities.User", "AssignedManager")
@@ -1278,6 +1300,17 @@ namespace PFE.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("PFE.Domain.Entities.MeetingTranscription", b =>
+                {
+                    b.HasOne("PFE.Domain.Entities.RoomReservation", "RoomReservation")
+                        .WithMany()
+                        .HasForeignKey("RoomReservationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("RoomReservation");
+                });
+
             modelBuilder.Entity("PFE.Domain.Entities.Notification", b =>
                 {
                     b.HasOne("PFE.Domain.Entities.User", "User")
@@ -1286,6 +1319,17 @@ namespace PFE.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("FK_Notifications_User");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PFE.Domain.Entities.RefreshToken", b =>
+                {
+                    b.HasOne("PFE.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("User");
                 });
@@ -1378,7 +1422,6 @@ namespace PFE.Infrastructure.Migrations
                         .WithMany("Users")
                         .HasForeignKey("DepartmentId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
                         .HasConstraintName("FK_Users_Department");
 
                     b.HasOne("PFE.Domain.Entities.Role", "Role")
@@ -1447,8 +1490,6 @@ namespace PFE.Infrastructure.Migrations
 
             modelBuilder.Entity("PFE.Domain.Entities.User", b =>
                 {
-                    b.Navigation("AbsenceRequests");
-
                     b.Navigation("AssignedGeneralRequests");
 
                     b.Navigation("CreatedEvents");
@@ -1462,8 +1503,6 @@ namespace PFE.Infrastructure.Migrations
                     b.Navigation("GeneralRequests");
 
                     b.Navigation("LeaveRequests");
-
-                    b.Navigation("ManagedAbsenceRequests");
 
                     b.Navigation("ManagedLeaveRequests");
 

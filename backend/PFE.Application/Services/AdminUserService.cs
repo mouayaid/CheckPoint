@@ -8,6 +8,11 @@ namespace PFE.Application.Services;
 
 public class AdminUserService : IAdminUserService
 {
+    private static readonly int[] AllowedRoleIds = { 1, 2, 3 };
+    private const int EmployeeRoleId = 1;
+    private const int ManagerRoleId = 2;
+    private const int AdminRoleId = 3;
+
     private readonly IApplicationDbContext _context;
     private readonly IMapper _mapper;
 
@@ -22,7 +27,7 @@ public class AdminUserService : IAdminUserService
         try
         {
             var users = await _context.Users
-                .Where(u => !u.IsActive)
+                .Where(u => !u.IsActive && u.ApprovedAt == null && u.RejectedAt == null)
                 .Select(u => new PendingUserDto
                 {
                     Id = u.Id,
@@ -51,6 +56,7 @@ public class AdminUserService : IAdminUserService
     {
         var query = _context.Users
             .Include(u => u.Department)
+            .Include(u => u.Role)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
@@ -64,12 +70,27 @@ public class AdminUserService : IAdminUserService
 
         if (!string.IsNullOrWhiteSpace(role))
         {
-            query = query.Where(u => u.Role.Name == role);
+            query = query.Where(u => u.Role.Name == role && AllowedRoleIds.Contains(u.RoleId));
         }
 
-        if (isActive.HasValue)
+        if (isActive == true)
         {
-            query = query.Where(u => u.IsActive == isActive.Value);
+            query = query.Where(u =>
+                u.IsActive &&
+                u.RejectedAt == null);
+        }
+        else if (isActive == false)
+        {
+            query = query.Where(u =>
+                !u.IsActive &&
+                u.ApprovedAt != null &&
+                u.RejectedAt == null);
+        }
+        else
+        {
+            query = query.Where(u =>
+                (u.IsActive || u.ApprovedAt != null) &&
+                u.RejectedAt == null);
         }
 
         var users = await query.OrderBy(u => u.FullName).ToListAsync();
@@ -80,6 +101,7 @@ public class AdminUserService : IAdminUserService
     {
         var user = await _context.Users
             .Include(u => u.Department)
+            .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         return user == null ? null : _mapper.Map<UserDto>(user);
@@ -89,6 +111,7 @@ public class AdminUserService : IAdminUserService
     {
         var user = await _context.Users
             .Include(u => u.Department)
+            .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
@@ -102,20 +125,16 @@ public class AdminUserService : IAdminUserService
         user.ApprovedAt = DateTime.UtcNow;
         user.ApprovedByUserId = reviewerId;
 
-        if (dto.RoleId.HasValue)
-        {
-            user.RoleId = dto.RoleId.Value;
-        }
-
-        if (dto.DepartmentId.HasValue)
-        {
-            user.DepartmentId = dto.DepartmentId.Value;
-        }
+        var roleId = dto.RoleId ?? user.RoleId;
+        EnsureAllowedRole(roleId);
+        user.RoleId = roleId;
+        user.DepartmentId = NormalizeDepartmentId(roleId, dto.DepartmentId);
 
         await _context.SaveChangesAsync();
 
         var updatedUser = await _context.Users
             .Include(u => u.Department)
+            .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         return _mapper.Map<UserDto>(updatedUser);
@@ -125,6 +144,7 @@ public class AdminUserService : IAdminUserService
     {
         var user = await _context.Users
             .Include(u => u.Department)
+            .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
@@ -132,7 +152,17 @@ public class AdminUserService : IAdminUserService
             return null;
         }
 
+        EnsureAllowedRole(dto.RoleId);
         user.RoleId = dto.RoleId;
+        if (dto.RoleId == AdminRoleId)
+        {
+            user.DepartmentId = null;
+        }
+        else if (!user.DepartmentId.HasValue || user.DepartmentId.Value <= 0)
+        {
+            throw new InvalidOperationException("Department is required for Employee and Manager users.");
+        }
+
         await _context.SaveChangesAsync();
 
         return _mapper.Map<UserDto>(user);
@@ -142,6 +172,7 @@ public class AdminUserService : IAdminUserService
     {
         var user = await _context.Users
             .Include(u => u.Department)
+            .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
@@ -149,7 +180,7 @@ public class AdminUserService : IAdminUserService
             return null;
         }
 
-        if (user.IsActive)
+        if (user.IsActive || user.ApprovedAt != null)
         {
             throw new InvalidOperationException("Approved users cannot be rejected from the pending approvals screen.");
         }
@@ -162,6 +193,7 @@ public class AdminUserService : IAdminUserService
         user.IsActive = false;
         user.RejectedAt = DateTime.UtcNow;
         user.RejectedById = reviewerId;
+        user.RejectionReason = dto.Reason;
 
         await _context.SaveChangesAsync();
 
@@ -182,20 +214,51 @@ public class AdminUserService : IAdminUserService
         if (!string.IsNullOrWhiteSpace(dto.FullName))
             user.FullName = dto.FullName.Trim();
 
+        EnsureAllowedRole(dto.RoleId);
         user.RoleId = dto.RoleId;
-        user.DepartmentId = dto.DepartmentId;
+        user.DepartmentId = NormalizeDepartmentId(dto.RoleId, dto.DepartmentId);
         user.LeaveBalance = dto.LeaveBalance;
 
         await _context.SaveChangesAsync();
 
         var updated = await _context.Users
             .Include(u => u.Department)
+            .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         return _mapper.Map<UserDto>(updated);
     }
 
-    public async Task<bool> DeleteUserAsync(int userId)
+    public async Task<bool> DeactivateUserAsync(int userId, int currentUserId)
+    {
+        if (userId == currentUserId)
+        {
+            throw new InvalidOperationException("You cannot deactivate your own account.");
+        }
+
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+        {
+            return false;
+        }
+
+        if (user.ApprovedAt == null || user.RejectedAt != null)
+        {
+            if (!user.IsActive || user.RejectedAt != null)
+            {
+                throw new InvalidOperationException("Only approved users can be deactivated.");
+            }
+
+            user.ApprovedAt = DateTime.UtcNow;
+        }
+
+        user.IsActive = false;
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
+    public async Task<bool> ReactivateUserAsync(int userId)
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
 
@@ -204,8 +267,47 @@ public class AdminUserService : IAdminUserService
             return false;
         }
 
-        _context.Users.Remove(user);
+        if (user.ApprovedAt == null || user.RejectedAt != null)
+        {
+            throw new InvalidOperationException("Only previously approved users can be reactivated.");
+        }
+
+        user.IsActive = true;
         await _context.SaveChangesAsync();
         return true;
+    }
+
+    public Task<bool> DeleteUserAsync(int userId, int currentUserId)
+    {
+        return DeactivateUserAsync(userId, currentUserId);
+    }
+
+    private static void EnsureAllowedRole(int roleId)
+    {
+        if (!AllowedRoleIds.Contains(roleId))
+        {
+            throw new InvalidOperationException("Role must be Employee, Manager, or Admin.");
+        }
+    }
+
+    private static int? NormalizeDepartmentId(int roleId, int? departmentId)
+    {
+        if (roleId == AdminRoleId)
+        {
+            return null;
+        }
+
+        if (roleId is EmployeeRoleId or ManagerRoleId)
+        {
+            if (!departmentId.HasValue || departmentId.Value <= 0)
+            {
+                throw new InvalidOperationException("Department is required for Employee and Manager users.");
+            }
+
+            return departmentId.Value;
+        }
+
+        EnsureAllowedRole(roleId);
+        return departmentId;
     }
 }

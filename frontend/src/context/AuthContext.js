@@ -1,5 +1,7 @@
+import logger from "../utils/logger";
 import React, { createContext, useState, useEffect, useContext } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 import { STORAGE_KEYS } from "../utils/constants";
 import { axiosInstance } from "../services/api";
 
@@ -32,45 +34,52 @@ export const AuthProvider = ({ children }) => {
 
   const loadStoredAuth = async () => {
     try {
-      const token = await AsyncStorage.getItem(STORAGE_KEYS.USER_TOKEN);
+      const token = await SecureStore.getItemAsync(STORAGE_KEYS.USER_TOKEN);
+      const refreshToken = await SecureStore.getItemAsync(STORAGE_KEYS.REFRESH_TOKEN);
       const userData = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
 
       if (token && userData) {
-        await axiosInstance.setAuthToken(token);
+        await axiosInstance.setAuthToken(token, refreshToken);
         setUser(JSON.parse(userData));
         setIsAuthenticated(true);
       }
     } catch (error) {
-      console.error("Error loading stored auth:", error);
+      logger.error("Error loading stored auth:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const signIn = async (token, userData) => {
+  const signIn = async (token, refreshToken, userData) => {
     try {
-      await AsyncStorage.setItem(STORAGE_KEYS.USER_TOKEN, token);
+      await SecureStore.setItemAsync(STORAGE_KEYS.USER_TOKEN, token);
+
+      if (refreshToken) {
+        await SecureStore.setItemAsync(STORAGE_KEYS.REFRESH_TOKEN, refreshToken);
+      }
+
       await AsyncStorage.setItem(
         STORAGE_KEYS.USER_DATA,
-        JSON.stringify(userData),
+        JSON.stringify(userData)
       );
 
-      await axiosInstance.setAuthToken(token);
+      await axiosInstance.setAuthToken(token, refreshToken);
 
       setUser(userData);
       setIsAuthenticated(true);
       triggerRefresh();
     } catch (error) {
-      console.error("Error signing in:", error);
+      logger.error("Error signing in:", error);
       throw error;
     }
   };
 
   const signOut = async () => {
     try {
-      await AsyncStorage.multiRemove([
-        STORAGE_KEYS.USER_TOKEN,
-        STORAGE_KEYS.USER_DATA,
+      await Promise.all([
+        SecureStore.deleteItemAsync(STORAGE_KEYS.USER_TOKEN),
+        SecureStore.deleteItemAsync(STORAGE_KEYS.REFRESH_TOKEN),
+        AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA),
       ]);
 
       await axiosInstance.clearAuthToken();
@@ -79,7 +88,7 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(false);
       triggerRefresh();
     } catch (error) {
-      console.error("Error signing out:", error);
+      logger.error("Error signing out:", error);
       throw error;
     }
   };

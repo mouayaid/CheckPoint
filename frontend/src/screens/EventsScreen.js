@@ -1,3 +1,4 @@
+import logger from "../utils/logger";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -13,7 +14,6 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { eventService } from "../services/api";
 import { EmptyState } from "../components";
 import { useTheme } from "../context/ThemeContext";
-import { useAuth } from "../context/AuthContext";
 
 const EVENT_TYPE_LABEL_FR = {
   1: "Réunion",
@@ -23,12 +23,6 @@ const EVENT_TYPE_LABEL_FR = {
   5: "Social",
   6: "Annonce",
   7: "Autre",
-};
-
-const normalizeRole = (role) => {
-  if (typeof role === "string") return role.trim().toLowerCase();
-  if (typeof role === "number") return role;
-  return null;
 };
 
 const normalizeEvent = (item) => {
@@ -60,7 +54,6 @@ const normalizeEvent = (item) => {
 const EventsScreen = () => {
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
   const navigation = useNavigation();
-  const { user } = useAuth();
   const styles = useMemo(
     () => createStyles(colors, spacing, borderRadius, typography, shadows),
     [colors, spacing, borderRadius, typography, shadows],
@@ -69,18 +62,6 @@ const EventsScreen = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  // In this app, role is stored as roleId (Admin = 3).
-  // Some screens might use roleName, but EventsScreen must work with roleId.
-  const roleId = user?.roleId ?? user?.role;
-  const roleName = user?.roleName;
-
-  const canManageEvents =
-    roleId === 3 ||
-    String(roleName ?? "")
-      .trim()
-      .toLowerCase() === "admin" ||
-    roleName === "Admin";
 
   const formatDateForApi = (date) => date.toISOString().split("T")[0];
 
@@ -124,7 +105,7 @@ const EventsScreen = () => {
 
       setEvents(uniq);
     } catch (err) {
-      console.log("LOAD EVENTS ERROR:", err?.response?.data || err.message);
+      logger.debug("LOAD EVENTS ERROR:", err?.response?.data || err.message);
       setEvents([]);
     } finally {
       if (showLoader) setLoading(false);
@@ -337,7 +318,7 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
 
     listContent: {
       padding: spacing.lg,
-      paddingBottom: spacing.xxxl,
+      paddingBottom: 120,
     },
 
     card: {

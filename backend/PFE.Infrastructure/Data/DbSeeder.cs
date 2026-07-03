@@ -9,8 +9,7 @@ public static class DbSeeder
 {
     public static async Task SeedAsync(ApplicationDbContext context)
     {
-        // Ensure database is created
-        await context.Database.EnsureCreatedAsync();
+        await context.Database.MigrateAsync();
 
         // Seed Departments
         if (!await context.Departments.AnyAsync())
@@ -18,7 +17,7 @@ public static class DbSeeder
             var departments = new List<Department>
             {
                 new Department { Name = "IT" },
-                new Department { Name = "HR" },
+                new Department { Name = "People Operations" },
                 new Department { Name = "Finance" },
                 new Department { Name = "Operations" }
             };
@@ -68,6 +67,11 @@ public static class DbSeeder
             };
 
             await context.Seats.AddRangeAsync(seats);
+            await context.SaveChangesAsync();
+
+            foreach (var seat in seats)
+                seat.QrCodeValue = $"SEAT:{seat.Id}";
+
             await context.SaveChangesAsync();
         }
 

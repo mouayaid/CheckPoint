@@ -1,8 +1,8 @@
+import logger from "../utils/logger";
 import React, { useState, useRef } from "react";
 import {
   View,
   Text,
-  Alert,
   StyleSheet,
   TouchableOpacity,
   Image,
@@ -17,11 +17,14 @@ import { authService } from "../services/api";
 import { Button, Input } from "../components";
 import { useTheme } from "../context/ThemeContext";
 import { LinearGradient } from "expo-linear-gradient";
+import FeedbackModal from "../components/FeedbackModal";
+import { useFeedback } from "../hooks/useFeedback";
 
 const LoginScreen = () => {
   const navigation = useNavigation();
   const { signIn } = useAuth();
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
+  const { feedback, showFeedback, hideFeedback } = useFeedback();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,6 +32,15 @@ const LoginScreen = () => {
   const [errors, setErrors] = useState({});
 
   const passwordRef = useRef(null);
+
+  const showFeedbackAlert = (title, message, type = "error") => {
+    showFeedback({
+      type,
+      title,
+      message,
+      confirmText: "OK",
+    });
+  };
 
   const validate = () => {
     const next = {};
@@ -58,23 +70,32 @@ const LoginScreen = () => {
 
       if (response.success && response.data) {
         const { token, user } = response.data;
-        console.log("LOGIN USER:", user);
-        console.log("ROLE:", user?.roleName);
+        logger.debug("LOGIN USER:", user);
+        logger.debug("ROLE:", user?.roleName);
 
         if (token && user) {
-          await signIn(token, user);
+          await signIn(token, response.data.refreshToken || "", user);
         } else {
-          Alert.alert("Connexion échouée", "Réponse invalide du serveur");
+          showFeedbackAlert("Connexion échouée", "Réponse invalide du serveur");
         }
       } else {
-        Alert.alert(
+        showFeedbackAlert(
           "Connexion échouée",
           response.message || "E-mail ou mot de passe invalide",
         );
       }
     } catch (error) {
-      console.error("Login error:", error);
-      Alert.alert(
+      logger.error("Login error:", error);
+
+      if (error?.status === 400 || error?.status === 401) {
+        showFeedbackAlert(
+          "Connexion échouée",
+          "E-mail ou mot de passe invalide",
+        );
+        return;
+      }
+
+      showFeedbackAlert(
         "Erreur",
         error.message ||
           "Échec de la connexion. Veuillez vérifier votre connexion et réessayer.",
@@ -217,6 +238,7 @@ const LoginScreen = () => {
                 onSubmitEditing={() => passwordRef.current?.focus()}
                 error={errors.email}
                 editable={!loading}
+                testID="auth.emailInput"
               />
 
               <Input
@@ -232,17 +254,13 @@ const LoginScreen = () => {
                 onSubmitEditing={handleLogin}
                 error={errors.password}
                 editable={!loading}
+                testID="auth.passwordInput"
               />
 
               <TouchableOpacity
                 activeOpacity={0.75}
                 style={styles.forgotButton}
-                onPress={() =>
-                  Alert.alert(
-                    "Bientôt disponible",
-                    "La fonctionnalité « mot de passe oublié » n'est pas encore disponible.",
-                  )
-                }
+                onPress={() => navigation.navigate("ForgotPassword")}
                 disabled={loading}
               >
                 <Text style={styles.forgotText}>Mot de passe oublié ?</Text>
@@ -254,6 +272,7 @@ const LoginScreen = () => {
                 loading={loading}
                 disabled={loading}
                 style={styles.signInButton}
+                testID="auth.loginButton"
               />
 
               <View style={styles.footer}>
@@ -270,6 +289,22 @@ const LoginScreen = () => {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+      <FeedbackModal
+        visible={feedback.visible}
+        type={feedback.type}
+        title={feedback.title}
+        message={feedback.message}
+        confirmText={feedback.confirmText}
+        cancelText={feedback.cancelText}
+        onConfirm={() => {
+          feedback.onConfirm?.();
+          hideFeedback();
+        }}
+        onCancel={() => {
+          feedback.onCancel?.();
+          hideFeedback();
+        }}
+      />
     </LinearGradient>
   );
 };

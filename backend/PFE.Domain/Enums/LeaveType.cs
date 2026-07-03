@@ -2,11 +2,10 @@ namespace PFE.Domain.Enums;
 
 public enum LeaveType
 {
-    Vacation = 1,
-    Sick = 2,
-    Personal = 3,
-    Maternity = 4,
-    Paternity = 5,
-    Unpaid = 6
+    PaidLeave = 1,
+    UnpaidLeave = 2,
+    HalfDayPaidLeave = 3,
+    SpecialLeave = 4,
+    MaternityLeave = 5,
+    HalfDayUnpaidLeave = 6
 }
-

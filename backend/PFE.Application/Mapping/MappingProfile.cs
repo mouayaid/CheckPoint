@@ -1,5 +1,4 @@
 using AutoMapper;
-using PFE.Application.DTOs.AbsenceRequest;
 using PFE.Application.DTOs.Department;
 using PFE.Application.DTOs.Event;
 using PFE.Application.DTOs.EventParticipant;
@@ -14,6 +13,7 @@ using PFE.Application.DTOs.User;
 using PFE.Domain.Entities;
 using PFE.Domain.Enums;
 using PFE.Application.DTOs.Leave;
+using System.Text.Json;
 
 namespace PFE.Application.Mapping;
 
@@ -29,9 +29,14 @@ public class MappingProfile : Profile
 
         // User mappings
         CreateMap<User, UserDto>()
-    .ForMember(dest => dest.DepartmentName, opt => opt.MapFrom(src => src.Department.Name))
+    .ForMember(dest => dest.DepartmentName, opt => opt.MapFrom(src =>
+        src.Role != null && src.Role.Name == "Admin"
+            ? null
+            : src.Department != null
+                ? src.Department.Name
+                : null))
     .ForMember(dest => dest.RoleId, opt => opt.MapFrom(src => src.RoleId))
-    .ForMember(dest => dest.RoleName, opt => opt.MapFrom(src => src.Role.Name))
+    .ForMember(dest => dest.RoleName, opt => opt.MapFrom(src => src.Role != null ? src.Role.Name : string.Empty))
     .ForMember(dest => dest.LeaveBalance, opt => opt.MapFrom(src => src.LeaveBalance));
         CreateMap<CreateUserDto, User>()
             .ForMember(dest => dest.PasswordHash, opt => opt.Ignore())
@@ -83,6 +88,7 @@ public class MappingProfile : Profile
         // SeatReservation mappings
         CreateMap<SeatReservation, SeatReservationDto>()
             .ForMember(dest => dest.SeatLabel, opt => opt.MapFrom(src => src.Seat.Label))
+            .ForMember(dest => dest.SeatQrCodeValue, opt => opt.MapFrom(src => $"SEAT:{src.Seat.Id}"))
             .ForMember(dest => dest.OfficeTableName, opt => opt.MapFrom(src => src.Seat.OfficeTable.Name))
             .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.User.FullName));
 
@@ -144,11 +150,6 @@ public class MappingProfile : Profile
         CreateMap<LeaveRequest, LeaveRequestDto>()
             .ForMember(dest => dest.UserName,
                 opt => opt.MapFrom(src => src.User.FullName))
-            .ForMember(dest => dest.AssignedManagerName,
-                opt => opt.MapFrom(src =>
-                    src.AssignedManager != null
-                        ? src.AssignedManager.FullName
-                        : null))
             .ForMember(dest => dest.ReviewedByName,
                 opt => opt.MapFrom(src =>
                     src.ReviewedBy != null
@@ -161,8 +162,6 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.Status, opt => opt.MapFrom(src => RequestStatus.Pending))
             .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
             .ForMember(dest => dest.User, opt => opt.Ignore())
-            .ForMember(dest => dest.AssignedManagerId, opt => opt.Ignore())
-            .ForMember(dest => dest.AssignedManager, opt => opt.Ignore())
             .ForMember(dest => dest.ReviewedById, opt => opt.Ignore())
             .ForMember(dest => dest.ReviewedBy, opt => opt.Ignore());
 
@@ -172,38 +171,21 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.Status, opt => opt.Ignore())
             .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
             .ForMember(dest => dest.User, opt => opt.Ignore())
-            .ForMember(dest => dest.AssignedManagerId, opt => opt.Ignore())
-            .ForMember(dest => dest.AssignedManager, opt => opt.Ignore())
             .ForMember(dest => dest.ReviewedById, opt => opt.Ignore())
             .ForMember(dest => dest.ReviewedBy, opt => opt.Ignore());
 
-        // AbsenceRequest mappings
-        CreateMap<AbsenceRequest, AbsenceRequestDto>()
-            .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.User.FullName))
-            .ForMember(dest => dest.ManagerName, opt => opt.MapFrom(src => src.Manager != null ? src.Manager.FullName : null));
-
-        CreateMap<CreateAbsenceRequestDto, AbsenceRequest>()
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.UserId, opt => opt.Ignore())
-            .ForMember(dest => dest.Status, opt => opt.MapFrom(src => RequestStatus.Pending))
-            .ForMember(dest => dest.ManagerId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
-            .ForMember(dest => dest.User, opt => opt.Ignore())
-            .ForMember(dest => dest.Manager, opt => opt.Ignore());
-
-        CreateMap<UpdateAbsenceRequestDto, AbsenceRequest>()
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.UserId, opt => opt.Ignore())
-            .ForMember(dest => dest.Status, opt => opt.Ignore())
-            .ForMember(dest => dest.ManagerId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
-            .ForMember(dest => dest.User, opt => opt.Ignore())
-            .ForMember(dest => dest.Manager, opt => opt.Ignore());
-
         // GeneralRequest mappings
         CreateMap<GeneralRequest, GeneralRequestDto>()
-            .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.User.FullName))
-            .ForMember(dest => dest.AssignedToUserName, opt => opt.MapFrom(src => src.AssignedToUser != null ? src.AssignedToUser.FullName : null));
+            .ForMember(dest => dest.UserName, opt => opt.MapFrom(src =>
+                src.User != null ? src.User.FullName : string.Empty))
+            .ForMember(dest => dest.RecoveryPermutationType, opt => opt.MapFrom(src =>
+                src.RecoveryPermutationType))
+            .ForMember(dest => dest.RecoveryNature, opt => opt.MapFrom(src =>
+                src.RecoveryNature))
+            .ForMember(dest => dest.RequiredRecoveryMinutes, opt => opt.MapFrom(src =>
+                src.RequiredRecoveryMinutes))
+            .ForMember(dest => dest.RecoverySlots, opt => opt.MapFrom(src =>
+                DeserializeRecoverySlots(src.RecoverySlotsJson)));
 
         CreateMap<CreateGeneralRequestDto, GeneralRequest>()
             .ForMember(dest => dest.Id, opt => opt.Ignore())
@@ -211,15 +193,6 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.Status, opt => opt.MapFrom(src => RequestStatus.Pending))
             .ForMember(dest => dest.AssignedToUserId, opt => opt.Ignore())
             .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
-            .ForMember(dest => dest.User, opt => opt.Ignore())
-            .ForMember(dest => dest.AssignedToUser, opt => opt.Ignore());
-
-        CreateMap<UpdateGeneralRequestDto, GeneralRequest>()
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.UserId, opt => opt.Ignore())
-            .ForMember(dest => dest.Status, opt => opt.Ignore())
-            .ForMember(dest => dest.AssignedToUserId, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
             .ForMember(dest => dest.User, opt => opt.Ignore())
             .ForMember(dest => dest.AssignedToUser, opt => opt.Ignore());
 
@@ -280,5 +253,22 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.Message, opt => opt.Ignore())
             .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
             .ForMember(dest => dest.User, opt => opt.Ignore());
+    }
+
+    private static List<RecoverySlotDto>? DeserializeRecoverySlots(string? recoverySlotsJson)
+    {
+        if (string.IsNullOrWhiteSpace(recoverySlotsJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<RecoverySlotDto>>(recoverySlotsJson);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }

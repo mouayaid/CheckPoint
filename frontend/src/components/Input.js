@@ -49,6 +49,7 @@ export const Input = React.forwardRef(({
       borderColor: colors.border,
       borderRadius: borderRadius.lg,
       paddingHorizontal: 16,
+      minHeight: 52,
     },
 
     inputContainerFocused: {
@@ -75,6 +76,10 @@ export const Input = React.forwardRef(({
 
     eyeButton: {
       marginLeft: 10,
+      width: 44,
+      height: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
 
     errorText: {

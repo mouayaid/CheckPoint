@@ -34,9 +34,9 @@ const ProfileScreen = ({ navigation }) => {
       let isActive = true;
       const fetchProfile = async () => {
         try {
-          const res = await api.get("/Profile/me");
-          if (res.data?.success && isActive) {
-            setProfileData(res.data.data);
+          const response = await api.get("/Profile/me");
+          if (response?.success && isActive) {
+            setProfileData(response.data);
           }
         } catch (error) {
           console.error("Error fetching profile", error);
@@ -57,7 +57,7 @@ const ProfileScreen = ({ navigation }) => {
 
   const email = currentUser?.email || "";
   const phone = currentUser?.phoneNumber || "Non renseigné";
-  const department = currentUser?.departmentName || "Non renseigné";
+  const departmentName = currentUser?.departmentName || "Non renseigné";
   const jobTitle = currentUser?.roleName || "Non renseigné";
   const employeeId = currentUser?.id || "N/A";
   
@@ -80,6 +80,7 @@ const ProfileScreen = ({ navigation }) => {
   const isManager = rawRole === 2 || rawRole === "manager" || rawRole === "Manager";
   const isAdmin = rawRole === 3 || rawRole === "admin" || rawRole === "Admin";
   const isEmployee = rawRole === 1 || rawRole === "employee" || rawRole === "Employé";
+  const department = isAdmin ? "Administration globale" : departmentName;
 
   const pendingRequestsCount = historyData.filter(h => h.status === "Pending").length;
   
@@ -409,20 +410,6 @@ const ProfileScreen = ({ navigation }) => {
         <Text style={styles.sectionTitle}>Paramètres</Text>
 
         <ActionRow
-          icon="create-outline"
-          title="Modifier le profil"
-          subtitle="Mettre à jour vos informations"
-          onPress={() => handleNavigate("EditProfile")}
-        />
-
-        <ActionRow
-          icon="lock-closed-outline"
-          title="Changer le mot de passe"
-          subtitle="Sécuriser votre compte"
-          onPress={() => handleNavigate("ChangePassword")}
-        />
-
-        <ActionRow
           icon={darkMode ? "moon" : "sunny-outline"}
           title="Apparence"
           subtitle={
@@ -433,12 +420,6 @@ const ProfileScreen = ({ navigation }) => {
           onPress={toggleTheme}
         />
 
-        <ActionRow
-          icon="notifications-outline"
-          title="Notifications"
-          subtitle="Gérer vos préférences"
-          onPress={() => handleNavigate("NotificationsSettings")}
-        />
       </Card>
 
       <Card style={[styles.card, styles.actionsCard]}>
@@ -450,19 +431,19 @@ const ProfileScreen = ({ navigation }) => {
               icon="document-text-outline"
               title="Mes demandes"
               subtitle="Consulter vos demandes"
-              onPress={() => handleNavigate("MyRequests")}
+              onPress={() => handleNavigate("GeneralRequest")}
             />
             <ActionRow
               icon="calendar-clear-outline"
               title="Mes congés"
               subtitle="Voir vos demandes de congé"
-              onPress={() => handleNavigate("LeaveRequests")}
+              onPress={() => handleNavigate("LeaveRequest")}
             />
             <ActionRow
               icon="desktop-outline"
               title="Mes réservations"
               subtitle="Consulter vos desks réservés"
-              onPress={() => handleNavigate("MyReservations")}
+              onPress={() => handleNavigate("Rooms")}
             />
           </>
         )}
@@ -474,12 +455,6 @@ const ProfileScreen = ({ navigation }) => {
               title="Approbations"
               subtitle="Voir les demandes en attente"
               onPress={() => handleNavigate("Approvals")}
-            />
-            <ActionRow
-              icon="people-outline"
-              title="Mon équipe"
-              subtitle="Gérer les membres de l’équipe"
-              onPress={() => handleNavigate("TeamMembers")}
             />
           </>
         )}
@@ -497,12 +472,6 @@ const ProfileScreen = ({ navigation }) => {
               title="Annonces"
               subtitle="Gérer les annonces"
               onPress={() => handleNavigate("ManageAnnouncements")}
-            />
-            <ActionRow
-              icon="checkmark-circle-outline"
-              title="Approbations comptes"
-              subtitle="Valider les nouveaux utilisateurs"
-              onPress={() => handleNavigate("AdminApprovals")}
             />
           </>
         )}

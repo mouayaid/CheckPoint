@@ -58,7 +58,7 @@ public class SeatService : ISeatService
                 {
                     UserId = reservation.User.Id,
                     FullName = reservation.User.FullName,
-                    DepartmentName = reservation.User.Department.Name
+                    DepartmentName = reservation.User.Department?.Name ?? string.Empty
                 };
             }
 
@@ -101,6 +101,11 @@ public class SeatService : ISeatService
         var seat = _mapper.Map<Seat>(dto);
         seat.IsActive = true;
         _context.Seats.Add(seat);
+        await _context.SaveChangesAsync();
+
+        // The QR contains only this short canonical payload. The physical QR
+        // image can be generated/printed by any client from this value.
+        seat.QrCodeValue = $"SEAT:{seat.Id}";
         await _context.SaveChangesAsync();
 
         // Reload to get OfficeTable for DTO mapping

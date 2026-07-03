@@ -13,6 +13,10 @@ public class LeaveRequest
     public DateTime EndDate { get; set; }
 
     public LeaveType Type { get; set; }
+    public decimal? RequestedDays { get; set; }
+    public HalfDayPeriod? DayPeriod { get; set; }
+    public TimeSpan? FromTime { get; set; }
+    public TimeSpan? ToTime { get; set; }
     public RequestStatus Status { get; set; } = RequestStatus.Pending;
 
     public string Reason { get; set; } = string.Empty;

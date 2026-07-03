@@ -10,7 +10,7 @@ public class CreateUserDto
 
     public int RoleId { get; set; } = 1; // default Employee
 
-    public int DepartmentId { get; set; }
+    public int? DepartmentId { get; set; }
 
     public int LeaveBalance { get; set; } = 0;
 }

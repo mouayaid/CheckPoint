@@ -1,11 +1,5 @@
 import React from "react";
-import { Text } from "react-native";
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  runOnJS,
-} from "react-native-reanimated";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { Animated, PanResponder, Text } from "react-native";
 
 const DraggableItem = ({
   item,
@@ -16,46 +10,61 @@ const DraggableItem = ({
 }) => {
   const startX = item.positionX ?? 0;
   const startY = item.positionY ?? 0;
+  const pan = React.useRef(new Animated.ValueXY({ x: startX, y: startY })).current;
+  const dragStart = React.useRef({ x: startX, y: startY });
 
-  const translateX = useSharedValue(startX);
-  const translateY = useSharedValue(startY);
+  React.useEffect(() => {
+    dragStart.current = { x: startX, y: startY };
+    pan.setValue({ x: startX, y: startY });
+  }, [pan, startX, startY]);
 
-  const offsetX = useSharedValue(startX);
-  const offsetY = useSharedValue(startY);
-
-  const gesture = Gesture.Pan()
-    .onBegin(() => {
-      offsetX.value = translateX.value;
-      offsetY.value = translateY.value;
-    })
-    .onUpdate((event) => {
-      translateX.value = offsetX.value + event.translationX;
-      translateY.value = offsetY.value + event.translationY;
-    })
-    .onEnd(() => {
-      runOnJS(onDragEnd)(item, {
-        positionX: Math.round(translateX.value),
-        positionY: Math.round(translateY.value),
-        type,
-      });
-    });
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    position: "absolute",
-    left: 0,
-    top: 0,
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-    ],
-  }));
+  const panResponder = React.useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderGrant: () => {
+          pan.stopAnimation((value) => {
+            dragStart.current = value;
+          });
+        },
+        onPanResponderMove: (_event, gestureState) => {
+          pan.setValue({
+            x: dragStart.current.x + gestureState.dx,
+            y: dragStart.current.y + gestureState.dy,
+          });
+        },
+        onPanResponderRelease: () => {
+          pan.stopAnimation((value) => {
+            onDragEnd(item, {
+              positionX: Math.round(value.x),
+              positionY: Math.round(value.y),
+              type,
+            });
+          });
+        },
+        onPanResponderTerminate: () => {
+          pan.stopAnimation();
+        },
+      }),
+    [item, onDragEnd, pan, type]
+  );
 
   return (
-    <GestureDetector gesture={gesture}>
-      <Animated.View style={[animatedStyle, style]}>
-        {children || <Text>{item.name || item.label}</Text>}
-      </Animated.View>
-    </GestureDetector>
+    <Animated.View
+      {...panResponder.panHandlers}
+      style={[
+        {
+          position: "absolute",
+          left: 0,
+          top: 0,
+          transform: pan.getTranslateTransform(),
+        },
+        style,
+      ]}
+    >
+      {children || <Text>{item.name || item.label}</Text>}
+    </Animated.View>
   );
 };
 

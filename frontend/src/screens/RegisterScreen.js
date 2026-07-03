@@ -1,4 +1,5 @@
-import React, { useState, useRef } from "react";
+import logger from "../utils/logger";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -11,13 +12,12 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
+import { Picker } from "@react-native-picker/picker";
 import { useNavigation } from "@react-navigation/native";
-import { authService } from "../services/api";
+import { authService, departmentService } from "../services/api";
 import { Button, Input } from "../components";
 import { useTheme } from "../context/ThemeContext";
 import { LinearGradient } from "expo-linear-gradient";
-
-const DEFAULT_DEPARTMENT_ID = 1;
 
 const RegisterScreen = () => {
   const navigation = useNavigation();
@@ -26,6 +26,9 @@ const RegisterScreen = () => {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
+  const [departments, setDepartments] = useState([]);
+  const [loadingDepartments, setLoadingDepartments] = useState(true);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -35,6 +38,41 @@ const RegisterScreen = () => {
   const phoneRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmPasswordRef = useRef(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadDepartments = async () => {
+      try {
+        const data = await departmentService.getDepartments();
+        const normalized = data
+          .map((item) => ({
+            id: item?.id ?? item?.Id,
+            name: item?.name ?? item?.Name,
+          }))
+          .filter((item) => item.id != null && item.name);
+
+        if (isMounted) {
+          setDepartments(normalized);
+        }
+      } catch (error) {
+        logger.error("Departments load error:", error);
+        if (isMounted) {
+          setDepartments([]);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingDepartments(false);
+        }
+      }
+    };
+
+    loadDepartments();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const validate = () => {
     const next = {};
@@ -51,6 +89,10 @@ const RegisterScreen = () => {
 
     if (!phoneNumber.trim()) {
       next.phoneNumber = "Veuillez saisir votre numéro de téléphone";
+    }
+
+    if (!departmentId) {
+      next.departmentId = "Veuillez choisir votre département";
     }
 
     if (!password) {
@@ -81,7 +123,7 @@ const RegisterScreen = () => {
         phoneNumber: phoneNumber.trim(),
         password,
         fullName: fullName.trim(),
-        departmentId: DEFAULT_DEPARTMENT_ID,
+        departmentId: Number(departmentId),
       };
 
       const response = await authService.register(payload);
@@ -104,7 +146,7 @@ const RegisterScreen = () => {
         );
       }
     } catch (error) {
-      console.error("Register error:", error);
+      logger.error("Register error:", error);
       Alert.alert(
         "Erreur",
         error.message ||
@@ -174,6 +216,39 @@ const RegisterScreen = () => {
       ...shadows.md,
     },
     primaryButton: {
+      marginTop: 4,
+    },
+    fieldWrap: {
+      marginBottom: spacing.md,
+    },
+    label: {
+      fontSize: typography.sm,
+      fontWeight: typography.medium,
+      color: colors.textSecondary,
+      marginBottom: spacing.xs,
+    },
+    pickerContainer: {
+      backgroundColor: colors.surfaceMuted,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: borderRadius.lg,
+      overflow: "hidden",
+    },
+    pickerContainerError: {
+      borderColor: colors.error,
+    },
+    picker: {
+      color: colors.text,
+      minHeight: 52,
+    },
+    helperText: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      marginTop: 4,
+    },
+    errorText: {
+      fontSize: typography.xs,
+      color: colors.error,
       marginTop: 4,
     },
     footer: {
@@ -269,6 +344,46 @@ const RegisterScreen = () => {
                 error={errors.phoneNumber}
                 editable={!loading}
               />
+
+              <View style={styles.fieldWrap}>
+                <Text style={styles.label}>Département</Text>
+                <View
+                  style={[
+                    styles.pickerContainer,
+                    errors.departmentId && styles.pickerContainerError,
+                  ]}
+                >
+                  <Picker
+                    selectedValue={departmentId}
+                    onValueChange={(value) => setDepartmentId(value)}
+                    enabled={!loading && !loadingDepartments}
+                    style={styles.picker}
+                  >
+                    <Picker.Item
+                      label={
+                        loadingDepartments
+                          ? "Chargement des départements..."
+                          : "Choisir un département"
+                      }
+                      value=""
+                    />
+                    {departments.map((department) => (
+                      <Picker.Item
+                        key={department.id}
+                        label={department.name}
+                        value={String(department.id)}
+                      />
+                    ))}
+                  </Picker>
+                </View>
+                {errors.departmentId ? (
+                  <Text style={styles.errorText}>{errors.departmentId}</Text>
+                ) : !loadingDepartments && departments.length === 0 ? (
+                  <Text style={styles.helperText}>
+                    Aucun département disponible pour le moment.
+                  </Text>
+                ) : null}
+              </View>
 
               <Input
                 ref={passwordRef}

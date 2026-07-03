@@ -23,8 +23,13 @@ public class AdminStatisticsService : IAdminStatisticsService
             usersQuery = usersQuery.Where(u => u.DepartmentId == deptId.Value);
 
         var usersTotal = await usersQuery.CountAsync();
-        var usersActive = await usersQuery.CountAsync(u => u.IsActive);
-        var usersPending = await usersQuery.CountAsync(u => !u.IsActive);
+        var usersActive = await usersQuery.CountAsync(u =>
+            u.IsActive &&
+            u.RejectedAt == null);
+        var usersPending = await usersQuery.CountAsync(u =>
+            !u.IsActive &&
+            u.ApprovedAt == null &&
+            u.RejectedAt == null);
         var usersRegisteredInPeriod = await usersQuery.CountAsync(u =>
             u.CreatedAt >= fromStart && u.CreatedAt <= toEnd);
 
@@ -80,17 +85,6 @@ public class AdminStatisticsService : IAdminStatisticsService
             .Select(g => new StatusCountDto { Status = g.Key.ToString(), Count = g.Count() })
             .ToListAsync();
 
-        var absBase = _db.AbsenceRequests.AsNoTracking()
-            .Where(a => a.Date >= fromStart && a.Date <= toEnd);
-        if (deptId.HasValue)
-            absBase = absBase.Where(a => a.User.DepartmentId == deptId.Value);
-
-        var absInPeriod = await absBase.CountAsync();
-        var absByStatus = await absBase
-            .GroupBy(a => a.Status)
-            .Select(g => new StatusCountDto { Status = g.Key.ToString(), Count = g.Count() })
-            .ToListAsync();
-
         var eventsBase = _db.Events.AsNoTracking()
             .Where(e => e.StartDateTime >= fromStart && e.StartDateTime <= toEnd);
         if (deptId.HasValue)
@@ -108,17 +102,6 @@ public class AdminStatisticsService : IAdminStatisticsService
             announcementsBase = announcementsBase.Where(a => a.CreatedBy.DepartmentId == deptId.Value);
 
         var announcementsCount = await announcementsBase.CountAsync();
-
-        var internalBase = _db.InternalRequests.AsNoTracking()
-            .Where(i => i.CreatedAt >= fromStart && i.CreatedAt <= toEnd);
-        if (deptId.HasValue)
-            internalBase = internalBase.Where(i => i.User.DepartmentId == deptId.Value);
-
-        var internalCreated = await internalBase.CountAsync();
-        var internalByStatus = await internalBase
-            .GroupBy(i => i.Status)
-            .Select(g => new StatusCountDto { Status = g.Key, Count = g.Count() })
-            .ToListAsync();
 
         return new AdminStatisticsDto
         {
@@ -141,13 +124,9 @@ public class AdminStatisticsService : IAdminStatisticsService
             SeatReservationsInPeriod = seatInPeriod,
             GeneralRequestByStatus = genByStatus.OrderBy(x => x.Status).ToList(),
             GeneralRequestsCreatedInPeriod = genCreated,
-            AbsenceByStatus = absByStatus.OrderBy(x => x.Status).ToList(),
-            AbsenceRequestsInPeriod = absInPeriod,
             EventsStartingInPeriod = eventsCount,
             EventParticipantsForEventsInPeriod = participantsCount,
             AnnouncementsCreatedInPeriod = announcementsCount,
-            InternalRequestByStatus = internalByStatus.OrderBy(x => x.Status).ToList(),
-            InternalRequestsCreatedInPeriod = internalCreated,
         };
     }
 

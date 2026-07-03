@@ -15,15 +15,18 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 const SplashScreen = () => {
   const navigation = useNavigation();
-  const { colors, spacing, typography, borderRadius, shadows } = useTheme();
+  const { colors, spacing, typography, borderRadius, shadows, themeLoaded } =
+    useTheme();
 
   useEffect(() => {
+    if (!themeLoaded) return;
+
     const timer = setTimeout(() => {
       navigation.replace('Login');
     }, 3000);
 
     return () => clearTimeout(timer);
-  }, [navigation]);
+  }, [navigation, themeLoaded]);
 
   const styles = StyleSheet.create({
     gradient: {

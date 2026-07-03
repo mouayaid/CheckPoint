@@ -1,20 +1,6 @@
 import axiosInstance from "./axiosInstance";
 
 export const requestService = {
-  // Absence Requests
-  createAbsenceRequest: async (data) => {
-    return await axiosInstance.post("/AbsenceRequests", data);
-  },
-
-  getMyAbsenceRequests: async () => {
-    return await axiosInstance.get("/AbsenceRequests/my");
-  },
-
-  getPendingAbsenceRequests: async () => {
-    return await axiosInstance.get("/AbsenceRequests/pending");
-  },
-
-  // General Requests
   createGeneralRequest: async (data) => {
     return await axiosInstance.post("/GeneralRequests", data);
   },
@@ -27,11 +13,15 @@ export const requestService = {
     return await axiosInstance.get("/GeneralRequests", { params: filters });
   },
 
-  assignGeneralRequest: async (id, data) => {
-    return await axiosInstance.put(`/GeneralRequests/${id}/assign`, data);
-  },
-
   updateGeneralRequestStatus: async (id, data) => {
     return await axiosInstance.put(`/GeneralRequests/${id}/status`, data);
+  },
+
+  approveGeneralRequest: async (id, data = {}) => {
+    return await axiosInstance.put(`/GeneralRequests/${id}/approve`, data);
+  },
+
+  rejectGeneralRequest: async (id, data = {}) => {
+    return await axiosInstance.put(`/GeneralRequests/${id}/reject`, data);
   },
 };

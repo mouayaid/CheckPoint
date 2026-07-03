@@ -42,6 +42,14 @@ public class DepartmentChannelController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("feed/my")]
+    public async Task<IActionResult> GetMyFeed()
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _departmentChannelService.GetMyDepartmentFeedAsync(userId);
+        return Ok(result);
+    }
+
     [HttpGet("my-channel")]
     public async Task<IActionResult> GetMyChannel()
     {

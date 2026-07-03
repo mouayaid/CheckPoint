@@ -1,26 +1,36 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
+  FlatList,
   TouchableOpacity,
   Modal,
-  Alert,
   ActivityIndicator,
   Dimensions,
   RefreshControl,
   Platform,
+  TextInput,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { seatService } from "../services/api";
 import { formatDate } from "../utils/helpers";
 import { Button, Card } from "../components";
 import { useTheme } from "../context/ThemeContext";
+import { useE2eMode } from "../context/E2eModeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
+import FeedbackModal from "../components/FeedbackModal";
+import { useFeedback } from "../hooks/useFeedback";
 
 const { width } = Dimensions.get("window");
 
@@ -136,6 +146,10 @@ const createStyles = (
       marginTop: 2,
       fontSize: typography.xs,
       color: colors.textSecondary,
+    },
+    e2eHiddenMarker: {
+      width: 0,
+      height: 0,
     },
     cancelBtn: {
       marginTop: spacing.sm,
@@ -423,12 +437,128 @@ const createStyles = (
       color: "#fff",
       fontWeight: typography.bold,
     },
+    e2eQrPanel: {
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.md,
+      padding: spacing.lg,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.info,
+      backgroundColor: colors.infoLight,
+    },
+    e2eQrTitle: {
+      fontSize: typography.sm,
+      fontWeight: typography.bold,
+      color: colors.info,
+      marginBottom: spacing.sm,
+    },
+    e2eQrPresetButton: {
+      paddingVertical: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    e2eQrPresetText: {
+      fontSize: typography.sm,
+      color: colors.text,
+      fontWeight: typography.semibold,
+    },
+    e2eQrInput: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: borderRadius.md,
+      padding: spacing.md,
+      backgroundColor: colors.surface,
+      color: colors.text,
+      marginBottom: spacing.sm,
+    },
+    e2eQrActions: {
+      marginTop: spacing.xs,
+    },
+
+    // ── Table selector ──────────────────────────────────────────────
+    tableSelectorContainer: {
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+      marginBottom: spacing.sm,
+      padding: spacing.md,
+      borderRadius: borderRadius.lg,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    tableSelectorTitle: {
+      fontSize: typography.xs,
+      fontWeight: typography.semibold,
+      color: colors.textSecondary,
+      letterSpacing: 0.4,
+      textTransform: "uppercase",
+      marginBottom: spacing.sm,
+    },
+    tableSelectorList: {},
+    tableSelectorListContent: {
+      gap: spacing.sm,
+    },
+    tableOptionButton: {
+      width: 82,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.xs,
+      borderRadius: borderRadius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      gap: 4,
+    },
+    tableOptionButtonActive: {
+      backgroundColor: colors.primary,
+      borderColor: colors.primary,
+    },
+    tableOptionButtonMine: {
+      borderColor: colors.success,
+      borderWidth: 1.5,
+    },
+    tableOptionDots: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 3,
+      justifyContent: "center",
+      width: 46,
+      minHeight: 16,
+    },
+    tableOptionDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 99,
+    },
+    tableOptionDotMore: {
+      fontSize: 9,
+      color: colors.textMuted,
+      alignSelf: "center",
+      marginLeft: 2,
+    },
+    tableOptionName: {
+      fontSize: typography.xs,
+      fontWeight: typography.bold,
+      color: colors.text,
+    },
+    tableOptionNameActive: {
+      color: colors.textOnPrimary,
+    },
+    tableOptionAvailability: {
+      fontSize: 10,
+      color: colors.textSecondary,
+    },
+    tableOptionAvailabilityActive: {
+      color: colors.textOnPrimary,
+      opacity: 0.85,
+    },
   });
 
 const DeskScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
+  const isE2e = useE2eMode();
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
   const insets = useSafeAreaInsets();
+  const { feedback, showFeedback, hideFeedback } = useFeedback();
 
   const styles = useMemo(
     () =>
@@ -454,12 +584,123 @@ const DeskScreen = () => {
   const [scanned, setScanned] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
   const [checkingIn, setCheckingIn] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [e2eQrValue, setE2eQrValue] = useState("");
+  const [e2eQrPanelVisible, setE2eQrPanelVisible] = useState(false);
 
+  const [selectedTableId, setSelectedTableId] = useState(null);
+  const tableSelectorRef = useRef(null);
+
+  // ─────────────────────────────────────────────────────────────────
+  // Feedback helper
+  // ─────────────────────────────────────────────────────────────────
+  const showFeedbackAlert = useCallback(
+    (title, message, buttons = null) => {
+      const buttonList = Array.isArray(buttons) ? buttons : [];
+      const destructiveButton = buttonList.find(
+        (button) => button?.style === "destructive",
+      );
+      const confirmButton =
+        destructiveButton ||
+        buttonList.find((button) => button?.style !== "cancel") ||
+        null;
+      const cancelButton =
+        buttonList.find((button) => button?.style === "cancel") || null;
+      const normalizedTitle = String(title || "");
+      const normalizedLowerTitle = normalizedTitle.toLowerCase();
+      const isSuccess =
+        normalizedLowerTitle.includes("réussi") ||
+        normalizedLowerTitle.includes("check-in") ||
+        normalizedLowerTitle.includes("check-out") ||
+        normalizedLowerTitle.includes("réserv") ||
+        normalizedLowerTitle.includes("reserve") ||
+        normalizedLowerTitle.includes("reserv");
+      const isInfo =
+        normalizedLowerTitle.includes("votre poste") ||
+        normalizedLowerTitle.includes("déjà");
+      const isWarning =
+        !!destructiveButton ||
+        normalizedLowerTitle.includes("incorrect") ||
+        normalizedLowerTitle.includes("refus") ||
+        normalizedLowerTitle.includes("permission");
+
+      showFeedback({
+        type: isSuccess
+          ? "success"
+          : isInfo
+            ? "info"
+            : isWarning
+              ? "warning"
+              : "error",
+        title: normalizedTitle || "Information",
+        message,
+        confirmText: confirmButton?.text || "OK",
+        cancelText: cancelButton?.text,
+        onConfirm: confirmButton?.onPress,
+        onCancel: cancelButton?.onPress,
+      });
+    },
+    [showFeedback],
+  );
+
+  // ─────────────────────────────────────────────────────────────────
+  // Derived reservation state
+  // ─────────────────────────────────────────────────────────────────
+  const mySeatLabel =
+    myReservation?.seatLabel || myReservation?.SeatLabel || null;
+  const mySeatId = myReservation?.seatId ?? myReservation?.SeatId ?? null;
+  const hasMyReservation = !!mySeatLabel;
+
+  const reservationStatus =
+    myReservation?.status ?? myReservation?.Status ?? null;
+  const reservationStatusText = String(reservationStatus ?? "").toLowerCase();
+  const reservationCheckedInAt =
+    myReservation?.checkedInAt ?? myReservation?.CheckedInAt ?? null;
+  const isCheckedIn =
+    reservationStatus === 2 ||
+    reservationStatus === "CheckedIn" ||
+    reservationStatusText === "2" ||
+    reservationStatusText === "checkedin" ||
+    reservationStatusText === "checked_in";
+  const isCompleted =
+    reservationStatus === 4 ||
+    reservationStatus === "Completed" ||
+    reservationStatusText === "4" ||
+    reservationStatusText === "completed";
+  const isCancelledOrNoShow =
+    reservationStatus === 3 ||
+    reservationStatus === 5 ||
+    reservationStatusText === "3" ||
+    reservationStatusText === "5" ||
+    reservationStatusText === "cancelled" ||
+    reservationStatusText === "canceled" ||
+    reservationStatusText === "noshow" ||
+    reservationStatusText === "no_show";
+  const isActiveReservation =
+    reservationStatus === 1 ||
+    reservationStatus === "Active" ||
+    reservationStatusText === "1" ||
+    reservationStatusText === "active" ||
+    (hasMyReservation && !isCheckedIn && !isCompleted && !isCancelledOrNoShow);
+
+  // ─────────────────────────────────────────────────────────────────
+  // Scanner
+  // ─────────────────────────────────────────────────────────────────
   const openScanner = async () => {
+    if (isE2e) {
+      const qrPreset =
+        myReservation?.seatQrCodeValue ??
+        myReservation?.SeatQrCodeValue ??
+        (mySeatId ? `SEAT:${mySeatId}` : "");
+      setE2eQrValue(String(qrPreset).trim());
+      setE2eQrPanelVisible(true);
+      return;
+    }
+
     if (!permission?.granted) {
       const result = await requestPermission();
       if (!result.granted) {
-        Alert.alert(
+        showFeedbackAlert(
           "Permission refusée",
           "La caméra est nécessaire pour scanner le QR code.",
         );
@@ -471,26 +712,98 @@ const DeskScreen = () => {
     setScannerVisible(true);
   };
 
+  const submitE2eQr = async () => {
+    const value = String(e2eQrValue || "").trim();
+    if (!value) {
+      showFeedbackAlert("QR requis", "Saisissez la valeur QR du poste.");
+      return;
+    }
+
+    const expectedQr = String(
+      myReservation?.seatQrCodeValue ??
+        myReservation?.SeatQrCodeValue ??
+        (mySeatId ? `SEAT:${mySeatId}` : ""),
+    )
+      .trim()
+      .toUpperCase();
+    const reservedSeat = String(mySeatLabel || "")
+      .trim()
+      .toUpperCase();
+    const normalizedValue = value.toUpperCase();
+
+    if (
+      isE2e &&
+      normalizedValue !== expectedQr &&
+      normalizedValue !== reservedSeat
+    ) {
+      showFeedbackAlert(
+        "QR incorrect",
+        `Ce QR code ne correspond pas à votre poste réservé (${mySeatLabel}).`,
+      );
+      return;
+    }
+
+    await handleQrScanned({ data: value });
+    setE2eQrPanelVisible(false);
+  };
+
+  const handleCheckOut = async () => {
+    setCheckingOut(true);
+    try {
+      const response = await seatService.checkOutReservation();
+      const result = response?.data ?? response;
+
+      if (result?.success) {
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Success,
+        );
+        showFeedbackAlert(
+          "Check-out réussi",
+          "Votre journée de présence est terminée.",
+        );
+        await fetchMyReservation();
+      } else {
+        showFeedbackAlert(
+          "Check-out refusé",
+          result?.message || "Impossible de terminer le check-out.",
+        );
+      }
+    } catch (error) {
+      showFeedbackAlert(
+        "Erreur",
+        getErrorMessage(error, "Impossible de faire le check-out."),
+      );
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
   const handleQrScanned = async ({ data }) => {
     if (scanned || checkingIn) return;
 
     setScanned(true);
+    console.log("DESK QR DATA:", data);
 
     const resetScan = () => setTimeout(() => setScanned(false), 1500);
 
-    const scannedValue = String(data).trim().toUpperCase();
-    const reservedSeat = String(mySeatLabel).trim().toUpperCase();
+    const scannedValue = String(data).trim();
+    const match = /^SEAT:(\d+)$/i.exec(scannedValue);
+    const scannedSeatId = match ? Number(match[1]) : null;
 
-    if (scannedValue !== reservedSeat) {
-      Alert.alert(
+    if (!match || !Number.isSafeInteger(scannedSeatId) || scannedSeatId <= 0) {
+      showFeedbackAlert(
+        "QR incorrect",
+        "Le QR du poste doit avoir le format SEAT:{id}.",
+        [{ text: "RÃ©essayer", onPress: resetScan }],
+      );
+      return;
+    }
+
+    if (Number(mySeatId) !== scannedSeatId) {
+      showFeedbackAlert(
         "QR incorrect",
         `Ce QR code ne correspond pas à votre poste réservé (${mySeatLabel}).`,
-        [
-          {
-            text: "Réessayer",
-            onPress: resetScan
-          },
-        ],
+        [{ text: "Réessayer", onPress: resetScan }],
       );
       return;
     }
@@ -498,40 +811,44 @@ const DeskScreen = () => {
     setCheckingIn(true);
 
     try {
-      const response = await seatService.checkInReservation(data);
-
+      const response = await seatService.checkInReservation(
+        `SEAT:${scannedSeatId}`,
+      );
       const result = response?.data ?? response;
 
       if (result?.success) {
         await Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         );
-
         setScannerVisible(false);
-
         setTimeout(() => {
-          Alert.alert("Check-in réussi", "Votre présence a été confirmée.");
+          showFeedbackAlert(
+            "Check-in réussi",
+            "Votre présence a été confirmée.",
+          );
         }, 200);
-
         await fetchMyReservation();
       } else {
-        Alert.alert(
+        showFeedbackAlert(
           "Check-in refusé",
           result?.message || "Impossible de confirmer le check-in.",
           [{ text: "Réessayer", onPress: resetScan }],
         );
       }
     } catch (error) {
-      Alert.alert(
+      showFeedbackAlert(
         "Erreur",
         getErrorMessage(error, "Impossible de faire le check-in."),
-        [{ text: "Réessayer", onPress:resetScan }],
+        [{ text: "Réessayer", onPress: resetScan }],
       );
     } finally {
       setCheckingIn(false);
     }
   };
 
+  // ─────────────────────────────────────────────────────────────────
+  // Data fetching
+  // ─────────────────────────────────────────────────────────────────
   useFocusEffect(
     useCallback(() => {
       fetchSeatMap();
@@ -572,13 +889,13 @@ const DeskScreen = () => {
         }));
         setSeats(normalizedSeats);
       } else {
-        Alert.alert(
+        showFeedbackAlert(
           "Impossible de charger le plan",
           response.message || "Faites glisser vers le bas pour réessayer.",
         );
       }
     } catch (error) {
-      Alert.alert(
+      showFeedbackAlert(
         "Impossible de charger le plan",
         getErrorMessage(
           error,
@@ -594,10 +911,15 @@ const DeskScreen = () => {
     await Promise.all([fetchSeatMap(), fetchMyReservation()]);
   }, [selectedDate]);
 
-  const mySeatLabel =
-    myReservation?.seatLabel || myReservation?.SeatLabel || null;
-  const hasMyReservation = !!mySeatLabel;
+  useEffect(() => {
+    if (isE2e && mySeatId && !e2eQrValue) {
+      setE2eQrValue(`SEAT:${mySeatId}`);
+    }
+  }, [isE2e, mySeatId, e2eQrValue]);
 
+  // ─────────────────────────────────────────────────────────────────
+  // Seat / table derived data
+  // ─────────────────────────────────────────────────────────────────
   const prettyToday = useMemo(
     () =>
       new Date().toLocaleDateString("fr-FR", {
@@ -633,12 +955,51 @@ const DeskScreen = () => {
       .sort((a, b) => Number(a.tableId) - Number(b.tableId));
   }, [seats]);
 
+  // Auto-select: prefer the table containing the user's reservation,
+  // otherwise fall back to the first table.
+  useEffect(() => {
+    if (!seatsByTable.length) return;
+
+    if (mySeatLabel) {
+      const myTable = seatsByTable.find((t) =>
+        t.seats.some((s) => s.label === mySeatLabel),
+      );
+      if (myTable) {
+        setSelectedTableId(myTable.tableId);
+        // Scroll the chip into view
+        const idx = seatsByTable.indexOf(myTable);
+        if (idx > 0) {
+          setTimeout(() => {
+            tableSelectorRef.current?.scrollToIndex({
+              index: idx,
+              animated: true,
+              viewPosition: 0.5,
+            });
+          }, 150);
+        }
+        return;
+      }
+    }
+
+    if (!selectedTableId) {
+      setSelectedTableId(seatsByTable[0].tableId);
+    }
+  }, [seatsByTable, mySeatLabel]);
+
+  const selectedTable = useMemo(
+    () => seatsByTable.find((t) => t.tableId === selectedTableId),
+    [seatsByTable, selectedTableId],
+  );
+
+  // ─────────────────────────────────────────────────────────────────
+  // Seat interactions
+  // ─────────────────────────────────────────────────────────────────
   const handleSeatPress = (seat) => {
     if (!seat) return;
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
 
     if (isMySeat) {
-      Alert.alert(
+      showFeedbackAlert(
         "Votre poste",
         `Vous avez le poste ${seat.label} pour aujourd'hui.`,
       );
@@ -660,7 +1021,7 @@ const DeskScreen = () => {
     }
 
     if (hasMyReservation) {
-      Alert.alert(
+      showFeedbackAlert(
         "Déjà réservé",
         `Vous avez le poste ${mySeatLabel}. Annulez d'abord cette réservation.`,
       );
@@ -683,18 +1044,18 @@ const DeskScreen = () => {
       if (response.success) {
         await Promise.all([fetchSeatMap(), fetchMyReservation()]);
         setSelectedAvailableSeat(null);
-        Alert.alert(
-          "Réservé !",
-          `Le poste ${selectedAvailableSeat.label} est à vous aujourd'hui.`,
+        showFeedbackAlert(
+          "Réservation confirmée",
+          `Votre poste ${selectedAvailableSeat.label} a été réservé avec succès pour aujourd'hui.`,
         );
       } else {
-        Alert.alert(
+        showFeedbackAlert(
           "Impossible de réserver",
           response.message || "Ce poste vient peut-être d'être pris.",
         );
       }
     } catch (error) {
-      Alert.alert(
+      showFeedbackAlert(
         "Impossible de réserver",
         getErrorMessage(error, "Veuillez réessayer."),
       );
@@ -705,7 +1066,17 @@ const DeskScreen = () => {
 
   const handleCancelReservation = () => {
     if (!hasMyReservation) return;
-    Alert.alert(
+    if (!isActiveReservation) {
+      showFeedbackAlert(
+        "Réservation non annulable",
+        isCheckedIn
+          ? "Vous avez déjà effectué le check-in. Utilisez le check-out pour terminer votre présence."
+          : "Cette réservation ne peut plus être annulée.",
+      );
+      return;
+    }
+
+    showFeedbackAlert(
       "Annuler la réservation ?",
       `Libérer le poste ${mySeatLabel} pour aujourd'hui ?`,
       [
@@ -726,10 +1097,13 @@ const DeskScreen = () => {
       if (response?.success) {
         await Promise.all([fetchSeatMap(), fetchMyReservation()]);
       } else {
-        Alert.alert("Impossible d'annuler", response?.message || "Réessayez.");
+        showFeedbackAlert(
+          "Impossible d'annuler",
+          response?.message || "Réessayez.",
+        );
       }
     } catch (error) {
-      Alert.alert(
+      showFeedbackAlert(
         "Impossible d'annuler",
         getErrorMessage(error, "Une erreur s'est produite."),
       );
@@ -738,6 +1112,9 @@ const DeskScreen = () => {
     }
   };
 
+  // ─────────────────────────────────────────────────────────────────
+  // Rendering helpers
+  // ─────────────────────────────────────────────────────────────────
   const getSeatColor = (seat) => {
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
     const isSelected = selectedAvailableSeat?.id === seat.id;
@@ -787,6 +1164,7 @@ const DeskScreen = () => {
     return (
       <TouchableOpacity
         key={seat.id}
+        testID={`desk.seat.${seat.label}`}
         style={[
           styles.seatBox,
           {
@@ -832,6 +1210,7 @@ const DeskScreen = () => {
   );
 
   const renderTable = (table) => {
+    if (!table) return null;
     const layout = getTableLayout(table.seats);
     const isEleven = layout.type === "eleven";
 
@@ -871,6 +1250,112 @@ const DeskScreen = () => {
     );
   };
 
+  // Table selector chip renderer
+  const renderTableChip = useCallback(
+    ({ item: table }) => {
+      const isActive = table.tableId === selectedTableId;
+      const hasMyTable =
+        !!mySeatLabel && table.seats.some((s) => s.label === mySeatLabel);
+      const available = table.seats.filter((s) => !s.isReserved).length;
+      const total = table.seats.length;
+      const DOT_LIMIT = 6;
+      const dotsToShow = table.seats.slice(0, DOT_LIMIT);
+      const overflow = table.seats.length - DOT_LIMIT;
+
+      return (
+        <TouchableOpacity
+          style={[
+            styles.tableOptionButton,
+            isActive && styles.tableOptionButtonActive,
+            hasMyTable && !isActive && styles.tableOptionButtonMine,
+          ]}
+          onPress={() => setSelectedTableId(table.tableId)}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={`${table.tableName}, ${available} postes libres sur ${total}`}
+          accessibilityState={{ selected: isActive }}
+        >
+          {/* Mini dot availability preview */}
+          <View style={styles.tableOptionDots}>
+            {dotsToShow.map((s) => (
+              <View
+                key={s.id}
+                style={[
+                  styles.tableOptionDot,
+                  {
+                    backgroundColor:
+                      s.label === mySeatLabel
+                        ? colors.seatMine
+                        : s.isReserved
+                          ? colors.seatReserved
+                          : colors.seatAvailable,
+                  },
+                ]}
+              />
+            ))}
+            {overflow > 0 && (
+              <Text style={styles.tableOptionDotMore}>+{overflow}</Text>
+            )}
+          </View>
+
+          <Text
+            style={[
+              styles.tableOptionName,
+              isActive && styles.tableOptionNameActive,
+            ]}
+          >
+            {table.tableName}
+          </Text>
+          <Text
+            style={[
+              styles.tableOptionAvailability,
+              isActive && styles.tableOptionAvailabilityActive,
+            ]}
+          >
+            {available}/{total} libres
+          </Text>
+        </TouchableOpacity>
+      );
+    },
+    [selectedTableId, mySeatLabel, colors, styles],
+  );
+
+  const renderTableSelector = () => {
+    if (seatsByTable.length <= 1) return null;
+
+    return (
+      <Card style={styles.tableSelectorContainer}>
+        <Text style={styles.tableSelectorTitle}>Choisir une table</Text>
+        <FlatList
+          ref={tableSelectorRef}
+          data={seatsByTable}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={(item) => item.tableId}
+          renderItem={renderTableChip}
+          contentContainerStyle={styles.tableSelectorListContent}
+          getItemLayout={(_, index) => ({
+            length: 90,
+            offset: 90 * index,
+            index,
+          })}
+          onScrollToIndexFailed={(info) => {
+            setTimeout(() => {
+              tableSelectorRef.current?.scrollToIndex({
+                index: info.index,
+                animated: true,
+                viewPosition: 0.5,
+              });
+            }, 300);
+          }}
+        />
+      </Card>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -922,19 +1407,53 @@ const DeskScreen = () => {
                 Poste {mySeatLabel} réservé
               </Text>
               <Text style={styles.statusHint}>Aujourd&apos;hui · confirmé</Text>
+              <Text testID="attendance.status" style={styles.statusHint}>
+                {isCompleted
+                  ? "checked-out"
+                  : isCheckedIn
+                    ? "checked-in"
+                    : "reserved"}
+              </Text>
+              {isCheckedIn && reservationCheckedInAt ? (
+                <Text testID="desk.checkInStatus" style={styles.statusHint}>
+                  Check-in :{" "}
+                  {new Date(reservationCheckedInAt).toLocaleTimeString(
+                    "fr-FR",
+                    { hour: "2-digit", minute: "2-digit" },
+                  )}
+                </Text>
+              ) : null}
+              {isCompleted ? (
+                <Text testID="desk.checkOutStatus" style={styles.statusHint}>
+                  Check-out effectué
+                </Text>
+              ) : null}
             </View>
             <Button
-              title="Scanner QR"
+              testID="attendance.checkInButton"
+              title={isCheckedIn ? "Présent" : "Scanner QR"}
               onPress={openScanner}
-              disabled={checkingIn}
+              disabled={checkingIn || isCheckedIn || !isActiveReservation}
               style={{ marginRight: 8 }}
             />
+            {isCheckedIn ? (
+              <Button
+                testID="attendance.checkOutButton"
+                title="Check-out"
+                variant="secondary"
+                onPress={handleCheckOut}
+                loading={checkingOut}
+                disabled={checkingOut}
+                style={{ marginRight: 8 }}
+              />
+            ) : null}
             <Button
+              testID="desk.cancelReservationButton"
               title="Libérer"
               variant="danger-outline"
               onPress={handleCancelReservation}
               loading={cancelling}
-              disabled={cancelling}
+              disabled={cancelling || !isActiveReservation}
             />
           </View>
         ) : (
@@ -956,7 +1475,7 @@ const DeskScreen = () => {
         )}
       </Card>
 
-      {/* Map */}
+      {/* Seat map */}
       {loading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -974,7 +1493,9 @@ const DeskScreen = () => {
             />
           }
         >
-          {seatsByTable.map((table) => renderTable(table))}
+          {renderTableSelector()}
+
+          {selectedTable ? renderTable(selectedTable) : null}
 
           {seats.length === 0 && (
             <View style={styles.emptyContainer}>
@@ -1007,7 +1528,7 @@ const DeskScreen = () => {
         ))}
       </View>
 
-      {/* Reserved seat modal */}
+      {/* Reserved seat info modal */}
       <Modal
         visible={showReservedModal}
         transparent
@@ -1046,7 +1567,7 @@ const DeskScreen = () => {
         </View>
       </Modal>
 
-      {/* Action panel */}
+      {/* Seat reservation action panel */}
       {selectedAvailableSeat && (
         <View style={styles.actionPanel}>
           <View style={styles.actionPanelLeft}>
@@ -1058,6 +1579,7 @@ const DeskScreen = () => {
             </Text>
           </View>
           <Button
+            testID="desk.confirmReservationButton"
             title="Confirmer"
             onPress={confirmSeatReservation}
             loading={!!reservingSeatId}
@@ -1066,8 +1588,49 @@ const DeskScreen = () => {
           />
         </View>
       )}
+
+      {/* E2E QR panel */}
+      {isE2e && e2eQrPanelVisible && (
+        <View style={styles.e2eQrPanel}>
+          <Text style={styles.e2eQrTitle}>Mode E2E — QR simulé</Text>
+          <TouchableOpacity
+            testID="e2eFakeQrButton"
+            style={styles.e2eQrPresetButton}
+            onPress={() => setE2eQrValue(mySeatId ? `SEAT:${mySeatId}` : "")}
+          >
+            <Text style={styles.e2eQrPresetText}>
+              Utiliser le QR du poste ({mySeatLabel || "—"})
+            </Text>
+          </TouchableOpacity>
+          <TextInput
+            testID="e2eFakeQrInput"
+            style={styles.e2eQrInput}
+            value={e2eQrValue}
+            onChangeText={setE2eQrValue}
+            placeholder="Valeur QR"
+            autoCapitalize="characters"
+          />
+          <View style={styles.e2eQrActions}>
+            <Button
+              testID="e2eSubmitQrButton"
+              title="Valider le QR"
+              onPress={submitE2eQr}
+              loading={checkingIn}
+              disabled={checkingIn}
+            />
+            <Button
+              title="Fermer"
+              variant="secondary"
+              onPress={() => setE2eQrPanelVisible(false)}
+              style={{ marginTop: spacing.sm }}
+            />
+          </View>
+        </View>
+      )}
+
+      {/* QR scanner modal */}
       <Modal
-        visible={scannerVisible}
+        visible={scannerVisible && !isE2e}
         animationType="slide"
         onRequestClose={() => setScannerVisible(false)}
       >
@@ -1076,20 +1639,14 @@ const DeskScreen = () => {
             style={StyleSheet.absoluteFillObject}
             facing="back"
             onBarcodeScanned={scanned ? undefined : handleQrScanned}
-            barcodeScannerSettings={{
-              barcodeTypes: ["qr"],
-            }}
+            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
           />
-
           <View style={styles.scannerOverlay}>
             <Text style={styles.scannerTitle}>Scanner le QR code du poste</Text>
-
             <View style={styles.qrFrame} />
-
             <Text style={styles.scannerHint}>
               Placez le QR code dans le cadre
             </Text>
-
             {checkingIn && (
               <ActivityIndicator
                 size="large"
@@ -1097,7 +1654,6 @@ const DeskScreen = () => {
                 style={{ marginTop: 20 }}
               />
             )}
-
             <TouchableOpacity
               style={styles.closeScannerBtn}
               onPress={() => setScannerVisible(false)}
@@ -1108,6 +1664,24 @@ const DeskScreen = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Feedback modal */}
+      <FeedbackModal
+        visible={feedback.visible}
+        type={feedback.type}
+        title={feedback.title}
+        message={feedback.message}
+        confirmText={feedback.confirmText}
+        cancelText={feedback.cancelText}
+        onConfirm={() => {
+          feedback.onConfirm?.();
+          hideFeedback();
+        }}
+        onCancel={() => {
+          feedback.onCancel?.();
+          hideFeedback();
+        }}
+      />
     </View>
   );
 };

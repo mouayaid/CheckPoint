@@ -21,16 +21,10 @@ public class AdminStatisticsDto
     public List<StatusCountDto> GeneralRequestByStatus { get; set; } = new();
     public int GeneralRequestsCreatedInPeriod { get; set; }
 
-    public List<StatusCountDto> AbsenceByStatus { get; set; } = new();
-    public int AbsenceRequestsInPeriod { get; set; }
-
     public int EventsStartingInPeriod { get; set; }
     public int EventParticipantsForEventsInPeriod { get; set; }
 
     public int AnnouncementsCreatedInPeriod { get; set; }
-
-    public List<StatusCountDto> InternalRequestByStatus { get; set; } = new();
-    public int InternalRequestsCreatedInPeriod { get; set; }
 }
 
 public class UserStatsDto

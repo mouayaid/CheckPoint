@@ -31,7 +31,9 @@ public class DepartmentChannelService : IDepartmentChannelService
         if (user.Role.Name != "Manager")
             throw new Exception("Only managers can send department messages.");
 
-        if (user.DepartmentId != dto.DepartmentId)
+        var userDepartmentId = RequireDepartmentId(user);
+
+        if (userDepartmentId != dto.DepartmentId)
             throw new Exception("You can only post in your own department.");
 
         if (string.IsNullOrWhiteSpace(dto.Content))
@@ -85,7 +87,9 @@ public class DepartmentChannelService : IDepartmentChannelService
         if (user.Role.Name != "Manager")
             throw new Exception("Only managers can create polls.");
 
-        if (user.DepartmentId != dto.DepartmentId)
+        var userDepartmentId = RequireDepartmentId(user);
+
+        if (userDepartmentId != dto.DepartmentId)
             throw new Exception("You can only create polls in your own department.");
 
         if (string.IsNullOrWhiteSpace(dto.Question))
@@ -151,21 +155,28 @@ public class DepartmentChannelService : IDepartmentChannelService
     public async Task<List<DepartmentChannelMessageDto>> GetDepartmentFeedAsync(int userId, int departmentId)
     {
         var user = await _context.Users
+            .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
             throw new Exception("User not found.");
 
-        if (user.DepartmentId != departmentId)
+        var userDepartmentId = RequireDepartmentId(user);
+
+        if (userDepartmentId != departmentId)
             throw new Exception("You can only access your own department feed.");
 
         var messages = await _context.DepartmentChannelMessages
             .Include(m => m.Sender)
+                .ThenInclude(s => s.Role)
             .Include(m => m.Poll!)
                 .ThenInclude(p => p.Options)
             .Include(m => m.Poll!)
                 .ThenInclude(p => p.Votes)
-            .Where(m => m.DepartmentId == departmentId)
+            .Where(m =>
+                m.DepartmentId == departmentId &&
+                m.Sender.DepartmentId == departmentId &&
+                m.Sender.Role.Name == "Manager")
             .OrderByDescending(m => m.IsPinned)
             .ThenByDescending(m => m.CreatedAt)
             .ToListAsync();
@@ -213,6 +224,16 @@ public class DepartmentChannelService : IDepartmentChannelService
         return result;
     }
 
+    public async Task<List<DepartmentChannelMessageDto>> GetMyDepartmentFeedAsync(int userId)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+            throw new Exception("User not found.");
+
+        return await GetDepartmentFeedAsync(userId, RequireDepartmentId(user));
+    }
+
     public async Task MarkDepartmentChannelAsReadAsync(int userId)
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
@@ -220,15 +241,17 @@ public class DepartmentChannelService : IDepartmentChannelService
         if (user == null)
             throw new Exception("User not found.");
 
+        var userDepartmentId = RequireDepartmentId(user);
+
         var readState = await _context.DepartmentChannelReadStates
-            .FirstOrDefaultAsync(r => r.UserId == userId && r.DepartmentId == user.DepartmentId);
+            .FirstOrDefaultAsync(r => r.UserId == userId && r.DepartmentId == userDepartmentId);
 
         if (readState == null)
         {
             readState = new DepartmentChannelReadState
             {
                 UserId = userId,
-                DepartmentId = user.DepartmentId,
+                DepartmentId = userDepartmentId,
                 LastReadAt = DateTime.UtcNow
             };
 
@@ -250,13 +273,18 @@ public class DepartmentChannelService : IDepartmentChannelService
         if (user == null)
             throw new Exception("User not found.");
 
+        var userDepartmentId = RequireDepartmentId(user);
+
         var readState = await _context.DepartmentChannelReadStates
-            .FirstOrDefaultAsync(r => r.UserId == userId && r.DepartmentId == user.DepartmentId);
+            .FirstOrDefaultAsync(r => r.UserId == userId && r.DepartmentId == userDepartmentId);
 
         var lastReadAt = readState?.LastReadAt;
 
         var messages = _context.DepartmentChannelMessages
-            .Where(m => m.DepartmentId == user.DepartmentId);
+            .Where(m =>
+                m.DepartmentId == userDepartmentId &&
+                m.Sender.DepartmentId == userDepartmentId &&
+                m.Sender.Role.Name == "Manager");
 
         var unreadCount = await messages.CountAsync(m =>
             (lastReadAt == null || m.CreatedAt > lastReadAt) && m.SenderId != userId);
@@ -267,8 +295,8 @@ public class DepartmentChannelService : IDepartmentChannelService
 
         return new MyDepartmentChannelDto
         {
-            DepartmentId = user.DepartmentId,
-            DepartmentName = user.Department.Name,
+            DepartmentId = userDepartmentId,
+            DepartmentName = user.Department?.Name ?? string.Empty,
             UnreadCount = unreadCount,
             LastMessagePreview = lastMessage == null
                 ? null
@@ -290,8 +318,12 @@ public class DepartmentChannelService : IDepartmentChannelService
         if (user.Role.Name != "Employee")
             throw new Exception("Only employees can vote.");
 
+        var userDepartmentId = RequireDepartmentId(user);
+
         var poll = await _context.DepartmentPolls
             .Include(p => p.Message)
+                .ThenInclude(m => m.Sender)
+                    .ThenInclude(s => s.Role)
             .Include(p => p.Options)
             .Include(p => p.Votes)
             .FirstOrDefaultAsync(p => p.Id == pollId);
@@ -299,8 +331,12 @@ public class DepartmentChannelService : IDepartmentChannelService
         if (poll == null)
             throw new Exception("Poll not found.");
 
-        if (user.DepartmentId != poll.Message.DepartmentId)
+        if (userDepartmentId != poll.Message.DepartmentId)
             throw new Exception("You can only vote in polls from your department.");
+
+        if (poll.Message.Sender.DepartmentId != userDepartmentId ||
+            poll.Message.Sender.Role.Name != "Manager")
+            throw new Exception("You can only vote in polls from your department manager.");
 
         if (poll.IsClosed)
             throw new Exception("This poll is closed.");
@@ -380,5 +416,13 @@ public class DepartmentChannelService : IDepartmentChannelService
             CreatedAt = message.CreatedAt,
             Poll = pollDto
         };
+    }
+
+    private static int RequireDepartmentId(User user)
+    {
+        if (!user.DepartmentId.HasValue)
+            throw new Exception("User is not assigned to a department.");
+
+        return user.DepartmentId.Value;
     }
 }

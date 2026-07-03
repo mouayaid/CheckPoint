@@ -1,3 +1,4 @@
+import logger from "../../utils/logger";
 import axiosInstance from "./axiosInstance";
 
 export const leaveService = {
@@ -9,6 +10,7 @@ export const leaveService = {
   approveLeaveRequest: (id, payload = {}) =>
     axiosInstance.put(`/Leave/requests/${id}/approve`, {
       comment: payload?.comment ?? "",
+      deductFromLeaveBalance: !!payload?.deductFromLeaveBalance,
     }),
 
   rejectLeaveRequest: (id, payload = {}) =>
@@ -16,11 +18,14 @@ export const leaveService = {
       comment: payload?.comment ?? "",
     }),
 
+  cancelLeaveRequest: (id) =>
+    axiosInstance.put(`/Leave/requests/${id}/cancel`),
+
   getPendingReviewRequests: async () => {
     try {
       const res = await axiosInstance.get("/Leave/pending-review");
 
-      console.log("RAW LEAVE API RESPONSE:", res);
+      logger.debug("RAW LEAVE API RESPONSE:", res);
 
       const data = Array.isArray(res)
         ? res
@@ -35,7 +40,7 @@ export const leaveService = {
         data,
       };
     } catch (error) {
-      console.log(
+      logger.debug(
         "LEAVE SERVICE ERROR:",
         error?.response?.data || error.message,
       );
@@ -58,6 +63,7 @@ export const leaveService = {
       `/Leave/requests/${id}/${isApprove ? "approve" : "reject"}`,
       {
         comment: payload?.comment ?? "",
+        deductFromLeaveBalance: !!payload?.deductFromLeaveBalance,
       },
     );
   },

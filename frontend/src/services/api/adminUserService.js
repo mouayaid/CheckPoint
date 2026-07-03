@@ -1,3 +1,4 @@
+import logger from "../../utils/logger";
 import api from "./axiosInstance";
 
 const extractData = (res) => {
@@ -22,7 +23,7 @@ export const adminUserService = {
     try {
       const res = await api.get("/admin/users/pending");
 
-      console.log("RAW PENDING USERS API RESPONSE:", res);
+      logger.debug("RAW PENDING USERS API RESPONSE:", res);
 
       const data = extractData(res) ?? [];
 
@@ -31,7 +32,7 @@ export const adminUserService = {
         data: Array.isArray(data) ? data : [],
       };
     } catch (error) {
-      console.log("PENDING USERS FULL ERROR:", {
+      logger.debug("PENDING USERS FULL ERROR:", {
         message: error?.message,
         status: error?.response?.status,
         data: error?.response?.data,
@@ -63,8 +64,14 @@ export const adminUserService = {
 
   getDepartments: () => api.get("/Departments"),
 
-  /** Delete a user permanently */
-  deleteUser: (id) => api.delete(`/admin/users/${id}`),
+  /** Deactivate a user account without deleting historical data */
+  deactivateUser: (id) => api.put(`/admin/users/${id}/deactivate`),
+
+  /** Reactivate a previously deactivated user account */
+  reactivateUser: (id) => api.put(`/admin/users/${id}/reactivate`),
+
+  /** Compatibility alias for older callers; backend also performs a soft delete. */
+  deleteUser: (id) => api.put(`/admin/users/${id}/deactivate`),
 
   /** Approve pending user */
   approveUser: (id, dto) => api.put(`/admin/users/${id}/approve`, dto),

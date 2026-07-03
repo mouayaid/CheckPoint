@@ -18,6 +18,41 @@ public class AuthController : ControllerBase
         _authService = authService;
     }
 
+    [HttpPost("forgot-password")]
+    public async Task<ActionResult<ApiResponse<object>>> ForgotPassword([FromBody] ForgotPasswordDto dto)
+    {
+        await _authService.ForgotPasswordAsync(dto.Email);
+
+        return Ok(ApiResponse<object>.SuccessResponse(null, "If an account with this email exists, a reset code has been sent."));
+    }
+
+
+    [HttpPost("verify-reset-otp")]
+    public async Task<ActionResult<ApiResponse<object>>> VerifyResetOtp([FromBody] VerifyResetOtpDto dto)
+    {
+        var result = await _authService.VerifyResetOtpAsync(dto.Email, dto.OtpCode);
+
+        if (!result)
+        {
+            return BadRequest(ApiResponse<object>.ErrorResponse("Invalid or expired OTP"));
+        }
+
+        return Ok(ApiResponse<object>.SuccessResponse(null, "OTP verified successfully"));
+    }
+
+    [HttpPost("reset-password")]
+    public async Task<ActionResult<ApiResponse<object>>> ResetPassword([FromBody] ResetPasswordDto dto)
+    {
+        var result = await _authService.ResetPasswordAsync(dto.Email, dto.OtpCode, dto.NewPassword);
+
+        if (!result)
+        {
+            return BadRequest(ApiResponse<object>.ErrorResponse("Invalid OTP or email"));
+        }
+
+        return Ok(ApiResponse<object>.SuccessResponse(null, "Password reset successfully"));
+    }
+
     [HttpPost("login")]
     public async Task<ActionResult<ApiResponse<AuthResponseDto>>> Login([FromBody] LoginDto loginDto)
     {
@@ -32,7 +67,7 @@ public class AuthController : ControllerBase
 
             if (result.User == null || string.IsNullOrEmpty(result.Token))
             {
-                return StatusCode(403, ApiResponse<AuthResponseDto>.ErrorResponse("Your account is pending admin approval."));
+                return StatusCode(403, ApiResponse<AuthResponseDto>.ErrorResponse("Your account is not active. It may be pending approval or disabled."));
             }
 
             return Ok(ApiResponse<AuthResponseDto>.SuccessResponse(result, "Login successful"));
@@ -43,6 +78,19 @@ public class AuthController : ControllerBase
                 ex.InnerException?.Message ?? ex.Message
             ));
         }
+    }
+
+    [HttpPost("refresh")]
+    public async Task<ActionResult<ApiResponse<AuthResponseDto>>> Refresh([FromBody] RefreshTokenDto dto)
+    {
+        var result = await _authService.RefreshTokenAsync(dto.RefreshToken);
+
+        if (result == null)
+        {
+            return Unauthorized(ApiResponse<AuthResponseDto>.ErrorResponse("Invalid refresh token"));
+        }
+
+        return Ok(ApiResponse<AuthResponseDto>.SuccessResponse(result, "Token refreshed"));
     }
 
     [HttpPost("register")]
@@ -77,7 +125,8 @@ public class AuthController : ControllerBase
         var response = new AuthResponseDto
         {
             User = user,
-            Token = string.Empty // Token not needed here
+            Token = string.Empty,
+            RefreshToken = string.Empty
         };
 
         return Ok(ApiResponse<AuthResponseDto>.SuccessResponse(response));

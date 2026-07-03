@@ -107,18 +107,104 @@ public class AdminUsersController : ControllerBase
         return Ok(ApiResponse<UserDto>.SuccessResponse(result, "User updated successfully"));
     }
 
+    // PUT /api/admin/users/{id}/deactivate
+    [HttpPut("{id}/deactivate")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<ApiResponse<object>>> DeactivateUser(int id)
+    {
+        try
+        {
+            var currentUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            var deactivated = await _adminUserService.DeactivateUserAsync(id, currentUserId);
+
+            if (!deactivated)
+            {
+                return NotFound(ApiResponse<object>.ErrorResponse(
+                    "User not found.",
+                    new List<string> { $"No user exists with id {id}." }));
+            }
+
+            return Ok(ApiResponse<object>.SuccessResponse(
+                null,
+                "User deactivated successfully."));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<object>.ErrorResponse(
+                "Failed to deactivate user.",
+                new List<string> { ex.Message }));
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ApiResponse<object>.ErrorResponse(
+                "Failed to deactivate user.",
+                new List<string> { ex.Message }));
+        }
+    }
+
+    // PUT /api/admin/users/{id}/reactivate
+    [HttpPut("{id}/reactivate")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<ApiResponse<object>>> ReactivateUser(int id)
+    {
+        try
+        {
+            var reactivated = await _adminUserService.ReactivateUserAsync(id);
+
+            if (!reactivated)
+            {
+                return NotFound(ApiResponse<object>.ErrorResponse(
+                    "User not found.",
+                    new List<string> { $"No user exists with id {id}." }));
+            }
+
+            return Ok(ApiResponse<object>.SuccessResponse(
+                null,
+                "User reactivated successfully."));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<object>.ErrorResponse(
+                "Failed to reactivate user.",
+                new List<string> { ex.Message }));
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ApiResponse<object>.ErrorResponse(
+                "Failed to reactivate user.",
+                new List<string> { ex.Message }));
+        }
+    }
+
     // DELETE /api/admin/users/{id}
+    // Compatibility alias: user management never physically deletes users.
     [HttpDelete("{id}")]
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<object>>> DeleteUser(int id)
     {
-        var deleted = await _adminUserService.DeleteUserAsync(id);
-
-        if (!deleted)
+        try
         {
-            return NotFound(ApiResponse<object>.ErrorResponse("User not found"));
-        }
+            var currentUserId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            var deleted = await _adminUserService.DeleteUserAsync(id, currentUserId);
 
-        return Ok(ApiResponse<object>.SuccessResponse(null, "User deleted successfully"));
+            if (!deleted)
+            {
+                return NotFound(ApiResponse<object>.ErrorResponse("User not found"));
+            }
+
+            return Ok(ApiResponse<object>.SuccessResponse(null, "User deactivated successfully"));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<object>.ErrorResponse(
+                "Failed to deactivate user.",
+                new List<string> { ex.Message }));
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(ApiResponse<object>.ErrorResponse(
+                "Failed to deactivate user.",
+                new List<string> { ex.Message }));
+        }
     }
 }

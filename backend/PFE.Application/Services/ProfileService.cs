@@ -22,6 +22,7 @@ public class ProfileService : IProfileService
         {
             var user = await _context.Users
                 .Include(u => u.Department)
+                .Include(u => u.Role)
                 .FirstOrDefaultAsync(u => u.Id == userId);
 
             if (user == null)

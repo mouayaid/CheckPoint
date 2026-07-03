@@ -1,4 +1,5 @@
-import React, { useCallback, useMemo, useState , useEffect } from "react";
+import logger from "../../utils/logger";
+import React, { useCallback, useMemo, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -29,8 +30,6 @@ if (
 ) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
-
-
 
 const EditSeatModal = ({
   visible,
@@ -529,7 +528,7 @@ const SeatManagementScreen = () => {
           } catch {
             newSeatsMap[tId] = [];
           }
-        })
+        }),
       );
       setSeatsByTableId(newSeatsMap);
     } catch {
@@ -557,7 +556,10 @@ const SeatManagementScreen = () => {
       const res = await adminOfficeTableService.createOfficeTable(dto);
       const created = adminOfficeTableService.extractData(res);
       setTables((prev) => [...prev, created]);
-      setSeatsByTableId((prev) => ({ ...prev, [created.id ?? created.Id]: [] }));
+      setSeatsByTableId((prev) => ({
+        ...prev,
+        [created.id ?? created.Id]: [],
+      }));
 
       if (seatCount && seatCount > 0) {
         const tableId = created.id ?? created.Id;
@@ -573,7 +575,7 @@ const SeatManagementScreen = () => {
             const seatRes = await adminSeatService.createSeat(seatDto);
             newSeats.push(adminSeatService.extractData(seatRes));
           } catch (e) {
-            console.error("Error creating seat", e);
+            logger.error("Error creating seat", e);
           }
         }
         setSeatsByTableId((prev) => ({
@@ -616,11 +618,37 @@ const SeatManagementScreen = () => {
     );
   };
 
+  const normalizeSeatLabel = (value) =>
+    String(value ?? "")
+      .trim()
+      .toLowerCase();
+
   const handleSaveSeat = async (id, dto) => {
     const tableId = dto.officeTableId ?? defaultTableIdForSeat;
+    const newLabel = normalizeSeatLabel(dto.label);
+
+    const existingSeats = seatsByTableId[tableId] ?? [];
+
+    const duplicateSeat = existingSeats.find((s) => {
+      const seatId = s.id ?? s.Id;
+      const seatLabel = normalizeSeatLabel(s.label ?? s.Label);
+
+      // when editing, ignore the current seat itself
+      return seatLabel === newLabel && seatId !== id;
+    });
+
+    if (duplicateSeat) {
+      Alert.alert(
+        "Validation",
+        `Le siège "${dto.label}" existe déjà dans cette table.`,
+      );
+      return;
+    }
+
     if (id) {
       const res = await adminSeatService.updateSeat(id, dto);
       const updated = adminSeatService.extractData(res);
+
       setSeatsByTableId((prev) => ({
         ...prev,
         [tableId]: (prev[tableId] ?? []).map((s) =>
@@ -630,13 +658,14 @@ const SeatManagementScreen = () => {
     } else {
       const res = await adminSeatService.createSeat(dto);
       const created = adminSeatService.extractData(res);
+
       setSeatsByTableId((prev) => ({
         ...prev,
         [tableId]: [...(prev[tableId] ?? []), created],
       }));
     }
   };
-
+  
   const handleDeleteSeat = (seat, tableId) => {
     const id = seat.id ?? seat.Id;
     const label = seat.label ?? seat.Label;
@@ -739,9 +768,9 @@ const SeatManagementScreen = () => {
     const id = table.id ?? table.Id;
     const name = table.name ?? table.Name ?? "—";
     const isDeleting = deletingTableId === id;
-    
+
     const tableSeats = seatsByTableId[id] || [];
-    
+
     const sortedSeats = [...tableSeats].sort((a, b) => {
       const n = (l) => {
         const m = String(l).match(/\d+/);
@@ -772,8 +801,10 @@ const SeatManagementScreen = () => {
                 ]}
               >
                 <View style={styles.tableInnerLine} />
-                <Text style={styles.tableVisualText} numberOfLines={2}>{name}</Text>
-                
+                <Text style={styles.tableVisualText} numberOfLines={2}>
+                  {name}
+                </Text>
+
                 <View style={styles.tableActions}>
                   <TouchableOpacity
                     style={styles.tableActionBtn}
@@ -782,7 +813,11 @@ const SeatManagementScreen = () => {
                       setTableModalVisible(true);
                     }}
                   >
-                    <Ionicons name="create-outline" size={16} color={colors.textSecondary} />
+                    <Ionicons
+                      name="create-outline"
+                      size={16}
+                      color={colors.textSecondary}
+                    />
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.tableActionBtn}
@@ -802,11 +837,14 @@ const SeatManagementScreen = () => {
                     {isDeleting ? (
                       <ActivityIndicator size="small" color="#EF4444" />
                     ) : (
-                      <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                      <Ionicons
+                        name="trash-outline"
+                        size={16}
+                        color="#EF4444"
+                      />
                     )}
                   </TouchableOpacity>
                 </View>
-
               </View>
             </View>
 
@@ -833,7 +871,7 @@ const SeatManagementScreen = () => {
             Édition des tables et sièges
           </Text>
         </View>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={{ flexDirection: "row", gap: 8 }}>
           <TouchableOpacity
             style={styles.addBtn}
             onPress={() => {

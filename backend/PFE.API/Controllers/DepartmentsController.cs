@@ -18,6 +18,7 @@ public class DepartmentsController : ControllerBase
     }
 
     [HttpGet]
+    [AllowAnonymous]
     public async Task<IActionResult> GetAll()
     {
         var departments = await _context.Departments

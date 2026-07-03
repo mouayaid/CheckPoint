@@ -9,14 +9,16 @@ public class LeaveRequestDto
     public int UserId { get; set; }
     public string UserName { get; set; } = string.Empty;
 
-    public int? AssignedManagerId { get; set; }
-    public string? AssignedManagerName { get; set; }
-
     public int? ReviewedById { get; set; }
     public string? ReviewedByName { get; set; }
 
     public LeaveType Type { get; set; }
     public string TypeLabel => Type.ToString();
+    public decimal? RequestedDays { get; set; }
+    public HalfDayPeriod? DayPeriod { get; set; }
+    public string? DayPeriodLabel => DayPeriod?.ToString();
+    public TimeSpan? FromTime { get; set; }
+    public TimeSpan? ToTime { get; set; }
 
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }

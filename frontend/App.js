@@ -25,6 +25,7 @@ import {
 } from "react-native";
 
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
+import { E2eModeProvider, useE2eMode } from "./src/context/E2eModeContext";
 import {
   NotificationsProvider,
   useNotifications,
@@ -34,17 +35,18 @@ import { typography } from "./src/theme/theme";
 
 import LoginScreen from "./src/screens/LoginScreen";
 import RegisterScreen from "./src/screens/RegisterScreen";
+import ForgotPasswordScreen from "./src/screens/ForgotPasswordScreen";
 import DashboardScreen from "./src/screens/DashboardScreen";
 import DeskScreen from "./src/screens/DeskScreen";
 import RoomReservationScreen from "./src/screens/RoomReservationScreen";
+import MeetingWorkspaceScreen from "./src/screens/MeetingWorkspaceScreen";
 import LeaveRequestScreen from "./src/screens/LeaveRequestScreen";
+import GeneralRequestScreen from "./src/screens/GeneralRequestScreen";
+import DemandMenuScreen from "./src/screens/DemandMenuScreen";
 import EventsScreen from "./src/screens/EventsScreen";
 import NotificationsScreen from "./src/screens/NotificationsScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
-import PendingRoomReservationsScreen from "./src/screens/PendingRoomReservationsScreen";
-import PendingLeaveRequestsScreen from "./src/screens/PendingLeaveRequestScreen";
-import ManageAnnouncementsScreen from "./src/screens/hr/ManageAnnouncementsScreen";
-import ManageEventsScreen from "./src/screens/hr/ManageEventsScreen";
+import ManageAnnouncementsScreen from "./src/screens/admin/ManageAnnouncementsScreen";
 import DepartmentChannelScreen from "./src/screens/DepartmentChannelScreen";
 import ApprovalsScreen from "./src/screens/approvals/ApprovalsScreen";
 import UserManagementScreen from "./src/screens/admin/UserManagementScreen";
@@ -58,7 +60,9 @@ import RoomManagementScreen from "./src/screens/admin/RoomManagementScreen";
 import AdminStatisticsScreen from "./src/screens/admin/AdminStatisticsScreen";
 import SwipeTabsPager from "./src/components/SwipeTabsPager";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-
+import ErrorBoundary from "./src/components/ErrorBoundary";
+import { isE2EMode } from "./src/utils/e2eMode";
+import { useRoles } from "./src/hooks/useRoles";
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -73,6 +77,7 @@ function HeaderActions() {
       <TouchableOpacity
         style={styles.headerIconButton}
         onPress={() => navigation.navigate("Notifications")}
+        testID="header.notificationsButton"
       >
         <Ionicons
           name={unreadCount > 0 ? "notifications" : "notifications-outline"}
@@ -85,6 +90,7 @@ function HeaderActions() {
       <TouchableOpacity
         style={styles.headerIconButton}
         onPress={() => navigation.navigate("Profile")}
+        testID="header.profileButton"
       >
         <Ionicons
           name="person-circle-outline"
@@ -100,19 +106,13 @@ function HomeTabs() {
   const { colors } = useTheme();
   const { user } = useAuth();
   const { refreshChannelInfo } = useDepartmentChannel();
+  const { isAdmin, canReviewRequests } = useRoles(user);
 
   useFocusEffect(
     useCallback(() => {
       refreshChannelInfo();
     }, [refreshChannelInfo]),
   );
-
-  const role = user?.roleName ?? user?.roleId;
-
-  const isAdmin = role === "Admin" || role === 3;
-  const isHR = role === "HR" || role === 4;
-
-  const canReviewRequests = isAdmin || isHR;
 
   const visibleSwipeRoutes = useMemo(() => {
     const base = ["Home"];
@@ -249,12 +249,16 @@ function HomeTabs() {
 }
 
 function AppNavigator() {
-  const { colors, darkMode } = useTheme();
+  const { colors, darkMode, themeLoaded } = useTheme();
   const { isAuthenticated, isLoading } = useAuth();
+  const isE2e = useE2eMode();
 
-  if (isLoading) {
+  // Keep the splash visible until both auth + theme are loaded,
+  // to prevent a light->dark flicker on startup.
+  if ((isLoading || !themeLoaded) && !isE2e) {
     return (
       <View
+        testID="bootstrap.loading"
         style={[
           styles.loadingContainer,
           { backgroundColor: colors.background },
@@ -262,7 +266,7 @@ function AppNavigator() {
       >
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
-          Chargement…
+          Chargement...
         </Text>
       </View>
     );
@@ -283,7 +287,7 @@ function AppNavigator() {
           },
         }}
       >
-        <Stack.Navigator initialRouteName="Splash">
+        <Stack.Navigator initialRouteName={isE2e ? "Login" : "Splash"}>
           {!isAuthenticated ? (
             <>
               <Stack.Screen
@@ -293,6 +297,11 @@ function AppNavigator() {
               />
               <Stack.Screen name="Login" component={LoginScreen} />
               <Stack.Screen name="Register" component={RegisterScreen} />
+              <Stack.Screen
+                name="ForgotPassword"
+                component={ForgotPasswordScreen}
+                options={{ title: "Mot de passe oublie" }}
+              />
             </>
           ) : (
             <>
@@ -303,9 +312,21 @@ function AppNavigator() {
               />
 
               <Stack.Screen
+                name="DemandMenu"
+                component={DemandMenuScreen}
+                options={{ title: "Demandes" }}
+              />
+
+              <Stack.Screen
                 name="LeaveRequest"
                 component={LeaveRequestScreen}
-                options={{ title: "Demandes Congé" }}
+                options={{ title: "Demande de congé" }}
+              />
+
+              <Stack.Screen
+                name="GeneralRequest"
+                component={GeneralRequestScreen}
+                options={{ title: "Demande générale" }}
               />
 
               <Stack.Screen
@@ -318,12 +339,6 @@ function AppNavigator() {
                 name="Profile"
                 component={ProfileScreen}
                 options={{ title: "Profil" }}
-              />
-
-              <Stack.Screen
-                name="PendingRoomReservations"
-                component={PendingRoomReservationsScreen}
-                options={{ title: "Demandes Salles En Attente" }}
               />
 
               <Stack.Screen
@@ -340,17 +355,7 @@ function AppNavigator() {
                 options={{ title: "Gestion des Événements" }}
               />
 
-              <Stack.Screen
-                name="ManageEvents"
-                component={ManageEventsScreen}
-                options={{ title: "Créer un événement" }}
-              />
 
-              <Stack.Screen
-                name="PendingLeaveRequests"
-                component={PendingLeaveRequestsScreen}
-                options={{ title: "Demandes Congé En Attente" }}
-              />
 
               <Stack.Screen
                 name="UserManagement"
@@ -369,6 +374,11 @@ function AppNavigator() {
                 component={SeatManagementScreen}
                 options={{ title: "Tables et Sièges" }}
               />
+              <Stack.Screen
+                name="MeetingWorkspace"
+                component={MeetingWorkspaceScreen}
+                options={{ title: "Espace de réunion" }}
+              />
             </>
           )}
         </Stack.Navigator>
@@ -379,9 +389,11 @@ function AppNavigator() {
 
 function RootApp() {
   const { colors, darkMode } = useTheme();
+  const isE2e = useE2eMode();
 
   return (
     <>
+      {isE2e ? <View testID="e2e.modeActive" style={{ width: 0, height: 0 }} /> : null}
       <StatusBar
         barStyle={darkMode ? "light-content" : "dark-content"}
         backgroundColor={colors.surface}
@@ -398,6 +410,7 @@ function RootApp() {
 }
 
 export default function App() {
+  const isE2e = isE2EMode();
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -405,20 +418,27 @@ export default function App() {
     Inter_700Bold,
   });
 
-  if (!fontsLoaded) {
+  if (!fontsLoaded && !isE2e) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: "#F4F6F8" }]}>
+      <View
+        testID="bootstrap.fontsLoading"
+        style={[styles.loadingContainer, { backgroundColor: "#F4F6F8" }]}
+      >
         <ActivityIndicator size="large" color="#E11D48" />
       </View>
     );
   }
 
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <RootApp />
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <E2eModeProvider>
+            <RootApp />
+          </E2eModeProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 
@@ -449,8 +469,12 @@ const styles = StyleSheet.create({
     borderColor: "#fff",
   },
   headerIconButton: {
-    marginLeft: 14,
     position: "relative",
+    width: 44,
+    height: 44,
+    marginLeft: 4,
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerBadge: {
     position: "absolute",
@@ -485,3 +509,5 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+
+

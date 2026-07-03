@@ -11,11 +11,29 @@ using PFE.Infrastructure.Repositories;
 using PFE.API.Middlewares;
 using PFE.Infrastructure.Data;
 using System.Text.Json.Serialization;
+using PFE.API.Hubs;
+using Microsoft.AspNetCore.SignalR;
+using PFE.API.Services;
+
 
 
 
 
 var builder = WebApplication.CreateBuilder(args);
+
+static string RequireConfigurationValue(
+    IConfiguration configuration,
+    string key)
+{
+    var value = configuration[key];
+    if (string.IsNullOrWhiteSpace(value))
+    {
+        throw new InvalidOperationException(
+            $"Required configuration '{key}' is missing.");
+    }
+
+    return value;
+}
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -63,33 +81,72 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactNative", policy =>
     {
-        policy.SetIsOriginAllowed(_ => true)
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
+        var allowedOrigins = builder.Configuration
+            .GetSection("Cors:AllowedOrigins")
+            .Get<string[]>()
+            ?.Where(origin => !string.IsNullOrWhiteSpace(origin))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? Array.Empty<string>();
+
+        if (!builder.Environment.IsDevelopment() && allowedOrigins.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "At least one production CORS origin must be configured in 'Cors:AllowedOrigins'.");
+        }
+
+        policy.WithOrigins(allowedOrigins)
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
     });
 });
 
 builder.Services.AddScoped<IOfficeLayoutService, OfficeLayoutService>();
 
-builder.Services.AddScoped<IOfficeLayoutService, OfficeLayoutService>();
 
 builder.Services.AddScoped<CloudinaryService>();
+builder.Services.AddScoped<INotificationPushService, SignalRNotificationPushService>();
+builder.Services.AddHttpClient<IOllamaMeetingInsightService, OllamaMeetingInsightService>(client =>
+{
+    client.BaseAddress = new Uri("http://localhost:11434/");
+    client.Timeout = TimeSpan.FromMinutes(2);
+});
+builder.Services.AddScoped<IWhisperService, WhisperService>();
+
+
 
 // Database - EF Core with SQL Server
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "Required configuration 'ConnectionStrings:DefaultConnection' is missing.");
+}
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(
-        builder.Configuration.GetConnectionString("DefaultConnection"),
+        connectionString,
         b => b.MigrationsAssembly("PFE.Infrastructure")));
 
 builder.Services.AddScoped<IApplicationDbContext>(sp =>
 sp.GetRequiredService<ApplicationDbContext>());
 
 // JWT Authentication
-var jwtKey = builder.Configuration["Jwt:Key"]
-    ?? throw new InvalidOperationException("JWT Key not configured in appsettings.json");
+var jwtKey = RequireConfigurationValue(builder.Configuration, "Jwt:Key");
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "PFE.API";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "PFE.Client";
+
+if (!builder.Environment.IsDevelopment())
+{
+    RequireConfigurationValue(builder.Configuration, "Cloudinary:CloudName");
+    RequireConfigurationValue(builder.Configuration, "Cloudinary:ApiKey");
+    RequireConfigurationValue(builder.Configuration, "Cloudinary:ApiSecret");
+    RequireConfigurationValue(builder.Configuration, "Email:SmtpHost");
+    RequireConfigurationValue(builder.Configuration, "Email:SmtpPort");
+    RequireConfigurationValue(builder.Configuration, "Email:Username");
+    RequireConfigurationValue(builder.Configuration, "Email:Password");
+    RequireConfigurationValue(builder.Configuration, "Email:From");
+}
 
 builder.Services.AddAuthentication(options =>
 {
@@ -109,6 +166,23 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
         ClockSkew = TimeSpan.Zero
     };
+
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            var path = context.HttpContext.Request.Path;
+
+            if (!string.IsNullOrEmpty(accessToken) &&
+                path.StartsWithSegments("/hubs/notifications"))
+            {
+                context.Token = accessToken;
+            }
+
+            return Task.CompletedTask;
+        }
+    };
 });
 
 builder.Services.AddAuthorization(options =>
@@ -125,18 +199,15 @@ builder.Services.AddAutoMapper(typeof(MappingProfile));
 
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 
-// Application Services
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ISeatService, SeatService>();
 builder.Services.AddScoped<ISeatReservationService, SeatReservationService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IRoomReservationService, RoomReservationService>();
-builder.Services.AddScoped<IAbsenceRequestService, AbsenceRequestService>();
 builder.Services.AddScoped<IGeneralRequestService, GeneralRequestService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<ILeaveService, LeaveService>();
-builder.Services.AddScoped<IInternalRequestService, InternalRequestService>();
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
@@ -144,17 +215,28 @@ builder.Services.AddScoped<IAdminStatisticsService, AdminStatisticsService>();
 builder.Services.AddScoped<IDepartmentChannelService, DepartmentChannelService>();
 builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
 builder.Services.AddScoped<IOfficeTableService, OfficeTableService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddSignalR();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+var swaggerEnabled =
+    app.Environment.IsDevelopment() ||
+    app.Configuration.GetValue<bool>("Swagger:Enabled");
+
+if (swaggerEnabled)
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "PFE API v1");
-        c.RoutePrefix = "swagger"; // Swagger at /swagger
+        c.RoutePrefix = "swagger";
     });
+}
+
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
 }
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
@@ -163,6 +245,7 @@ app.UseCors("AllowReactNative");
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.MapControllers();
 

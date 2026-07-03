@@ -23,6 +23,15 @@ public class EventService : IEventService
 
     public async Task<EventDto?> CreateEventAsync(int userId, CreateEventDto dto)
     {
+        var creator = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (creator == null)
+        {
+            return null;
+        }
+
         // Validate room if provided
         if (dto.RoomId.HasValue)
         {
@@ -52,41 +61,40 @@ public class EventService : IEventService
         _context.Events.Add(eventEntity);
         await _context.SaveChangesAsync();
 
-        // Notify all employees if event is mandatory
-        if (dto.IsMandatory)
-        {
-            var employees = await _context.Users
-                .Where(u => u.Role.Name == "Employee")
-                .ToListAsync();
+        var creatorRole = creator.Role.Name;
+        var recipientsQuery = _context.Users
+            .Include(u => u.Role)
+            .Where(u =>
+                u.Id != userId &&
+                u.IsActive &&
+                u.ApprovedAt != null &&
+                u.RejectedAt == null);
 
-            foreach (var employee in employees)
-            {
-                await _notificationService.CreateNotificationAsync(
-                    employee.Id,
-                    "Mandatory Event",
-                    $"New mandatory event: {dto.Title} on {dto.StartDateTime:yyyy-MM-dd HH:mm}",
-                    "Warning",
-                    "Event",
-                    eventEntity.Id);
-            }
+        if (creatorRole == "Manager")
+        {
+            recipientsQuery = recipientsQuery.Where(u => u.Role.Name == "Employee");
         }
-        else
+        else if (creatorRole != "Admin")
         {
-            // Notify all employees for non-mandatory events too (optional - you can remove this if not needed)
-            var employees = await _context.Users
-                .Where(u => u.Role.Name == "Employee")
-                .ToListAsync();
+            recipientsQuery = recipientsQuery.Where(u => false);
+        }
 
-            foreach (var employee in employees)
-            {
-                await _notificationService.CreateNotificationAsync(
-                    employee.Id,
-                    "New Event",
-                    $"New event: {dto.Title} on {dto.StartDateTime:yyyy-MM-dd HH:mm}",
-                    "Info",
-                    "Event",
-                    eventEntity.Id);
-            }
+        var recipients = await recipientsQuery.ToListAsync();
+        var notificationTitle = dto.IsMandatory ? "Mandatory Event" : "New Event";
+        var notificationMessage = dto.IsMandatory
+            ? $"New mandatory event: {dto.Title} on {dto.StartDateTime:yyyy-MM-dd HH:mm}"
+            : $"New event: {dto.Title} on {dto.StartDateTime:yyyy-MM-dd HH:mm}";
+        var notificationType = dto.IsMandatory ? "Warning" : "Info";
+
+        foreach (var recipient in recipients)
+        {
+            await _notificationService.CreateNotificationAsync(
+                recipient.Id,
+                notificationTitle,
+                notificationMessage,
+                notificationType,
+                "Event",
+                eventEntity.Id);
         }
 
         // Reload with includes for mapping

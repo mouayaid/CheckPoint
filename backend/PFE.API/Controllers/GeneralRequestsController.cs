@@ -14,10 +14,14 @@ namespace PFE.API.Controllers;
 public class GeneralRequestsController : ControllerBase
 {
     private readonly IGeneralRequestService _generalRequestService;
+    private readonly ILogger<GeneralRequestsController> _logger;
 
-    public GeneralRequestsController(IGeneralRequestService generalRequestService)
+    public GeneralRequestsController(
+        IGeneralRequestService generalRequestService,
+        ILogger<GeneralRequestsController> logger)
     {
         _generalRequestService = generalRequestService;
+        _logger = logger;
     }
 
     [HttpPost]
@@ -42,8 +46,29 @@ public class GeneralRequestsController : ControllerBase
     [HttpGet("my")]
     public async Task<ActionResult<ApiResponse<List<GeneralRequestDto>>>> GetMyRequests()
     {
-        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        _logger.LogInformation("GET /api/GeneralRequests/my entered.");
+
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        _logger.LogInformation(
+            "Extracted authenticated user id claim for general requests. ClaimValue: {UserIdClaim}",
+            userIdClaim);
+
+        if (!int.TryParse(userIdClaim, out var userId))
+        {
+            _logger.LogWarning(
+                "Invalid or missing user id claim when retrieving employee general requests. ClaimValue: {UserIdClaim}",
+                userIdClaim);
+
+            return Unauthorized(ApiResponse<List<GeneralRequestDto>>.ErrorResponse("Invalid authentication token."));
+        }
+
         var requests = await _generalRequestService.GetUserRequestsAsync(userId);
+
+        _logger.LogInformation(
+            "GET /api/GeneralRequests/my returning {RequestCount} requests for UserId: {UserId}",
+            requests.Count,
+            userId);
+
         return Ok(ApiResponse<List<GeneralRequestDto>>.SuccessResponse(requests));
     }
 
@@ -63,37 +88,52 @@ public class GeneralRequestsController : ControllerBase
         return Ok(ApiResponse<List<GeneralRequestDto>>.SuccessResponse(requests));
     }
 
-    /// <summary>
-    /// Assign request to a user (Admin only)
-    /// </summary>
-    /// <param name="id">Request ID</param>
-    /// <param name="dto">Assignment details</param>
-    /// <returns>Updated request</returns>
-    [HttpPut("{id}/assign")]
+    [HttpPut("{id}/approve")]
     [Authorize(Roles = "Admin")]
-    public async Task<ActionResult<ApiResponse<GeneralRequestDto>>> AssignRequest(
+    public async Task<ActionResult<ApiResponse<GeneralRequestDto>>> ApproveRequest(
         int id,
-        [FromBody] AssignGeneralRequestDto dto)
+        [FromBody] UpdateGeneralRequestStatusDto dto)
     {
         var adminId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-        var result = await _generalRequestService.AssignRequestAsync(id, adminId, dto);
+        var result = await _generalRequestService.ApproveRequestAsync(id, adminId, dto.Comment);
 
         if (result == null)
         {
-            return BadRequest(ApiResponse<GeneralRequestDto>.ErrorResponse("Failed to assign request. Request not found."));
+            return BadRequest(ApiResponse<GeneralRequestDto>.ErrorResponse(
+                "Failed to approve request. Request not found, already reviewed, or you don't have permission."));
         }
 
-        return Ok(ApiResponse<GeneralRequestDto>.SuccessResponse(result, "Request assigned successfully"));
+        return Ok(ApiResponse<GeneralRequestDto>.SuccessResponse(result, "Request approved successfully"));
+    }
+
+    [HttpPut("{id}/reject")]
+    [Authorize(Roles = "Admin")]
+    public async Task<ActionResult<ApiResponse<GeneralRequestDto>>> RejectRequest(
+        int id,
+        [FromBody] UpdateGeneralRequestStatusDto dto)
+    {
+        var adminId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        var result = await _generalRequestService.RejectRequestAsync(id, adminId, dto.Comment);
+
+        if (result == null)
+        {
+            return BadRequest(ApiResponse<GeneralRequestDto>.ErrorResponse(
+                "Failed to reject request. Request not found, already reviewed, or you don't have permission."));
+        }
+
+        return Ok(ApiResponse<GeneralRequestDto>.SuccessResponse(result, "Request rejected successfully"));
     }
 
     /// <summary>
-    /// Update request status (Requester, Assigned User, or Admin)
+    /// Update request status (Admin only)
     /// </summary>
     /// <param name="id">Request ID</param>
     /// <param name="dto">Status update details</param>
     /// <returns>Updated request</returns>
     [HttpPut("{id}/status")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<GeneralRequestDto>>> UpdateRequestStatus(
         int id,
         [FromBody] UpdateGeneralRequestStatusDto dto)
@@ -105,7 +145,7 @@ public class GeneralRequestsController : ControllerBase
         if (result == null)
         {
             return BadRequest(ApiResponse<GeneralRequestDto>.ErrorResponse(
-                "Failed to update status. Request not found or you don't have permission."));
+                "Failed to update status. Only approved or rejected statuses are allowed."));
         }
 
         return Ok(ApiResponse<GeneralRequestDto>.SuccessResponse(result, "Request status updated successfully"));

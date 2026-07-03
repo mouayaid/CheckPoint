@@ -1,3 +1,4 @@
+import logger from "../../utils/logger";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
@@ -13,12 +14,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  Image,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../context/ThemeContext";
 import { adminRoomService } from "../../services/api/adminRoomService";
-import QrCode from "react-native-qrcode-svg";
 import ViewShot from "react-native-view-shot";
 import * as MediaLibrary from "expo-media-library";
 import * as Print from "expo-print";
@@ -84,11 +85,14 @@ const EditRoomModal = ({
         capacity: cap,
         isActive,
       };
-      console.log("📤 Update DTO:", dto, "ID:", room?.id ?? room?.Id);
+      logger.debug("📤 Update DTO:", dto, "ID:", room?.id ?? room?.Id);
       await onSave(room?.id ?? room?.Id, dto);
       onClose();
-    } catch {
-      Alert.alert("Erreur", "Impossible de sauvegarder la salle.");
+    } catch (error) {
+      Alert.alert(
+        "Erreur",
+        error?.message || "Impossible de sauvegarder la salle.",
+      );
     } finally {
       setSaving(false);
     }
@@ -261,6 +265,295 @@ const EditRoomModal = ({
   );
 };
 
+const RoomCreatedModal = ({
+  visible,
+  roomName,
+  onClose,
+  title = "Salle ajoutée !",
+  message = "La nouvelle salle a été enregistrée avec succès.",
+  iconName = "checkmark",
+  accentColor = "#10B981",
+  colors,
+  spacing,
+  typography,
+  borderRadius,
+  shadows,
+}) => {
+  const s = useMemo(
+    () =>
+      StyleSheet.create({
+        overlay: {
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          padding: spacing.xl,
+          backgroundColor: "rgba(15, 23, 42, 0.62)",
+        },
+        card: {
+          width: "100%",
+          maxWidth: 380,
+          alignItems: "center",
+          paddingHorizontal: spacing.xl,
+          paddingTop: 30,
+          paddingBottom: spacing.xl,
+          borderRadius: 28,
+          backgroundColor: colors.surface,
+          borderWidth: 1,
+          borderColor: colors.border,
+          ...shadows.lg,
+        },
+        iconHalo: {
+          width: 88,
+          height: 88,
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: 44,
+          marginBottom: spacing.lg,
+          backgroundColor: `${accentColor}20`,
+        },
+        iconCircle: {
+          width: 62,
+          height: 62,
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: 31,
+          backgroundColor: accentColor,
+        },
+        title: {
+          color: colors.text,
+          fontSize: 22,
+          fontWeight: typography.bold,
+          textAlign: "center",
+        },
+        message: {
+          marginTop: 8,
+          color: colors.textSecondary,
+          fontSize: typography.base,
+          lineHeight: 23,
+          textAlign: "center",
+        },
+        roomChip: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          marginTop: spacing.lg,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
+          borderRadius: borderRadius.full,
+          backgroundColor: `${colors.primary}12`,
+        },
+        roomName: {
+          flexShrink: 1,
+          color: colors.primary,
+          fontSize: typography.sm,
+          fontWeight: typography.semibold,
+        },
+        button: {
+          width: "100%",
+          alignItems: "center",
+          justifyContent: "center",
+          marginTop: spacing.xl,
+          paddingVertical: 14,
+          borderRadius: borderRadius.lg,
+          backgroundColor: colors.primary,
+        },
+        buttonText: {
+          color: "#FFFFFF",
+          fontSize: typography.base,
+          fontWeight: typography.semibold,
+        },
+      }),
+    [colors, spacing, typography, borderRadius, shadows, accentColor],
+  );
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={s.overlay}>
+        <View style={s.card} accessibilityViewIsModal>
+          <View style={s.iconHalo}>
+            <View style={s.iconCircle}>
+              <Ionicons name={iconName} size={36} color="#FFFFFF" />
+            </View>
+          </View>
+          <Text style={s.title}>{title}</Text>
+          <Text style={s.message}>{message}</Text>
+          {!!roomName && (
+            <View style={s.roomChip}>
+              <Ionicons
+                name="business-outline"
+                size={17}
+                color={colors.primary}
+              />
+              <Text style={s.roomName} numberOfLines={1}>
+                {roomName}
+              </Text>
+            </View>
+          )}
+          <TouchableOpacity
+            style={s.button}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Fermer la confirmation"
+          >
+            <Text style={s.buttonText}>Terminé</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const DeleteRoomModal = ({
+  room,
+  deleting,
+  onCancel,
+  onConfirm,
+  colors,
+  spacing,
+  typography,
+  borderRadius,
+  shadows,
+}) => {
+  const s = useMemo(
+    () =>
+      StyleSheet.create({
+        overlay: {
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          padding: spacing.xl,
+          backgroundColor: "rgba(15, 23, 42, 0.62)",
+        },
+        card: {
+          width: "100%",
+          maxWidth: 380,
+          alignItems: "center",
+          padding: spacing.xl,
+          borderRadius: 28,
+          backgroundColor: colors.surface,
+          borderWidth: 1,
+          borderColor: colors.border,
+          ...shadows.lg,
+        },
+        iconHalo: {
+          width: 78,
+          height: 78,
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: 39,
+          marginBottom: spacing.lg,
+          backgroundColor: "rgba(239, 68, 68, 0.12)",
+        },
+        title: {
+          color: colors.text,
+          fontSize: 22,
+          fontWeight: typography.bold,
+          textAlign: "center",
+        },
+        message: {
+          marginTop: 8,
+          color: colors.textSecondary,
+          fontSize: typography.base,
+          lineHeight: 23,
+          textAlign: "center",
+        },
+        roomName: {
+          color: colors.text,
+          fontWeight: typography.semibold,
+        },
+        warning: {
+          marginTop: spacing.md,
+          color: "#EF4444",
+          fontSize: typography.sm,
+          fontWeight: typography.medium,
+          textAlign: "center",
+        },
+        actions: {
+          width: "100%",
+          flexDirection: "row",
+          gap: 10,
+          marginTop: spacing.xl,
+        },
+        button: {
+          flex: 1,
+          minHeight: 48,
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: borderRadius.lg,
+        },
+        cancelButton: {
+          borderWidth: 1.5,
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
+        },
+        deleteButton: { backgroundColor: "#EF4444" },
+        cancelText: {
+          color: colors.textSecondary,
+          fontSize: typography.base,
+          fontWeight: typography.semibold,
+        },
+        deleteText: {
+          color: "#FFFFFF",
+          fontSize: typography.base,
+          fontWeight: typography.semibold,
+        },
+      }),
+    [colors, spacing, typography, borderRadius, shadows],
+  );
+
+  const roomName = room?.name ?? room?.Name ?? "cette salle";
+
+  return (
+    <Modal
+      visible={!!room}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={deleting ? undefined : onCancel}
+    >
+      <View style={s.overlay}>
+        <View style={s.card} accessibilityViewIsModal>
+          <View style={s.iconHalo}>
+            <Ionicons name="trash-outline" size={34} color="#EF4444" />
+          </View>
+          <Text style={s.title}>Supprimer la salle ?</Text>
+          <Text style={s.message}>
+            Vous êtes sur le point de supprimer{" "}
+            <Text style={s.roomName}>{roomName}</Text>.
+          </Text>
+          <Text style={s.warning}>Cette action est irréversible.</Text>
+          <View style={s.actions}>
+            <TouchableOpacity
+              style={[s.button, s.cancelButton]}
+              onPress={onCancel}
+              disabled={deleting}
+            >
+              <Text style={s.cancelText}>Annuler</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.button, s.deleteButton, deleting && { opacity: 0.7 }]}
+              onPress={onConfirm}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={s.deleteText}>Supprimer</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 const RoomManagementScreen = () => {
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
   const styles = useMemo(
@@ -274,6 +567,9 @@ const RoomManagementScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [editRoom, setEditRoom] = useState(null);
   const [isModalVisible, setModalVisible] = useState(false);
+  const [createdRoomName, setCreatedRoomName] = useState("");
+  const [qrGeneratedRoomName, setQrGeneratedRoomName] = useState("");
+  const [roomToDelete, setRoomToDelete] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
   const loadRooms = useCallback(async (isRefresh = false) => {
@@ -332,62 +628,54 @@ const RoomManagementScreen = () => {
       const uri = await qrRef.current.capture();
       await Sharing.shareAsync(uri);
     } catch (error) {
-      console.log("Share QR error:", error);
+      logger.debug("Share QR error:", error);
       Alert.alert("Erreur", "Impossible de partager le QR.");
     }
   };
 
   const handleSave = async (id, dto) => {
     if (id) {
-      const res = await adminRoomService.updateRoom(id, dto);
-      const updated = adminRoomService.extractData(res);
-      setRooms((prev) =>
-        prev.map((r) => ((r.id ?? r.Id) === id ? { ...r, ...updated } : r)),
-      );
+      await adminRoomService.updateRoom(id, dto);
+      await loadRooms(true);
     } else {
       const res = await adminRoomService.createRoom(dto);
       const created = adminRoomService.extractData(res);
-      setRooms((prev) => [...prev, created]);
+      await loadRooms(true);
+      setCreatedRoomName(created?.name ?? created?.Name ?? dto.name);
     }
   };
 
   const handleDelete = (room) => {
-    const id = room.id ?? room.Id;
-    const name = room.name ?? room.Name;
-    Alert.alert(
-      "Supprimer",
-      `Voulez-vous vraiment supprimer la salle "${name}" ?`,
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Supprimer",
-          style: "destructive",
-          onPress: async () => {
-            setDeletingId(id);
-            try {
-              await adminRoomService.deleteRoom(id);
-              setRooms((prev) => prev.filter((r) => (r.id ?? r.Id) !== id));
-            } catch {
-              Alert.alert("Erreur", "Impossible de supprimer la salle.");
-            } finally {
-              setDeletingId(null);
-            }
-          },
-        },
-      ],
-    );
+    setRoomToDelete(room);
+  };
+
+  const confirmDelete = async () => {
+    const id = roomToDelete?.id ?? roomToDelete?.Id;
+    if (id == null) return;
+
+    setDeletingId(id);
+    try {
+      await adminRoomService.deleteRoom(id);
+      setRoomToDelete(null);
+      await loadRooms(true);
+    } catch (error) {
+      Alert.alert(
+        "Suppression impossible",
+        error?.message || "Impossible de supprimer la salle.",
+      );
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const [qrModalVisible, setQrModalVisible] = useState(false);
   const [selectedQrRoom, setSelectedQrRoom] = useState(null);
 
-  const handleGenerateQr = async (roomId) => {
+  const handleGenerateQr = async (room) => {
+    const roomId = room.id ?? room.Id;
     try {
       await adminRoomService.generateQr(roomId);
-      Alert.alert(
-        "QR généré",
-        "QR permanent de la salle généré et sauvegardé.",
-      );
+      setQrGeneratedRoomName(room.name ?? room.Name ?? "Salle");
       loadRooms(true);
     } catch (error) {
       Alert.alert("Erreur", "Impossible de générer le QR.");
@@ -468,7 +756,7 @@ const RoomManagementScreen = () => {
           {!hasQr ? (
             <TouchableOpacity
               style={styles.editBtn}
-              onPress={() => handleGenerateQr(id)}
+              onPress={() => handleGenerateQr(room)}
             >
               <Ionicons
                 name="qr-code-outline"
@@ -560,6 +848,44 @@ const RoomManagementScreen = () => {
         borderRadius={borderRadius}
       />
 
+      <RoomCreatedModal
+        visible={!!createdRoomName}
+        roomName={createdRoomName}
+        onClose={() => setCreatedRoomName("")}
+        colors={colors}
+        spacing={spacing}
+        typography={typography}
+        borderRadius={borderRadius}
+        shadows={shadows}
+      />
+
+      <DeleteRoomModal
+        room={roomToDelete}
+        deleting={deletingId != null}
+        onCancel={() => setRoomToDelete(null)}
+        onConfirm={confirmDelete}
+        colors={colors}
+        spacing={spacing}
+        typography={typography}
+        borderRadius={borderRadius}
+        shadows={shadows}
+      />
+
+      <RoomCreatedModal
+        visible={!!qrGeneratedRoomName}
+        roomName={qrGeneratedRoomName}
+        onClose={() => setQrGeneratedRoomName("")}
+        title="QR code généré !"
+        message="Le QR permanent de la salle est prêt à être utilisé."
+        iconName="qr-code"
+        accentColor={colors.primary}
+        colors={colors}
+        spacing={spacing}
+        typography={typography}
+        borderRadius={borderRadius}
+        shadows={shadows}
+      />
+
       <Modal visible={qrModalVisible} transparent animationType="slide">
         <Pressable
           style={StyleSheet.absoluteFill}
@@ -587,8 +913,13 @@ const RoomManagementScreen = () => {
               QR Permanent - {selectedQrRoom?.name}
             </Text>
             <ViewShot ref={qrRef} options={{ format: "png", quality: 1 }}>
-              {selectedQrRoom?.qrData && (
-                <QrCode value={selectedQrRoom.qrData} size={200} />
+              {(selectedQrRoom?.qrData || selectedQrRoom?.QrData) && (
+                <Image
+                  source={{
+                    uri: `data:image/png;base64,${selectedQrRoom.qrData || selectedQrRoom.QrData}`,
+                  }}
+                  style={{ width: 200, height: 200 }}
+                />
               )}
             </ViewShot>
             <Text style={{ marginTop: 10, fontSize: 12, textAlign: "center" }}>

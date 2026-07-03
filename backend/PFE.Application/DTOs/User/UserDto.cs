@@ -11,9 +11,9 @@ public class UserDto
     public int RoleId { get; set; }
 
     public string RoleName { get; set; } = string.Empty;
-    public int DepartmentId { get; set; }
-    public string DepartmentName { get; set; } = string.Empty;
-    public int? LeaveBalance { get; set; }
+    public int? DepartmentId { get; set; }
+    public string? DepartmentName { get; set; }
+    public decimal? LeaveBalance { get; set; }
     public decimal? YearlySalary { get; set; }
     public DateTime CreatedAt { get; set; }
     public bool IsActive { get; set; }

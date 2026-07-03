@@ -21,15 +21,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
 
     public DbSet<EntityRole> Roles { get; set; }
 
-    public DbSet<InternalRequest> InternalRequests { get; set; }
-
-
     public DbSet<Seat> Seats { get; set; }
     public DbSet<SeatReservation> SeatReservations { get; set; }
     public DbSet<Room> Rooms { get; set; }
     public DbSet<RoomReservation> RoomReservations { get; set; }
     public DbSet<LeaveRequest> LeaveRequests { get; set; }
-    public DbSet<AbsenceRequest> AbsenceRequests { get; set; }
     public DbSet<GeneralRequest> GeneralRequests { get; set; }
     public DbSet<Event> Events { get; set; }
     public DbSet<EventParticipant> EventParticipants { get; set; }
@@ -47,11 +43,21 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     .WithOne(p => p.Message)
     .HasForeignKey<DepartmentPoll>(p => p.MessageId);
 
+        modelBuilder.Entity<MeetingTranscription>()
+        .HasOne(x => x.RoomReservation)
+        .WithMany()
+        .HasForeignKey(x => x.RoomReservationId)
+        .OnDelete(DeleteBehavior.Cascade);
+
         modelBuilder.Entity<Role>().HasData(
         new Role { Id = 1, Name = "Employee", Description = "Regular employee" },
         new Role { Id = 2, Name = "Manager", Description = "Department manager" },
         new Role { Id = 3, Name = "Admin", Description = "System administrator" }
     );
+
+        modelBuilder.Entity<Seat>()
+        .HasIndex(s => new { s.OfficeTableId, s.Label })
+        .IsUnique();
 
         modelBuilder.Entity<User>()
             .HasOne(u => u.Role)
@@ -107,7 +113,6 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         ConfigureRoom(modelBuilder);
         ConfigureRoomReservation(modelBuilder);
         ConfigureLeaveRequest(modelBuilder);
-        ConfigureAbsenceRequest(modelBuilder);
         ConfigureGeneralRequest(modelBuilder);
         ConfigureEvent(modelBuilder);
         ConfigureEventParticipant(modelBuilder);
@@ -287,10 +292,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
                 .IsRequired()
                 .HasMaxLength(500);
 
-            entity.Property(e => e.DepartmentId)
-                .IsRequired();
+            entity.Property(e => e.DepartmentId);
 
             entity.Property(e => e.LeaveBalance)
+                .HasColumnType("decimal(5,2)")
                 .HasComment("Remaining leave days balance");
 
             entity.Property(e => e.CreatedAt)
@@ -363,6 +368,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
 
             entity.HasIndex(e => e.OfficeTableId)
                 .HasDatabaseName("IX_Seats_OfficeTableId");
+
+            entity.HasIndex(e => new { e.OfficeTableId, e.Label })
+.IsUnique()
+.HasDatabaseName("IX_Seats_Table_Label_Unique");
 
             entity.Property(e => e.Id)
                 .ValueGeneratedOnAdd();
@@ -628,6 +637,19 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
                 .IsRequired()
                 .HasConversion<int>();
 
+            entity.Property(e => e.RequestedDays)
+                .IsRequired()
+                .HasColumnType("decimal(5,2)");
+
+            entity.Property(e => e.DayPeriod)
+                .HasConversion<int>();
+
+            entity.Property(e => e.FromTime)
+                .HasColumnType("time");
+
+            entity.Property(e => e.ToTime)
+                .HasColumnType("time");
+
             entity.Property(e => e.Status)
                 .IsRequired()
                 .HasConversion<int>()
@@ -664,65 +686,6 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         });
     }
 
-    private void ConfigureAbsenceRequest(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<AbsenceRequest>(entity =>
-        {
-            entity.HasKey(e => e.Id);
-
-            entity.HasIndex(e => e.UserId)
-                .HasDatabaseName("IX_AbsenceRequests_UserId");
-
-            entity.HasIndex(e => e.ManagerId)
-                .HasDatabaseName("IX_AbsenceRequests_ManagerId");
-
-            entity.HasIndex(e => e.Status)
-                .HasDatabaseName("IX_AbsenceRequests_Status");
-
-            entity.HasIndex(e => new { e.UserId, e.Date })
-                .HasDatabaseName("IX_AbsenceRequests_User_Date");
-
-            entity.Property(e => e.Id)
-                .ValueGeneratedOnAdd();
-
-            entity.Property(e => e.UserId)
-                .IsRequired();
-
-            entity.Property(e => e.Date)
-                .IsRequired()
-                .HasColumnType("date");
-
-            entity.Property(e => e.Reason)
-                .IsRequired()
-                .HasMaxLength(1000);
-
-            entity.Property(e => e.Status)
-                .IsRequired()
-                .HasConversion<int>()
-                .HasDefaultValue(RequestStatus.Pending);
-
-            entity.Property(e => e.ManagerId)
-                .HasComment("Manager who will review this request");
-
-            entity.Property(e => e.CreatedAt)
-                .IsRequired()
-                .HasDefaultValueSql("GETUTCDATE()");
-
-            // Relationships
-            entity.HasOne(e => e.User)
-                .WithMany(e => e.AbsenceRequests)
-                .HasForeignKey(e => e.UserId)
-                .OnDelete(DeleteBehavior.Cascade)
-                .HasConstraintName("FK_AbsenceRequests_User");
-
-            entity.HasOne(e => e.Manager)
-                .WithMany(e => e.ManagedAbsenceRequests)
-                .HasForeignKey(e => e.ManagerId)
-                .OnDelete(DeleteBehavior.Restrict)
-                .HasConstraintName("FK_AbsenceRequests_Manager");
-        });
-    }
-
     private void ConfigureGeneralRequest(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<GeneralRequest>(entity =>
@@ -754,6 +717,32 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
             entity.Property(e => e.Description)
                 .IsRequired()
                 .HasMaxLength(2000);
+
+            entity.Property(e => e.AuthorizedDate)
+                .HasColumnType("date");
+
+            entity.Property(e => e.StartTime)
+                .HasColumnType("time");
+
+            entity.Property(e => e.EndTime)
+                .HasColumnType("time");
+
+            entity.Property(e => e.TotalMinutes);
+
+            entity.Property(e => e.Motif)
+                .HasMaxLength(600);
+
+            entity.Property(e => e.RequestType)
+                .HasMaxLength(50);
+
+            entity.Property(e => e.RequestText)
+                .HasMaxLength(2000);
+
+            entity.Property(e => e.DocumentType)
+                .HasMaxLength(100);
+
+            entity.Property(e => e.Subject)
+                .HasMaxLength(200);
 
             entity.Property(e => e.Category)
                 .IsRequired()
@@ -925,6 +914,12 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     public DbSet<DepartmentPoll> DepartmentPolls => Set<DepartmentPoll>();
     public DbSet<DepartmentPollOption> DepartmentPollOptions => Set<DepartmentPollOption>();
     public DbSet<DepartmentPollVote> DepartmentPollVotes => Set<DepartmentPollVote>();
+
+    public DbSet<MeetingTranscription> MeetingTranscriptions { get; set; }
+
+    public DbSet<RefreshToken> RefreshTokens { get; set; }
+
+    public DbSet<PasswordResetOtp> PasswordResetOtps { get; set; }
     private void ConfigureNotification(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Notification>(entity =>

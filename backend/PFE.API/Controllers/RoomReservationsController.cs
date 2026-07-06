@@ -148,52 +148,8 @@ public class RoomReservationsController : ControllerBase
         }
     }
 
-    [HttpPost("{id}/scan-finish")]
-    [Authorize(Roles = "Manager,Admin")]
-    public async Task<ActionResult<ApiResponse<object>>> ScanFinish(
-        [FromRoute] int id,
-        [FromBody] ScanRoomDto dto)
-    {
-        try
-        {
-            var scannerUserId = int.Parse(
-                User.FindFirst(ClaimTypes.NameIdentifier)!.Value
-            );
-
-            await _roomReservationService.FinishMeetingViaQrAsync(
-                id,
-                dto.ScannedRoomId,
-                scannerUserId
-            );
-
-            return Ok(
-                ApiResponse<object>.SuccessResponse(
-                    null,
-                    "Meeting completed successfully."
-                )
-            );
-        }
-        catch (NotFoundException ex)
-        {
-            return NotFound(ApiResponse<object>.ErrorResponse(ex.Message));
-        }
-        catch (ForbiddenException ex)
-        {
-            return StatusCode(403, ApiResponse<object>.ErrorResponse(ex.Message));
-        }
-        catch (BadRequestException ex)
-        {
-            return BadRequest(
-                ApiResponse<object>.ErrorResponse(
-                    "Failed to finish meeting.",
-                    new List<string> { ex.Message }
-                )
-            );
-        }
-    }
-
     [HttpPost("{id}/finish")]
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Manager")]
     public async Task<ActionResult<ApiResponse<object>>> FinishMeeting(
         [FromRoute] int id)
     {
@@ -246,7 +202,7 @@ public class RoomReservationsController : ControllerBase
     }
 
     [HttpPost("{id}/cancel")]
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Manager")]
     public async Task<ActionResult<ApiResponse<object>>> CancelReservation(
     [FromRoute] int id)
     {

@@ -17,12 +17,6 @@ export const roomReservationService = {
     });
   },
 
-  async scanFinish(resId, roomId) {
-    return axiosInstance.post(`/RoomReservations/${resId}/scan-finish`, {
-      scannedRoomId: roomId,
-    });
-  },
-
   async finishReservation(resId) {
     return axiosInstance.post(`/RoomReservations/${resId}/finish`);
   },

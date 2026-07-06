@@ -1,5 +1,40 @@
 // Utility helper functions
 
+const TUNISIA_TIME_ZONE = "Africa/Tunis";
+
+/**
+ * Return Tunisia's current wall-clock date/time as a Date whose local fields
+ * can be used by UI calendar and time controls regardless of device timezone.
+ */
+export const getTunisiaNow = () => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TUNISIA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+
+  const values = Object.fromEntries(
+    parts
+      .filter(({ type }) => type !== "literal")
+      .map(({ type, value }) => [type, Number(value)]),
+  );
+
+  return new Date(
+    values.year,
+    values.month - 1,
+    values.day,
+    values.hour,
+    values.minute,
+    values.second,
+    0,
+  );
+};
+
 /**
  * Format date to YYYY-MM-DD
  */

@@ -283,14 +283,6 @@ export default function CustomBottomTabBar({ state, navigation }) {
   const visibleRoutes = useMemo(() => {
     return state.routes.filter((route) => {
       if (
-        route.name === "Desk" ||
-        route.name === "Rooms" ||
-        route.name === "Events"
-      ) {
-        return false;
-      }
-
-      if (
         route.name === "Approvals" &&
         (isAdmin || !canReviewRequests)
       ) {

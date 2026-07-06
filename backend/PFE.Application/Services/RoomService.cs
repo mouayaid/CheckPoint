@@ -1,5 +1,6 @@
 using AutoMapper;
 using Microsoft.EntityFrameworkCore;
+using System.Data;
 using PFE.Application.DTOs.Room;
 using PFE.Domain.Entities;
 using PFE.Application.Abstractions;
@@ -14,16 +15,13 @@ public class RoomService : IRoomService
 {
     private readonly IApplicationDbContext _context;
     private readonly IMapper _mapper;
-    private readonly IRoomReservationService _roomReservationService;
 
     public RoomService(
         IApplicationDbContext context,
-        IMapper mapper,
-        IRoomReservationService roomReservationService)
+        IMapper mapper)
     {
         _context = context;
         _mapper = mapper;
-        _roomReservationService = roomReservationService;
     }
 
     // ===== Methods required by IRoomService =====
@@ -143,8 +141,6 @@ public class RoomService : IRoomService
 
     public async Task<List<RoomReservationDto>> GetAvailableTimeSlotsAsync(int roomId, DateTime date)
     {
-        await _roomReservationService.CleanupExpiredUnstartedReservationsAsync();
-
         var startOfDay = date.Date;
         var endOfDay = startOfDay.AddDays(1);
 
@@ -171,13 +167,24 @@ public class RoomService : IRoomService
 
     public async Task<RoomReservationDto?> CreateReservationAsync(int userId, CreateRoomReservationDto dto)
     {
-        await _roomReservationService.CleanupExpiredUnstartedReservationsAsync();
+        await using var transaction = await _context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable);
+
+        var actorRole = await GetActorRoleAsync(userId);
+        if (actorRole != "Manager")
+            throw new ForbiddenException("Only managers can create room reservations.");
 
         var room = await _context.Rooms.FindAsync(dto.RoomId);
         if (room == null || !room.IsActive)
         {
             return null;
         }
+
+        if (dto.EndDateTime <= dto.StartDateTime)
+            return null;
+
+        if (dto.StartDateTime <= DateTime.UtcNow)
+            throw new BadRequestException("Reservation start time must be in the future.");
 
         var overlapping = await _context.RoomReservations
             .AnyAsync(r => r.RoomId == dto.RoomId &&
@@ -206,6 +213,7 @@ public class RoomService : IRoomService
 
         _context.RoomReservations.Add(reservation);
         await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
 
         var reservationDto = await _context.RoomReservations
             .Include(r => r.User)
@@ -217,8 +225,6 @@ public class RoomService : IRoomService
 
     public async Task<List<RoomReservationDto>> GetUserReservationsAsync(int userId)
     {
-        await _roomReservationService.CleanupExpiredUnstartedReservationsAsync();
-
         var reservations = await _context.RoomReservations
             .Include(r => r.User)
             .Include(r => r.Room)
@@ -235,6 +241,10 @@ public class RoomService : IRoomService
 
     public async Task CancelReservationAsync(int reservationId, int userId)
     {
+        var actorRole = await GetActorRoleAsync(userId);
+        if (actorRole != "Manager")
+            throw new ForbiddenException("Only managers can cancel room reservations.");
+
         var reservation = await _context.RoomReservations
             .FirstOrDefaultAsync(r => r.Id == reservationId && r.UserId == userId);
 
@@ -248,5 +258,18 @@ public class RoomService : IRoomService
         reservation.Status = ReservationStatus.Cancelled;
 
         await _context.SaveChangesAsync();
+    }
+
+    private async Task<string> GetActorRoleAsync(int userId)
+    {
+        var actor = await _context.Users
+            .AsNoTracking()
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (actor == null)
+            throw new NotFoundException("User not found.");
+
+        return actor.Role.Name;
     }
 }

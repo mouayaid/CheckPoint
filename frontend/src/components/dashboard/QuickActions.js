@@ -69,16 +69,6 @@ const QuickActions = ({ isAdmin, isManager, navigation }) => {
     return (
       <>
         <AdminActionCard
-          icon="library-outline"
-          title="Réserver une salle"
-          description="Consultez les créneaux disponibles et réservez instantanément une salle pour une réunion."
-          buttonTitle="Réserver une salle"
-          onPress={() => navigation.navigate("Rooms")}
-          styles={styles}
-          colors={colors}
-        />
-
-        <AdminActionCard
           icon="people-outline"
           title="Gestion des utilisateurs"
           description="Consultez les utilisateurs, modifiez leurs informations, attribuez des rôles ou supprimez des comptes."

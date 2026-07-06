@@ -47,17 +47,31 @@ export default function RoomFilterBar({
     () => createStyles(colors, spacing, borderRadius, typography, shadows),
     [colors, spacing, borderRadius, typography, shadows],
   );
+  const currentWeekStart = startOfWeekMonday(today);
+  const canGoToPreviousWeek = weekStartDate > currentWeekStart;
+
+  const selectFirstAllowedDay = (weekStart) => {
+    const firstWeekDay = getWorkWeekDays(weekStart)[0];
+    const firstAllowedDay = firstWeekDay < today ? today : firstWeekDay;
+    setSelectedDate(formatDateKey(firstAllowedDay));
+  };
 
   return (
     <View style={styles.card}>
       <View style={styles.weekNav}>
         <TouchableOpacity
-          style={styles.navBtn}
+          style={[
+            styles.navBtn,
+            !canGoToPreviousWeek && styles.navBtnDisabled,
+          ]}
+          disabled={!canGoToPreviousWeek}
           onPress={() => {
             const prev = new Date(weekStartDate);
             prev.setDate(prev.getDate() - 7);
-            setWeekStartDate(prev);
-            setSelectedDate(formatDateKey(getWorkWeekDays(prev)[0]));
+            const clampedPreviousWeek =
+              prev < currentWeekStart ? currentWeekStart : prev;
+            setWeekStartDate(clampedPreviousWeek);
+            selectFirstAllowedDay(clampedPreviousWeek);
           }}
         >
           <Ionicons name="chevron-back" size={16} color={colors.text} />
@@ -79,7 +93,7 @@ export default function RoomFilterBar({
             const next = new Date(weekStartDate);
             next.setDate(next.getDate() + 7);
             setWeekStartDate(next);
-            setSelectedDate(formatDateKey(getWorkWeekDays(next)[0]));
+            selectFirstAllowedDay(next);
           }}
         >
           <Ionicons name="chevron-forward" size={16} color={colors.text} />
@@ -90,16 +104,27 @@ export default function RoomFilterBar({
         {workDays.map((day) => {
           const isSelected = selectedDate === formatDateKey(day);
           const isToday = sameDateKey(day, today);
+          const isPast = day < new Date(
+            today.getFullYear(),
+            today.getMonth(),
+            today.getDate(),
+          );
           return (
             <TouchableOpacity
               key={formatDateKey(day)}
-              style={[styles.dayPill, isSelected && styles.dayPillSelected]}
+              style={[
+                styles.dayPill,
+                isPast && styles.dayPillDisabled,
+                isSelected && styles.dayPillSelected,
+              ]}
+              disabled={isPast}
               onPress={() => setSelectedDate(formatDateKey(day))}
               activeOpacity={0.8}
             >
               <Text
                 style={[
                   styles.dayPillWeekday,
+                  isPast && styles.dayPillTextDisabled,
                   isSelected && styles.dayPillWeekdaySelected,
                 ]}
               >
@@ -108,6 +133,7 @@ export default function RoomFilterBar({
               <Text
                 style={[
                   styles.dayPillNum,
+                  isPast && styles.dayPillTextDisabled,
                   isSelected && styles.dayPillNumSelected,
                 ]}
               >
@@ -200,6 +226,7 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       alignItems: "center",
       justifyContent: "center",
     },
+    navBtnDisabled: { opacity: 0.3 },
     weekRange: {
       fontSize: typography.sm,
       fontWeight: typography.bold,
@@ -220,6 +247,8 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       backgroundColor: colors.primary,
       borderColor: colors.primary,
     },
+    dayPillDisabled: { opacity: 0.45 },
+    dayPillTextDisabled: { color: colors.textTertiary },
     dayPillWeekday: {
       fontSize: typography.xs,
       fontWeight: typography.semibold,

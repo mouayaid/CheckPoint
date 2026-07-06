@@ -43,7 +43,7 @@ export default function ReservationModal({
   selectedDateReadable,
   modalScheduleError,
   loadingReservations,
-  dayReservations,
+  displayedReservations,
   startTime,
   endTime,
   setStartTime,
@@ -118,7 +118,7 @@ export default function ReservationModal({
 
             {loadingReservations ? (
               <Text style={styles.mutedText}>Chargement du planning…</Text>
-            ) : dayReservations.length === 0 ? (
+            ) : displayedReservations.length === 0 ? (
               <View style={styles.emptyInline}>
                 <Text style={styles.emptyInlineText}>
                   Aucun créneau pour cette journée
@@ -126,7 +126,7 @@ export default function ReservationModal({
               </View>
             ) : (
               <View style={styles.timelineWrap}>
-                {[...dayReservations]
+                {[...displayedReservations]
                   .sort(
                     (a, b) =>
                       new Date(a.startDateTime || a.startDate || a.start) -
@@ -141,7 +141,7 @@ export default function ReservationModal({
                       <View key={r.id} style={styles.timelineItem}>
                         <View style={styles.timelineLeft}>
                           <View style={styles.timelineDot} />
-                          {i < dayReservations.length - 1 && (
+                          {i < displayedReservations.length - 1 && (
                             <View style={styles.timelineLine} />
                           )}
                         </View>

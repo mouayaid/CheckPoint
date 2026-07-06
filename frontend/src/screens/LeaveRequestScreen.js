@@ -50,6 +50,7 @@ const LEAVE_TYPES = [
 ];
 
 const HALF_DAY_TYPES = ["HalfDayPaidLeave", "HalfDayUnpaidLeave"];
+const PAID_LEAVE_TYPES = ["PaidLeave", "HalfDayPaidLeave"];
 const FILTERS_EMPLOYEE = ["All", "Pending", "Approved", "Rejected"];
 
 const FILTER_LABELS_FR = {
@@ -83,11 +84,27 @@ const formatDateReadable = (dateString) => {
 
 const getDayCount = (start, end) => {
   if (!start || !end) return null;
-  const startTs = new Date(start).setHours(0, 0, 0, 0);
-  const endTs = new Date(end).setHours(0, 0, 0, 0);
-  const diffTime = endTs - startTs;
-  const days = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
-  return days > 0 ? days : 1;
+  const current = new Date(start);
+  const last = new Date(end);
+  current.setHours(0, 0, 0, 0);
+  last.setHours(0, 0, 0, 0);
+
+  if (current > last) return 0;
+
+  let workingDays = 0;
+  while (current <= last) {
+    const day = current.getDay();
+    if (day !== 0 && day !== 6) workingDays += 1;
+    current.setDate(current.getDate() + 1);
+  }
+
+  return workingDays;
+};
+
+const normalizeDayPeriod = (period) => {
+  if (period === 1 || String(period).toLowerCase() === "morning") return "Morning";
+  if (period === 2 || String(period).toLowerCase() === "afternoon") return "Afternoon";
+  return "";
 };
 
 const normalizeStatus = (status) =>
@@ -169,6 +186,7 @@ export default function LeaveRequestScreen() {
   const role = roleToString(user?.role);
   const isManager = role === "Manager" || role === "Admin";
   const isHalfDay = HALF_DAY_TYPES.includes(type);
+  const isPaidLeave = PAID_LEAVE_TYPES.includes(type);
 
   const requestedDays = getDayCount(startDate, endDate);
   const effectiveRequestedDays = isHalfDay ? 0.5 : requestedDays;
@@ -335,7 +353,7 @@ export default function LeaveRequestScreen() {
   };
 
   const formValidationMessage = useMemo(() => {
-    if (leaveBalance !== null && leaveBalance <= 0) {
+    if (isPaidLeave && leaveBalance !== null && leaveBalance <= 0) {
       return "Vous ne disposez plus de jours de congé.";
     }
 
@@ -361,6 +379,14 @@ export default function LeaveRequestScreen() {
 
     if (isHalfDay && timeToMinutes(fromTime) >= timeToMinutes(toTime)) {
       return "L'heure de fin doit être supérieure à l'heure de début.";
+    }
+
+    if (
+      isHalfDay &&
+      ((halfDayPeriod === "Morning" && (fromTime !== "08:00" || toTime !== "12:00")) ||
+        (halfDayPeriod === "Afternoon" && (fromTime !== "13:00" || toTime !== "17:00")))
+    ) {
+      return "Les horaires de demi-journée sont fixes selon la période sélectionnée.";
     }
 
     if (!trimmedReason) {
@@ -389,7 +415,12 @@ export default function LeaveRequestScreen() {
       return "La date de fin doit être après la date de début.";
     }
 
+    if (!isHalfDay && requestedDays === 0) {
+      return "La période de congé doit contenir au moins un jour ouvrable.";
+    }
+
     if (
+      isPaidLeave &&
       leaveBalance !== null &&
       effectiveRequestedDays !== null &&
       effectiveRequestedDays > leaveBalance
@@ -406,7 +437,22 @@ export default function LeaveRequestScreen() {
       const requestStart = normalizeDateOnly(request.startDate);
       const requestEnd = normalizeDateOnly(request.endDate);
 
-      return normalizedStart <= requestEnd && normalizedEnd >= requestStart;
+      if (!(normalizedStart <= requestEnd && normalizedEnd >= requestStart)) {
+        return false;
+      }
+
+      const existingType = leaveTypeToString(
+        request.type ?? request.leaveType ?? request.Type,
+      );
+      const existingIsHalfDay = HALF_DAY_TYPES.includes(existingType);
+
+      if (!isHalfDay || !existingIsHalfDay) return true;
+
+      const existingPeriod = normalizeDayPeriod(
+        request.dayPeriod ?? request.DayPeriod ?? request.dayPeriodLabel,
+      );
+
+      return !existingPeriod || existingPeriod === halfDayPeriod;
     });
 
     if (hasOverlap) {
@@ -422,17 +468,18 @@ export default function LeaveRequestScreen() {
     effectiveRequestedDays,
     requests,
     isHalfDay,
+    isPaidLeave,
     type,
     halfDayPeriod,
     fromTime,
     toTime,
+    requestedDays,
   ]);
 
   const isCreateDisabled =
     creating ||
     loadingBalance ||
-    leaveBalance === null ||
-    leaveBalance <= 0;
+    (isPaidLeave && (leaveBalance === null || leaveBalance <= 0));
 
   const handleCreate = async () => {
     setSubmitAttempted(true);
@@ -954,11 +1001,9 @@ export default function LeaveRequestScreen() {
                         <TextInput
                           style={styles.timeInput}
                           value={fromTime}
-                          onChangeText={setFromTime}
                           placeholder="08:00"
                           placeholderTextColor={colors.textTertiary}
-                          keyboardType="numbers-and-punctuation"
-                          maxLength={5}
+                          editable={false}
                         />
                       </View>
 
@@ -967,11 +1012,9 @@ export default function LeaveRequestScreen() {
                         <TextInput
                           style={styles.timeInput}
                           value={toTime}
-                          onChangeText={setToTime}
                           placeholder="12:00"
                           placeholderTextColor={colors.textTertiary}
-                          keyboardType="numbers-and-punctuation"
-                          maxLength={5}
+                          editable={false}
                         />
                       </View>
                     </View>

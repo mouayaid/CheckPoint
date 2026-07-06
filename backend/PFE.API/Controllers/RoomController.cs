@@ -51,6 +51,7 @@ public class RoomController : ControllerBase
     }
 
     [HttpDelete("reservations/{id}")]
+    [Authorize(Roles = "Manager")]
     public async Task<ActionResult<ApiResponse<string>>> CancelReservation(int id)
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);

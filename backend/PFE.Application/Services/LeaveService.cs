@@ -25,7 +25,7 @@ public class LeaveService : ILeaveService
     {
         return await _context.LeaveRequests
             .Include(l => l.User)
-            .Where(l => l.UserId == userId && l.Status != RequestStatus.Cancelled)
+            .Where(l => l.UserId == userId)
             .OrderByDescending(l => l.CreatedAt)
             .Select(l => new LeaveRequestDto
             {
@@ -54,7 +54,7 @@ public class LeaveService : ILeaveService
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
-            throw new Exception("User not found.");
+            throw new NotFoundException("User not found.");
 
         ValidateLeaveRequest(dto);
         var requestedDays = CalculateRequestedDays(dto.Type, dto.StartDate, dto.EndDate);
@@ -71,17 +71,21 @@ public class LeaveService : ILeaveService
                 : CalculateRequestedDays(l.Type, l.StartDate, l.EndDate));
 
         if (shouldCheckBalance && (user.LeaveBalance ?? 0) < requestedDays + pendingDays)
-            throw new Exception("Votre solde de congés est insuffisant.");
+            throw new BadRequestException("Votre solde de congés est insuffisant.");
 
-        var hasOverlap = await _context.LeaveRequests
-            .AnyAsync(l =>
+        var potentiallyOverlappingRequests = await _context.LeaveRequests
+            .Where(l =>
                 l.UserId == userId &&
                 (l.Status == RequestStatus.Pending || l.Status == RequestStatus.Approved) &&
                 dto.StartDate.Date <= l.EndDate.Date &&
-                dto.EndDate.Date >= l.StartDate.Date);
+                dto.EndDate.Date >= l.StartDate.Date)
+            .ToListAsync();
+
+        var hasOverlap = potentiallyOverlappingRequests.Any(existing =>
+            RequestsOverlap(existing, dto));
 
         if (hasOverlap)
-            throw new Exception("Vous avez déjà une demande de congé en attente ou approuvée qui chevauche ces dates.");
+            throw new BadRequestException("Vous avez déjà une demande de congé en attente ou approuvée qui chevauche ces dates.");
 
         var leaveRequest = new LeaveRequest
         {
@@ -272,7 +276,15 @@ public class LeaveService : ILeaveService
         if (IsHalfDayLeave(type))
             return 0.5m;
 
-        return (endDate.Date - startDate.Date).Days + 1;
+        var workingDays = 0;
+
+        for (var date = startDate.Date; date <= endDate.Date; date = date.AddDays(1))
+        {
+            if (date.DayOfWeek is not DayOfWeek.Saturday and not DayOfWeek.Sunday)
+                workingDays++;
+        }
+
+        return workingDays;
     }
 
     private static bool IsHalfDayLeave(LeaveType type)
@@ -299,34 +311,59 @@ public class LeaveService : ILeaveService
         };
     }
 
+    private static bool RequestsOverlap(LeaveRequest existing, CreateLeaveRequestDto incoming)
+    {
+        if (!IsHalfDayLeave(existing.Type) || !IsHalfDayLeave(incoming.Type))
+            return true;
+
+        if (existing.StartDate.Date != incoming.StartDate.Date)
+            return false;
+
+        return existing.DayPeriod == null ||
+            incoming.DayPeriod == null ||
+            existing.DayPeriod == incoming.DayPeriod;
+    }
+
     private static void ValidateLeaveRequest(CreateLeaveRequestDto dto)
     {
         if (!Enum.IsDefined(typeof(LeaveType), dto.Type))
-            throw new Exception("Veuillez sélectionner un type de congé.");
+            throw new BadRequestException("Veuillez sélectionner un type de congé.");
 
         if (string.IsNullOrWhiteSpace(dto.Reason))
-            throw new Exception("Veuillez saisir le motif de votre demande.");
+            throw new BadRequestException("Veuillez saisir le motif de votre demande.");
 
         if (dto.StartDate.Date < DateTime.UtcNow.Date)
-            throw new Exception("La date de début ne peut pas être dans le passé.");
+            throw new BadRequestException("La date de début ne peut pas être dans le passé.");
 
         if (dto.EndDate.Date < dto.StartDate.Date)
-            throw new Exception("La date de fin doit être après la date de début.");
+            throw new BadRequestException("La date de fin doit être après la date de début.");
 
         if (!IsHalfDayLeave(dto.Type))
+        {
+            if (CalculateRequestedDays(dto.Type, dto.StartDate, dto.EndDate) <= 0)
+                throw new BadRequestException("La période de congé doit contenir au moins un jour ouvrable.");
+
             return;
+        }
 
         if (dto.StartDate.Date != dto.EndDate.Date)
-            throw new Exception("Une demi-journée doit commencer et se terminer le même jour.");
+            throw new BadRequestException("Une demi-journée doit commencer et se terminer le même jour.");
 
         if (dto.DayPeriod == null || !Enum.IsDefined(typeof(HalfDayPeriod), dto.DayPeriod.Value))
-            throw new Exception("Veuillez sélectionner la période : matin ou après-midi.");
+            throw new BadRequestException("Veuillez sélectionner la période : matin ou après-midi.");
 
         if (dto.FromTime == null || dto.ToTime == null)
-            throw new Exception("Veuillez renseigner les heures De et À.");
+            throw new BadRequestException("Veuillez renseigner les heures De et À.");
 
-        if (dto.FromTime >= dto.ToTime)
-            throw new Exception("L'heure de fin doit être supérieure à l'heure de début.");
+        var expectedTimes = dto.DayPeriod == HalfDayPeriod.Morning
+            ? (From: new TimeSpan(8, 0, 0), To: new TimeSpan(12, 0, 0))
+            : (From: new TimeSpan(13, 0, 0), To: new TimeSpan(17, 0, 0));
+
+        if (dto.FromTime != expectedTimes.From || dto.ToTime != expectedTimes.To)
+            throw new BadRequestException(
+                dto.DayPeriod == HalfDayPeriod.Morning
+                    ? "La demi-journée du matin doit être de 08:00 à 12:00."
+                    : "La demi-journée de l'après-midi doit être de 13:00 à 17:00.");
     }
 
     private static LeaveRequestDto MapToDto(LeaveRequest request)

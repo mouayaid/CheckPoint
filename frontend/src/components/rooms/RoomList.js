@@ -5,9 +5,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../context/ThemeContext";
 
 export default function RoomList({
-  rooms,
-  roomDayStatusMap,
+  rooms = [],
   getRoomAvailability,
+  getBlockingReservationCount,
   onRoomPress,
 }) {
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
@@ -15,6 +15,7 @@ export default function RoomList({
     () => createStyles(colors, spacing, borderRadius, typography, shadows),
     [colors, spacing, borderRadius, typography, shadows],
   );
+  const safeRooms = Array.isArray(rooms) ? rooms : [];
 
   return (
     <View style={styles.section}>
@@ -23,16 +24,26 @@ export default function RoomList({
         <Text style={styles.sectionCaption}>Appuyez pour réserver</Text>
       </View>
 
-      {rooms.map((room) => {
-        const avail = getRoomAvailability(room.id);
-        const reservationCount = (roomDayStatusMap[room.id] || []).length;
+      {safeRooms.map((room) => {
+        const avail =
+          typeof getRoomAvailability === "function"
+            ? getRoomAvailability(room.id)
+            : { label: "Libre", color: colors.success };
+        const rawReservationCount =
+          typeof getBlockingReservationCount === "function"
+            ? getBlockingReservationCount(room.id)
+            : 0;
+        const reservationCount = Number.isFinite(rawReservationCount)
+          ? Math.max(0, rawReservationCount)
+          : 0;
         const busyPercent = Math.min(100, (reservationCount / 10) * 100);
 
         return (
           <TouchableOpacity
             key={room.id}
             style={styles.roomCard}
-            onPress={() => onRoomPress(room)}
+            onPress={() => onRoomPress?.(room)}
+            disabled={!onRoomPress}
             activeOpacity={0.88}
           >
             <View style={[styles.roomAccent, { backgroundColor: avail.color }]} />
@@ -59,24 +70,26 @@ export default function RoomList({
                 </View>
               </View>
 
-              <View style={styles.barWrap}>
-                <View style={styles.barTrack}>
-                  <View
-                    style={[
-                      styles.barFill,
-                      {
-                        width: `${busyPercent}%`,
-                        backgroundColor: avail.color,
-                      },
-                    ]}
-                  />
+              {reservationCount > 0 && (
+                <View style={styles.barWrap}>
+                  <View style={styles.barTrack}>
+                    <View
+                      style={[
+                        styles.barFill,
+                        {
+                          width: `${busyPercent}%`,
+                          backgroundColor: avail.color,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.barLabel}>
+                    {reservationCount} créneau
+                    {reservationCount !== 1 ? "x" : ""} confirmé
+                    {reservationCount !== 1 ? "s" : ""}
+                  </Text>
                 </View>
-                <Text style={styles.barLabel}>
-                  {reservationCount} créneau
-                  {reservationCount !== 1 ? "x" : ""} confirmé
-                  {reservationCount !== 1 ? "s" : ""}
-                </Text>
-              </View>
+              )}
 
               <View style={styles.featRow}>
                 {room.hasProjector && (

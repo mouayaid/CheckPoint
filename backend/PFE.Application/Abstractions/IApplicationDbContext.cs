@@ -1,10 +1,13 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using PFE.Domain.Entities;
 
 namespace PFE.Application.Abstractions;
 
 public interface IApplicationDbContext
 {
+    DatabaseFacade Database { get; }
+
     DbSet<User> Users { get; }
     DbSet<Department> Departments { get; }
 

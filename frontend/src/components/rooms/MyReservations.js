@@ -100,6 +100,7 @@ function StatusBadge({ status, colors }) {
 }
 
 export default function MyReservations({
+  canManageRooms,
   myReservations,
   loadingMyReservations,
   reservationIdOf,
@@ -187,17 +188,10 @@ export default function MyReservations({
           const { key, canStart, canFinish } =
             getRoomResActionState(reservation);
 
-          const startDate = new Date(
-            reservation.startDateTime ||
-              reservation.startDate ||
-              reservation.start,
-          );
-
           const canCancel =
-            key !== "cancelled" &&
-            key !== "completed" &&
-            key !== "inprogress" &&
-            startDate > new Date();
+            key === "pending" || key === "active";
+          const canOpen =
+            canManageRooms && (key === "active" || key === "inprogress");
 
           const accentColor =
             key === "active"
@@ -215,6 +209,7 @@ export default function MyReservations({
               key={rid ?? `${reservation.startDateTime}-${reservation.roomId}`}
               style={styles.resCard}
               onPress={() => onOpenReservation(reservation)}
+              disabled={!canOpen}
               activeOpacity={0.9}
             >
               <View
@@ -267,26 +262,28 @@ export default function MyReservations({
                     </Text>
                   </View>
                 )}
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.openBtn]}
-                  onPress={() => onOpenReservation(reservation)}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons
-                    name="arrow-forward-circle-outline"
-                    size={16}
-                    color={colors.primary}
-                  />
-                  <Text style={[styles.scanBtnText, { color: colors.primary }]}> 
-                    Ouvrir la réunion
-                  </Text>
-                </TouchableOpacity>
-                {(canStart || canFinish || canCancel) && (
+                {canOpen && (
+                  <TouchableOpacity
+                    style={[styles.actionBtn, styles.openBtn]}
+                    onPress={() => onOpenReservation(reservation)}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name="arrow-forward-circle-outline"
+                      size={16}
+                      color={colors.primary}
+                    />
+                    <Text style={[styles.scanBtnText, { color: colors.primary }]}>
+                      Ouvrir la réunion
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {canManageRooms && (canStart || canFinish || canCancel) && (
                   <View style={styles.resCardActions}>
                     {canStart && (
                       <TouchableOpacity
                         style={[styles.actionBtn, styles.scanBtn]}
-                        onPress={() => onScanPress(rid, "start")}
+                        onPress={() => onScanPress(rid)}
                         activeOpacity={0.85}
                       >
                         <Ionicons

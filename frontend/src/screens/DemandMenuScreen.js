@@ -72,17 +72,6 @@ export default function DemandMenuScreen({ navigation }) {
         testID="demandMenu.scrollView"
         contentContainerStyle={styles.content}
       >
-        <View style={styles.header}>
-          <View style={styles.headerIcon}>
-            <Ionicons name="albums-outline" size={24} color={colors.textOnPrimary} />
-          </View>
-          <View style={styles.headerText}>
-            <Text style={styles.title}>Demandes</Text>
-            <Text style={styles.subtitle}>
-              Choisissez le type de demande à envoyer.
-            </Text>
-          </View>
-        </View>
 
         {DEMAND_OPTIONS.map((option) => (
           <TouchableOpacity

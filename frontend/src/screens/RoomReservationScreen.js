@@ -33,6 +33,8 @@ import * as Haptics from "expo-haptics";
 import roomService from "../services/api/roomService";
 import { roomReservationService } from "../services/api/roomReservationService";
 import { useTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
+import { getTunisiaNow, roleToString } from "../utils/helpers";
 import RoomFilterBar from "../components/rooms/RoomFilterBar";
 import RoomList from "../components/rooms/RoomList";
 import ReservationModal from "../components/rooms/ReservationModal";
@@ -143,6 +145,48 @@ const getBlockingRange = (reservation) => {
   return { start, end };
 };
 
+const getBlockingReservations = (reservations = []) =>
+  reservations.filter((reservation) => getBlockingRange(reservation) != null);
+
+const getReservationPlannedDateKey = (reservation) => {
+  const startSource =
+    reservation.startDateTime ||
+    reservation.StartDateTime ||
+    reservation.startDate ||
+    reservation.start;
+
+  if (typeof startSource === "string") {
+    const datePrefix = startSource.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (datePrefix) return datePrefix[1];
+  }
+
+  const start = new Date(startSource);
+  return Number.isNaN(start.getTime()) ? null : formatDateKey(start);
+};
+
+const getDisplayedReservations = (reservations, selectedDate) => {
+  const tunisiaNow = getTunisiaNow();
+  const isToday = selectedDate === formatDateKey(tunisiaNow);
+
+  return getBlockingReservations(reservations).filter((reservation) => {
+    if (getReservationPlannedDateKey(reservation) !== selectedDate) {
+      return false;
+    }
+
+    const key = normalizeStatusKey(reservation.status ?? reservation.Status);
+    if (!isToday || key === "inprogress") return true;
+
+    const endSource =
+      reservation.endDateTime ||
+      reservation.EndDateTime ||
+      reservation.endDate ||
+      reservation.end;
+    const plannedEnd = new Date(endSource);
+
+    return !Number.isNaN(plannedEnd.getTime()) && plannedEnd >= tunisiaNow;
+  });
+};
+
 const overlapsBlockingReservation = (reservation, start, end) => {
   const range = getBlockingRange(reservation);
   if (!range) return false;
@@ -154,19 +198,34 @@ const isInstantBlockedByReservation = (reservation, instant) => {
   const range = getBlockingRange(reservation);
   if (!range) return false;
   if (range.end == null) return range.start <= instant;
-  return instant >= range.start && instant <= range.end;
+  return instant >= range.start && instant < range.end;
 };
 
+const roundUpToNextQuarterHour = (date) => {
+  const rounded = new Date(date);
+  rounded.setSeconds(0, 0);
+
+  // Always move to the next quarter, including at an exact boundary,
+  // because reservation starts must be strictly in the future.
+  const nextQuarterMinute = Math.floor(rounded.getMinutes() / 15) * 15 + 15;
+  rounded.setMinutes(nextQuarterMinute);
+  return rounded;
+};
 
 const findNextAvailableSlot = (reservations, dateStr, durationMinutes = 60) => {
   const [y, m, d] = dateStr.split("-").map(Number);
   const workStart = new Date(y, m - 1, d, 8, 0, 0, 0);
   const workEnd = new Date(y, m - 1, d, 17, 0, 0, 0);
-  const sorted = reservations
+  const sorted = getBlockingReservations(reservations)
     .map((reservation) => getBlockingRange(reservation))
-    .filter(Boolean)
     .sort((a, b) => a.start - b.start);
   let candidateStart = new Date(workStart);
+  const tunisiaNow = getTunisiaNow();
+  if (dateStr === formatDateKey(tunisiaNow)) {
+    const nextQuarterHour = roundUpToNextQuarterHour(tunisiaNow);
+    if (nextQuarterHour > candidateStart) candidateStart = nextQuarterHour;
+  }
+  if (candidateStart >= workEnd) return null;
   for (const range of sorted) {
     const candidateEnd = new Date(candidateStart);
     candidateEnd.setMinutes(candidateEnd.getMinutes() + durationMinutes);
@@ -223,10 +282,7 @@ function getRoomResActionState(reservation) {
   const key = normalizeStatusKey(reservation.status ?? reservation.Status);
   const isStarted = !!(reservation.startedAt || reservation.StartedAt);
   const canStart = key === "active" && !isStarted;
-  const canFinish =
-    (key === "inprogress" || isStarted) &&
-    key !== "completed" &&
-    key !== "cancelled";
+  const canFinish = key === "inprogress";
   return { key, isStarted, canStart, canFinish };
 }
 
@@ -248,6 +304,11 @@ function reservationRoomIdOf(r) {
 }
 
 export default function RoomReservationScreen({ navigation }) {
+  const { user } = useAuth();
+  const userRole = roleToString(
+    user?.roleName ?? user?.role?.name ?? user?.roleId ?? user?.role,
+  );
+  const canManageRooms = userRole === "Manager";
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
   const { feedback, showFeedback, hideFeedback } = useFeedback();
   const styles = useMemo(
@@ -255,8 +316,9 @@ export default function RoomReservationScreen({ navigation }) {
     [colors, spacing, borderRadius, typography, shadows],
   );
 
-  const today = useMemo(() => new Date(), []);
+  const today = useMemo(() => getTunisiaNow(), []);
   const todayStr = useMemo(() => formatDateKey(today), [today]);
+  const currentWeekStart = useMemo(() => startOfWeekMonday(today), [today]);
 
   const [weekStartDate, setWeekStartDate] = useState(startOfWeekMonday(today));
   const [selectedDate, setSelectedDate] = useState(todayStr);
@@ -288,7 +350,6 @@ export default function RoomReservationScreen({ navigation }) {
 
   const [scannerVisible, setScannerVisible] = useState(false);
   const [scanningResId, setScanningResId] = useState(null);
-  const [scanningAction, setScanningAction] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const scanLockRef = useRef(false);
@@ -300,15 +361,40 @@ export default function RoomReservationScreen({ navigation }) {
 
   useFocusEffect(
     useCallback(() => {
-      loadInitialData();
-    }, []),
+      if (canManageRooms) loadInitialData();
+    }, [canManageRooms]),
   );
   useEffect(() => {
-    if (rooms.length > 0) loadRoomStatusesForSelectedDate();
-  }, [rooms, selectedDate]);
+    if (
+      canManageRooms &&
+      rooms.length > 0 &&
+      selectedDate >= todayStr &&
+      weekStartDate >= currentWeekStart
+    )
+      loadRoomStatusesForSelectedDate();
+  }, [
+    canManageRooms,
+    currentWeekStart,
+    rooms,
+    selectedDate,
+    todayStr,
+    weekStartDate,
+  ]);
   useEffect(() => {
-    if (modalVisible && selectedRoom?.id) loadReservationsForSelected();
-  }, [selectedDate, modalVisible, selectedRoom]);
+    if (
+      canManageRooms &&
+      modalVisible &&
+      selectedRoom?.id &&
+      selectedDate >= todayStr
+    )
+      loadReservationsForSelected();
+  }, [canManageRooms, modalVisible, selectedDate, selectedRoom, todayStr]);
+  useEffect(() => {
+    if (weekStartDate < currentWeekStart || selectedDate < todayStr) {
+      setSelectedDate(todayStr);
+      setWeekStartDate(currentWeekStart);
+    }
+  }, [currentWeekStart, selectedDate, todayStr, weekStartDate]);
   useEffect(() => {
     if (!scannerVisible) {
       scanLockRef.current = false;
@@ -317,10 +403,12 @@ export default function RoomReservationScreen({ navigation }) {
   }, [scannerVisible]);
 
   const loadInitialData = async () => {
+    if (!canManageRooms) return;
     await Promise.all([loadRooms(), loadMyReservations()]);
   };
 
   const onRefresh = async () => {
+    if (!canManageRooms) return;
     setRefreshing(true);
     try {
       await Promise.all([
@@ -337,6 +425,7 @@ export default function RoomReservationScreen({ navigation }) {
   };
 
   const loadRooms = async () => {
+    if (!canManageRooms) return;
     try {
       const response = await roomService.getAllRooms();
       if (response?.success) setRooms(response.data || []);
@@ -354,6 +443,7 @@ export default function RoomReservationScreen({ navigation }) {
   };
 
   const loadMyReservations = async () => {
+    if (!canManageRooms) return;
     setLoadingMyReservations(true);
     try {
       const response = await roomService.getMyReservations();
@@ -376,20 +466,33 @@ export default function RoomReservationScreen({ navigation }) {
     return result?.granted ?? false;
   };
 
-  const handleScanPress = async (resId, action) => {
+  const denyRoomAccess = () => {
+    Alert.alert(
+      "Accès refusé",
+      "Seuls les managers peuvent gérer les réservations de salles.",
+    );
+  };
+
+  const handleScanPress = async (resId) => {
+    if (!canManageRooms) {
+      denyRoomAccess();
+      return;
+    }
     setScanningResId(resId);
-    setScanningAction(action);
     scanLockRef.current = false;
     const granted = await ensureCameraPermission();
     if (granted) setScannerVisible(true);
   };
 
   const handleBarCodeScanned = async ({ data }) => {
+    if (!canManageRooms) {
+      setScannerVisible(false);
+      denyRoomAccess();
+      return;
+    }
     if (scanLockRef.current) return;
     scanLockRef.current = true;
     setScanning(true);
-    console.log("QR DATA:", data);
-
     const releaseScan = () => {
       scanLockRef.current = false;
       setScanning(false);
@@ -420,11 +523,7 @@ export default function RoomReservationScreen({ navigation }) {
     }
 
     try {
-      if (scanningAction === "finish") {
-        await roomReservationService.scanFinish(scanningResId, roomId);
-      } else {
-        await roomReservationService.scanStart(scanningResId, roomId);
-      }
+      await roomReservationService.scanStart(scanningResId, roomId);
       await Haptics.notificationAsync(
         Haptics.NotificationFeedbackType.Success,
       );
@@ -433,10 +532,8 @@ export default function RoomReservationScreen({ navigation }) {
       await loadRoomStatusesForSelectedDate();
       showFeedback({
         type: "success",
-        title: scanningAction === "finish" ? "Réunion terminée" : "Réunion démarrée",
-        message: scanningAction === "finish"
-          ? "La réunion est terminée."
-          : "La réunion a démarré.",
+        title: "Réunion démarrée",
+        message: "La réunion a démarré.",
       });
     } catch (error) {
       Alert.alert("Erreur", getErrorMessage(error, "Action impossible."));
@@ -471,6 +568,7 @@ export default function RoomReservationScreen({ navigation }) {
   };
 
   const loadRoomStatusesForSelectedDate = async () => {
+    if (!canManageRooms) return;
     setLoadingRoomStatuses(true);
     setRoomDayLoadError(null);
     try {
@@ -506,7 +604,7 @@ export default function RoomReservationScreen({ navigation }) {
   };
 
   const loadReservationsForSelected = async () => {
-    if (!selectedRoom?.id) return;
+    if (!canManageRooms || !selectedRoom?.id) return;
     setLoadingReservations(true);
     setModalScheduleError(null);
     try {
@@ -522,9 +620,16 @@ export default function RoomReservationScreen({ navigation }) {
       }
       setDayReservations(reservations);
       const suggestion = findNextAvailableSlot(reservations, selectedDate, 60);
-      if (suggestion) {
-        setStartTime(suggestion.start);
-        setEndTime(suggestion.end);
+      setStartTime(suggestion?.start ?? null);
+      setEndTime(suggestion?.end ?? null);
+      if (__DEV__) {
+        console.log("RoomReservation time debug", {
+          deviceNow: new Date().toString(),
+          tunisiaNow: getTunisiaNow().toString(),
+          selectedDate,
+          suggestedStart: suggestion?.start?.toString(),
+          suggestedEnd: suggestion?.end?.toString(),
+        });
       }
     } catch (error) {
       setDayReservations([]);
@@ -553,55 +658,16 @@ export default function RoomReservationScreen({ navigation }) {
       overlapsBlockingReservation(r, newStart, newEnd),
     );
 
-  const handleOpenModal = async (room) => {
+  const handleOpenModal = (room) => {
+    if (!canManageRooms) {
+      denyRoomAccess();
+      return;
+    }
     setSelectedRoom(room);
     setModalVisible(true);
     setModalScheduleError(null);
-    const selected = parseDateKey(selectedDate);
-    setStartTime(
-      new Date(
-        selected.getFullYear(),
-        selected.getMonth(),
-        selected.getDate(),
-        9,
-        0,
-      ),
-    );
-    setEndTime(
-      new Date(
-        selected.getFullYear(),
-        selected.getMonth(),
-        selected.getDate(),
-        10,
-        0,
-      ),
-    );
-    setLoadingReservations(true);
-    try {
-      const {
-        ok,
-        data: reservations,
-        message,
-      } = await fetchReservationsForRoomAndDate(room.id, selectedDate);
-      if (!ok) {
-        setDayReservations([]);
-        setModalScheduleError(message || "Impossible de charger le planning.");
-        return;
-      }
-      setDayReservations(reservations);
-      const suggestion = findNextAvailableSlot(reservations, selectedDate, 60);
-      if (suggestion) {
-        setStartTime(suggestion.start);
-        setEndTime(suggestion.end);
-      }
-    } catch (error) {
-      setDayReservations([]);
-      setModalScheduleError(
-        getErrorMessage(error, "Impossible de charger le planning."),
-      );
-    } finally {
-      setLoadingReservations(false);
-    }
+    setStartTime(null);
+    setEndTime(null);
   };
 
   const applyQuickDuration = (minutes) => {
@@ -612,6 +678,10 @@ export default function RoomReservationScreen({ navigation }) {
   };
 
   const handleReserve = async () => {
+    if (!canManageRooms) {
+      denyRoomAccess();
+      return;
+    }
     if (!selectedRoom?.id) {
       Alert.alert("Aucune salle", "Choisissez d'abord une salle.");
       return;
@@ -631,6 +701,13 @@ export default function RoomReservationScreen({ navigation }) {
     const endDateTime = combineDateAndTime(selectedDate, endTime);
     if (endDateTime <= startDateTime) {
       Alert.alert("Plage invalide", "L'heure de fin doit être après le début.");
+      return;
+    }
+    if (startDateTime <= getTunisiaNow()) {
+      Alert.alert(
+        "Plage invalide",
+        "L'heure de début doit être dans le futur.",
+      );
       return;
     }
     if (!isWithinWorkHours(startDateTime, endDateTime)) {
@@ -657,12 +734,6 @@ export default function RoomReservationScreen({ navigation }) {
       };
       const response = await roomReservationService.createReservation(payload);
       if (response?.success) {
-        const created = response.data;
-        const newId = reservationIdOf(created);
-        const canOfferScan =
-          newId != null &&
-          normalizeStatusKey(created?.status ?? created?.Status) === "active";
-
         await Promise.all([
           loadReservationsForSelected(),
           loadMyReservations(),
@@ -670,22 +741,11 @@ export default function RoomReservationScreen({ navigation }) {
         ]);
         resetModal();
 
-        if (canOfferScan) {
-          showFeedback({
-            type: "success",
-            title: "Réservation confirmée",
-            message: "Votre salle est réservée. Vous pouvez démarrer la réunion en scannant le QR de la salle.",
-            cancelText: "Plus tard",
-            confirmText: "Scanner le QR",
-            onConfirm: () => handleScanPress(newId, "start"),
-          });
-        } else {
-          showFeedback({
-            type: "success",
-            title: "Réservation confirmée",
-            message: response.message || "Votre réservation est confirmée.",
-          });
-        }
+        showFeedback({
+          type: "success",
+          title: "Réservation confirmée",
+          message: "Votre réservation est confirmée.",
+        });
       } else {
         Alert.alert("Échec", response?.message || "Une erreur s'est produite.");
       }
@@ -702,21 +762,22 @@ export default function RoomReservationScreen({ navigation }) {
 
   const getRoomAvailability = (roomId) => {
     const reservations = roomDayStatusMap[roomId] || [];
+    const blockingReservations = getBlockingReservations(reservations);
     if (loadingRoomStatuses)
       return { label: "Vérification…", color: colors.textTertiary };
     if (roomDayLoadError)
       return { label: "Aucune donnée", color: colors.textTertiary };
-    if (reservations.length === 0)
+    if (blockingReservations.length === 0)
       return { label: "Libre", color: colors.success };
     if (selectedDate === todayStr) {
-      const now = new Date();
-      const busyNow = reservations.some((r) =>
+      const now = getTunisiaNow();
+      const busyNow = blockingReservations.some((r) =>
         isInstantBlockedByReservation(r, now),
       );
       if (busyNow) return { label: "Occupée", color: colors.error };
     }
     return {
-      label: `${reservations.length} créneau${reservations.length > 1 ? "x" : ""}`,
+      label: `${blockingReservations.length} créneau${blockingReservations.length > 1 ? "x" : ""}`,
       color: colors.warning,
     };
   };
@@ -737,11 +798,17 @@ export default function RoomReservationScreen({ navigation }) {
       partial = 0;
     rooms.forEach((room) => {
       const reservations = roomDayStatusMap[room.id] || [];
-      if (reservations.length === 0) freeAllDay += 1;
+      const blockingCount = getBlockingReservations(reservations).length;
+      if (blockingCount === 0) freeAllDay += 1;
       else partial += 1;
     });
     return { freeAllDay, partial };
   }, [rooms, roomDayStatusMap, roomDayLoadError]);
+
+  const displayedDayReservations = useMemo(
+    () => getDisplayedReservations(dayReservations, selectedDate),
+    [dayReservations, selectedDate],
+  );
 
   const durationMinutes =
     startTime && endTime
@@ -772,14 +839,23 @@ export default function RoomReservationScreen({ navigation }) {
     !!combinedStart &&
     !!combinedEnd &&
     combinedEnd > combinedStart &&
+    combinedStart > getTunisiaNow() &&
     isWithinWorkHours(combinedStart, combinedEnd) &&
     !modalScheduleError;
 
   const handleCancelReservation = async (reservationId) => {
+    if (!canManageRooms) {
+      denyRoomAccess();
+      return;
+    }
     setCancelReservationId(reservationId);
   };
 
   const handleFinishReservation = async (reservationId) => {
+    if (!canManageRooms) {
+      denyRoomAccess();
+      return;
+    }
     setFinishReservationId(reservationId);
   };
 
@@ -788,6 +864,10 @@ export default function RoomReservationScreen({ navigation }) {
   };
 
   const confirmFinishReservation = async () => {
+    if (!canManageRooms) {
+      denyRoomAccess();
+      return;
+    }
     if (!finishReservationId) return;
 
     setFinishingReservation(true);
@@ -826,6 +906,10 @@ export default function RoomReservationScreen({ navigation }) {
   };
 
   const confirmCancelReservation = async () => {
+    if (!canManageRooms) {
+      denyRoomAccess();
+      return;
+    }
     if (!cancelReservationId) return;
 
     setCancellingReservation(true);
@@ -855,6 +939,22 @@ export default function RoomReservationScreen({ navigation }) {
     }
   };
 
+  if (!canManageRooms) {
+    return (
+      <View style={styles.accessDeniedContainer}>
+        <Ionicons
+          name="lock-closed-outline"
+          size={48}
+          color={colors.textTertiary}
+        />
+        <Text style={styles.accessDeniedTitle}>Accès refusé</Text>
+        <Text style={styles.accessDeniedMessage}>
+          La réservation de salles est réservée aux managers.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -881,6 +981,7 @@ export default function RoomReservationScreen({ navigation }) {
         />
 
         <MyReservations
+          canManageRooms={canManageRooms}
           myReservations={myReservations}
           loadingMyReservations={loadingMyReservations}
           reservationIdOf={reservationIdOf}
@@ -899,9 +1000,11 @@ export default function RoomReservationScreen({ navigation }) {
 
         <RoomList
           rooms={rooms}
-          roomDayStatusMap={roomDayStatusMap}
           getRoomAvailability={getRoomAvailability}
-          onRoomPress={handleOpenModal}
+          getBlockingReservationCount={(roomId) =>
+            getBlockingReservations(roomDayStatusMap[roomId] || []).length
+          }
+          onRoomPress={canManageRooms ? handleOpenModal : undefined}
         />
       </ScrollView>
 
@@ -979,7 +1082,7 @@ export default function RoomReservationScreen({ navigation }) {
         selectedDateReadable={selectedDateReadable}
         modalScheduleError={modalScheduleError}
         loadingReservations={loadingReservations}
-        dayReservations={dayReservations}
+        displayedReservations={displayedDayReservations}
         startTime={startTime}
         endTime={endTime}
         setStartTime={setStartTime}
@@ -1041,6 +1144,26 @@ export default function RoomReservationScreen({ navigation }) {
 const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
+
+    accessDeniedContainer: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.xxxl,
+      backgroundColor: colors.background,
+    },
+    accessDeniedTitle: {
+      marginTop: spacing.md,
+      fontSize: typography.xl,
+      fontWeight: typography.bold,
+      color: colors.text,
+    },
+    accessDeniedMessage: {
+      marginTop: spacing.sm,
+      fontSize: typography.base,
+      color: colors.textSecondary,
+      textAlign: "center",
+    },
 
     header: {
       flexDirection: "row",

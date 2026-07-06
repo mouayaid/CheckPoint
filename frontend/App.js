@@ -124,7 +124,6 @@ function HomeTabs() {
   }, [isAdmin, canReviewRequests]);
 
   return (
-
     <Tab.Navigator
       tabBar={(props) => <CustomBottomTabBar {...props} />}
       screenOptions={{
@@ -178,7 +177,6 @@ function HomeTabs() {
         )}
       </Tab.Screen>
 
-
       {!isAdmin && (
         <Tab.Screen name="Channel" options={{ title: "Canal" }}>
           {() => (
@@ -218,52 +216,21 @@ function HomeTabs() {
           )}
         </Tab.Screen>
       )}
-
-      <Tab.Screen
-        name="Desk"
-        component={DeskScreen}
-        options={{
-          title: "Réservation Bureau",
-          tabBarButton: () => null,
-        }}
-      />
-
-      <Tab.Screen
-        name="Rooms"
-        component={RoomReservationScreen}
-        options={{
-          title: "Réservation Salle",
-          tabBarButton: () => null,
-        }}
-      />
-
-      <Tab.Screen
-        name="Events"
-        component={EventsScreen}
-        options={{
-          title: "Événements",
-          tabBarButton: () => null,
-        }}
-      />
     </Tab.Navigator>
   );
 }
 
 function AppNavigator() {
   const { colors, darkMode, themeLoaded } = useTheme();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isManager } = useRoles(user);
   const isE2e = useE2eMode();
 
-  // Keep the splash visible until both auth + theme are loaded,
-  // to prevent a light->dark flicker on startup.
   if ((isLoading || !themeLoaded) && !isE2e) {
     return (
       <View
         testID="bootstrap.loading"
-        style={[
-          styles.loadingContainer,
-          { backgroundColor: colors.background },
-        ]}
+        style={[styles.loadingContainer, { backgroundColor: colors.background }]}
       >
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
@@ -296,12 +263,15 @@ function AppNavigator() {
                 component={SplashScreen}
                 options={{ headerShown: false }}
               />
+
               <Stack.Screen name="Login" component={LoginScreen} />
+
               <Stack.Screen name="Register" component={RegisterScreen} />
+
               <Stack.Screen
                 name="ForgotPassword"
                 component={ForgotPasswordScreen}
-                options={{ title: "Mot de passe oublie" }}
+                options={{ title: "Mot de passe oublié" }}
               />
             </>
           ) : (
@@ -310,6 +280,26 @@ function AppNavigator() {
                 name="HomeTabs"
                 component={HomeTabs}
                 options={{ headerShown: false }}
+              />
+
+              <Stack.Screen
+                name="Desk"
+                component={DeskScreen}
+                options={{ title: "Réservation Bureau" }}
+              />
+
+              {isManager && (
+                <Stack.Screen
+                  name="Rooms"
+                  component={RoomReservationScreen}
+                  options={{ title: "Réservation Salle" }}
+                />
+              )}
+
+              <Stack.Screen
+                name="Events"
+                component={EventsScreen}
+                options={{ title: "Événements" }}
               />
 
               <Stack.Screen
@@ -356,8 +346,6 @@ function AppNavigator() {
                 options={{ title: "Gestion des Événements" }}
               />
 
-
-
               <Stack.Screen
                 name="UserManagement"
                 component={UserManagementScreen}
@@ -381,11 +369,14 @@ function AppNavigator() {
                 component={SeatManagementScreen}
                 options={{ title: "Tables et Sièges" }}
               />
-              <Stack.Screen
-                name="MeetingWorkspace"
-                component={MeetingWorkspaceScreen}
-                options={{ title: "Espace de réunion" }}
-              />
+
+              {isManager && (
+                <Stack.Screen
+                  name="MeetingWorkspace"
+                  component={MeetingWorkspaceScreen}
+                  options={{ title: "Espace de réunion" }}
+                />
+              )}
             </>
           )}
         </Stack.Navigator>
@@ -400,11 +391,15 @@ function RootApp() {
 
   return (
     <>
-      {isE2e ? <View testID="e2e.modeActive" style={{ width: 0, height: 0 }} /> : null}
+      {isE2e ? (
+        <View testID="e2e.modeActive" style={{ width: 0, height: 0 }} />
+      ) : null}
+
       <StatusBar
         barStyle={darkMode ? "light-content" : "dark-content"}
         backgroundColor={colors.surface}
       />
+
       <AuthProvider>
         <NotificationsProvider>
           <DepartmentChannelProvider>
@@ -418,6 +413,7 @@ function RootApp() {
 
 export default function App() {
   const isE2e = isE2EMode();
+
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -516,5 +512,3 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
-
-

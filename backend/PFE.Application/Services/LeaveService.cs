@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PFE.Application.Abstractions;
+using PFE.Application.Common.Exceptions;
 using PFE.Application.DTOs.Leave;
 using PFE.Domain.Entities;
 using PFE.Domain.Enums;
@@ -57,14 +58,14 @@ public class LeaveService : ILeaveService
 
         ValidateLeaveRequest(dto);
         var requestedDays = CalculateRequestedDays(dto.Type, dto.StartDate, dto.EndDate);
-        var shouldCheckBalance = DeductsPaidLeaveBalance(dto.Type);
+        var shouldCheckBalance = ShouldDeductFromBalance(dto.Type);
 
         var pendingRequests = await _context.LeaveRequests
             .Where(l => l.UserId == userId && l.Status == RequestStatus.Pending)
             .ToListAsync();
 
         var pendingDays = pendingRequests
-            .Where(l => DeductsPaidLeaveBalance(l.Type))
+            .Where(l => ShouldDeductFromBalance(l.Type))
             .Sum(l => l.RequestedDays > 0
                 ? l.RequestedDays
                 : CalculateRequestedDays(l.Type, l.StartDate, l.EndDate));
@@ -164,30 +165,25 @@ public class LeaveService : ILeaveService
             return null;
 
         if (request.Status != RequestStatus.Pending)
-            throw new Exception("Cette demande de congé a déjà été traitée.");
+            throw new BadRequestException("Cette demande de congé a déjà été traitée.");
 
         if (reviewer.Role.Name != "Admin")
             return null;
 
-        var requestedDays = request.RequestedDays > 0
-            ? request.RequestedDays
-            : CalculateRequestedDays(request.Type, request.StartDate, request.EndDate);
-        var canDeductBalance = DeductsPaidLeaveBalance(request.Type);
+        var shouldDeductBalance = ShouldDeductFromBalance(request.Type);
+        var deductionAmount = GetBalanceDeductionAmount(request);
 
-        if (dto.DeductFromLeaveBalance && !canDeductBalance)
-            throw new Exception("Ce type de congé ne réduit pas le solde de congés payés.");
-
-        if (canDeductBalance && (request.User.LeaveBalance ?? 0) < requestedDays)
-            throw new Exception("Votre solde de congés est insuffisant.");
+        if (shouldDeductBalance && (request.User.LeaveBalance ?? 0) < deductionAmount)
+            throw new BadRequestException("Votre solde de congés est insuffisant.");
 
         request.Status = RequestStatus.Approved;
         request.ManagerComment = dto.Comment;
         request.ReviewedAt = DateTime.UtcNow;
         request.ReviewedById = reviewerId;
 
-        if (canDeductBalance)
+        if (shouldDeductBalance)
         {
-            request.User.LeaveBalance = (request.User.LeaveBalance ?? 0) - requestedDays;
+            request.User.LeaveBalance = (request.User.LeaveBalance ?? 0) - deductionAmount;
         }
 
         await _context.SaveChangesAsync();
@@ -284,9 +280,23 @@ public class LeaveService : ILeaveService
         return type is LeaveType.HalfDayPaidLeave or LeaveType.HalfDayUnpaidLeave;
     }
 
-    private static bool DeductsPaidLeaveBalance(LeaveType type)
+    private static bool ShouldDeductFromBalance(LeaveType type)
     {
         return type is LeaveType.PaidLeave or LeaveType.HalfDayPaidLeave;
+    }
+
+    private static decimal GetBalanceDeductionAmount(LeaveRequest request)
+    {
+        return request.Type switch
+        {
+            LeaveType.HalfDayPaidLeave => 0.5m,
+            LeaveType.PaidLeave when request.RequestedDays is > 0 => request.RequestedDays.Value,
+            LeaveType.PaidLeave => CalculateRequestedDays(
+                request.Type,
+                request.StartDate,
+                request.EndDate),
+            _ => 0m
+        };
     }
 
     private static void ValidateLeaveRequest(CreateLeaveRequestDto dto)

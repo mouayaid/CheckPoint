@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
   Platform,
   Modal,
+  LayoutAnimation,
+  UIManager,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -20,6 +22,10 @@ import { useTheme } from "../../context/ThemeContext";
 import { adminStatisticsService } from "../../services/api/adminStatisticsService";
 import { adminUserService } from "../../services/api/adminUserService";
 import ChatbotModal from "../../components/dashboard/ChatbotModal";
+
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const toYmd = (d) => {
   const x = new Date(d);
@@ -101,56 +107,23 @@ const presets = [
 ];
 
 const StatCard = ({
+  icon,
   label,
   value,
   sub,
   colors,
-  spacing,
-  borderRadius,
-  typography,
+  styles,
+  compact = false,
 }) => (
-  <View
-    style={{
-      flex: 1,
-      minWidth: "46%",
-      backgroundColor: colors.surface,
-      borderRadius: borderRadius.lg,
-      padding: spacing.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-    }}
-  >
-    <Text
-      style={{
-        fontSize: typography.xs,
-        color: colors.textSecondary,
-        fontFamily: typography.fontFamily?.medium,
-      }}
-    >
-      {label}
+  <View style={[styles.statCard, compact && styles.statCardCompact]}>
+    <View style={styles.statIconBadge}>
+      <Ionicons name={icon} size={compact ? 17 : 20} color={colors.primary} />
+    </View>
+    <Text style={[styles.statValue, compact && styles.statValueCompact]}>
+      {value ?? "—"}
     </Text>
-    <Text
-      style={{
-        marginTop: 4,
-        fontSize: typography.xxl,
-        fontWeight: "700",
-        color: colors.textPrimary,
-        fontFamily: typography.fontFamily?.bold,
-      }}
-    >
-      {value ?? "-"}
-    </Text>
-    {sub ? (
-      <Text
-        style={{
-          marginTop: 4,
-          fontSize: typography.xs,
-          color: colors.textMuted,
-        }}
-      >
-        {sub}
-      </Text>
-    ) : null}
+    <Text style={styles.statLabel}>{label}</Text>
+    {sub ? <Text style={styles.statSub}>{sub}</Text> : null}
   </View>
 );
 
@@ -158,67 +131,120 @@ const StatusList = ({
   title,
   items,
   colors,
-  spacing,
-  borderRadius,
-  typography,
+  styles,
 }) => {
+  const [expanded, setExpanded] = useState(false);
   if (!items?.length) return null;
+  const total = items.reduce(
+    (sum, row) => sum + Number(row.count ?? row.Count ?? 0),
+    0,
+  );
+
+  const toggle = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded((current) => !current);
+  };
+
   return (
-    <View style={{ marginTop: spacing.lg }}>
-      <Text
-        style={{
-          fontSize: typography.sm,
-          fontWeight: "600",
-          color: colors.textSecondary,
-          marginBottom: spacing.sm,
-        }}
-      >
-        {title}
-      </Text>
-      <View
-        style={{
-          backgroundColor: colors.surface,
-          borderRadius: borderRadius.lg,
-          borderWidth: 1,
-          borderColor: colors.border,
-          overflow: "hidden",
-        }}
-      >
-        {items.map((row, i) => (
-          <View
-            key={`${row.status}-${i}`}
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              paddingVertical: spacing.sm,
-              paddingHorizontal: spacing.md,
-              borderTopWidth: i ? 1 : 0,
-              borderTopColor: colors.border,
-            }}
-          >
-            <Text
-              style={{ color: colors.textPrimary, fontSize: typography.sm }}
-            >
-              {row.status ?? row.Status}
-            </Text>
-            <Text
-              style={{
-                fontWeight: "700",
-                color: colors.primary,
-                fontSize: typography.sm,
-              }}
-            >
-              {row.count ?? row.Count}
-            </Text>
-          </View>
-        ))}
-      </View>
+    <View style={styles.statusCard}>
+      <TouchableOpacity style={styles.statusHeader} onPress={toggle}>
+        <Text style={styles.statusTitle}>{title}</Text>
+        <View style={styles.statusTotalBadge}>
+          <Text style={styles.statusTotalText}>{total}</Text>
+        </View>
+        <Ionicons
+          name={expanded ? "chevron-up" : "chevron-down"}
+          size={20}
+          color={colors.textSecondary}
+        />
+      </TouchableOpacity>
+      {expanded && (
+        <View style={styles.statusBody}>
+          {items.map((row, i) => (
+            <View key={`${row.status ?? row.Status}-${i}`} style={styles.statusRow}>
+              <Text style={styles.statusName}>{row.status ?? row.Status}</Text>
+              <Text style={styles.statusCount}>{row.count ?? row.Count}</Text>
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 };
 
+const AnalyticsDashboard = ({ stats, colors, styles }) => {
+  const users = stats?.users ?? stats?.Users;
+  const infra = stats?.infrastructure ?? stats?.Infrastructure;
+  const cards = {
+    overview: [
+      ["people-outline", "Utilisateurs actifs", users?.active ?? users?.Active],
+      ["person-add-outline", "Comptes en attente", users?.pendingApproval ?? users?.PendingApproval],
+      ["document-text-outline", "Demandes générales", stats.generalRequestsCreatedInPeriod ?? stats.GeneralRequestsCreatedInPeriod],
+      ["desktop-outline", "Réservations de sièges", stats.seatReservationsInPeriod ?? stats.SeatReservationsInPeriod],
+    ],
+    infrastructure: [
+      ["business-outline", "Départements", infra?.departments ?? infra?.Departments],
+      ["business-outline", "Salles", infra?.rooms ?? infra?.Rooms],
+      ["grid-outline", "Tables", infra?.officeTables ?? infra?.OfficeTables],
+      ["desktop-outline", "Sièges", infra?.seats ?? infra?.Seats],
+    ],
+    activity: [
+      ["calendar-outline", "Demandes de congé", stats.leaveRequestsOverlappingPeriod ?? stats.LeaveRequestsOverlappingPeriod],
+      ["business-outline", "Réservations de salles", stats.roomReservationsOverlappingPeriod ?? stats.RoomReservationsOverlappingPeriod],
+      ["desktop-outline", "Réservations de sièges", stats.seatReservationsInPeriod ?? stats.SeatReservationsInPeriod],
+      ["document-text-outline", "Demandes générales", stats.generalRequestsCreatedInPeriod ?? stats.GeneralRequestsCreatedInPeriod],
+      ["calendar-number-outline", "Événements", stats.eventsStartingInPeriod ?? stats.EventsStartingInPeriod],
+      ["people-circle-outline", "Participants aux événements", stats.eventParticipantsForEventsInPeriod ?? stats.EventParticipantsForEventsInPeriod],
+      ["megaphone-outline", "Annonces publiées", stats.announcementsCreatedInPeriod ?? stats.AnnouncementsCreatedInPeriod],
+    ],
+  };
+
+  const renderCards = (items, compact = false) => (
+    <View style={styles.row}>
+      {items.map(([icon, label, value]) => (
+        <StatCard
+          key={label}
+          icon={icon}
+          label={label}
+          value={value}
+          compact={compact}
+          colors={colors}
+          styles={styles}
+        />
+      ))}
+    </View>
+  );
+
+  return (
+    <>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Vue d'ensemble</Text>
+        {renderCards(cards.overview)}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Infrastructure</Text>
+        {renderCards(cards.infrastructure, true)}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Activité sur la période</Text>
+        {renderCards(cards.activity, true)}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Répartition par statut</Text>
+        <StatusList title="Congés par statut" items={stats.leaveByStatus ?? stats.LeaveByStatus} colors={colors} styles={styles} />
+        <StatusList title="Réservations de salle par statut" items={stats.roomReservationByStatus ?? stats.RoomReservationByStatus} colors={colors} styles={styles} />
+        <StatusList title="Réservations de siège par statut" items={stats.seatReservationByStatus ?? stats.SeatReservationByStatus} colors={colors} styles={styles} />
+        <StatusList title="Demandes générales par statut" items={stats.generalRequestByStatus ?? stats.GeneralRequestByStatus} colors={colors} styles={styles} />
+      </View>
+    </>
+  );
+};
+
 export default function AdminStatisticsScreen() {
-  const { colors, spacing, typography, borderRadius, darkMode } = useTheme();
+  const { colors, spacing, typography, borderRadius, shadows, darkMode } = useTheme();
   const insets = useSafeAreaInsets();
 
   const [presetId, setPresetId] = useState("30d");
@@ -231,7 +257,7 @@ export default function AdminStatisticsScreen() {
   const [error, setError] = useState(null);
 
   const [picker, setPicker] = useState(null);
-  const [chatbotVisible, setChatbotVisible] = useState(false);
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const applyPreset = useCallback((id) => {
     const p = presets.find((x) => x.id === id);
@@ -293,6 +319,21 @@ export default function AdminStatisticsScreen() {
     () =>
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
+        content: {
+          paddingHorizontal: spacing.md,
+          paddingBottom: Math.max(insets.bottom, spacing.xl) + 176,
+        },
+        screenHeader: { paddingVertical: spacing.lg },
+        screenTitle: {
+          color: colors.textPrimary,
+          fontSize: typography.xxl,
+          fontWeight: typography.bold,
+        },
+        screenSubtitle: {
+          color: colors.textSecondary,
+          fontSize: typography.sm,
+          marginTop: spacing.xs,
+        },
         headerRow: {
           flexDirection: "row",
           alignItems: "center",
@@ -313,6 +354,42 @@ export default function AdminStatisticsScreen() {
           marginBottom: spacing.sm,
         },
         row: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+        section: { marginTop: spacing.xl },
+        statCard: {
+          flexGrow: 1,
+          flexBasis: "46%",
+          minWidth: "46%",
+          minHeight: 148,
+          backgroundColor: colors.surface,
+          borderRadius: borderRadius.lg,
+          padding: spacing.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          ...shadows.sm,
+        },
+        statCardCompact: { minHeight: 126 },
+        statIconBadge: {
+          width: 38,
+          height: 38,
+          borderRadius: borderRadius.md,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.primaryLight,
+          marginBottom: spacing.md,
+        },
+        statValue: {
+          color: colors.textPrimary,
+          fontSize: typography.xxl,
+          fontWeight: typography.bold,
+        },
+        statValueCompact: { fontSize: typography.xl },
+        statLabel: {
+          color: colors.textSecondary,
+          fontSize: typography.sm,
+          fontWeight: typography.semibold,
+          marginTop: spacing.xs,
+        },
+        statSub: { color: colors.textMuted, fontSize: typography.xs, marginTop: 3 },
         filterCard: {
           backgroundColor: colors.surface,
           borderRadius: borderRadius.lg,
@@ -320,7 +397,41 @@ export default function AdminStatisticsScreen() {
           borderWidth: 1,
           borderColor: colors.border,
           marginBottom: spacing.lg,
+          ...shadows.sm,
         },
+        filterSummary: {
+          minHeight: 58,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: spacing.sm,
+          backgroundColor: colors.surface,
+          borderRadius: borderRadius.lg,
+          borderWidth: 1,
+          borderColor: colors.border,
+          paddingHorizontal: spacing.md,
+          ...shadows.sm,
+        },
+        filterSummaryIcon: {
+          width: 38,
+          height: 38,
+          borderRadius: borderRadius.md,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.primaryLight,
+        },
+        filterSummaryText: {
+          flex: 1,
+          color: colors.textSecondary,
+          fontSize: typography.sm,
+          fontWeight: typography.semibold,
+        },
+        filterLabel: {
+          fontSize: typography.sm,
+          fontWeight: typography.semibold,
+          color: colors.textSecondary,
+          marginBottom: spacing.sm,
+        },
+        filterLabelSpaced: { marginTop: spacing.md },
         dateBtn: {
           flex: 1,
           paddingVertical: spacing.sm,
@@ -337,31 +448,70 @@ export default function AdminStatisticsScreen() {
           borderColor: colors.border,
           overflow: "hidden",
         },
-        chatbotButton: {
-          position: "absolute",
-          right: 20,
-          bottom: 20,
-          width: 60,
-          height: 60,
-          borderRadius: 30,
-          justifyContent: "center",
+        applyButton: {
+          minHeight: 48,
+          marginTop: spacing.md,
+          borderRadius: borderRadius.md,
           alignItems: "center",
-          elevation: 6,
+          justifyContent: "center",
+          backgroundColor: colors.primary,
         },
+        applyButtonText: {
+          color: colors.textOnPrimary,
+          fontWeight: typography.bold,
+          fontSize: typography.sm,
+        },
+        loadingState: { alignItems: "center", paddingVertical: spacing.xxl },
+        loadingText: { color: colors.textSecondary, fontSize: typography.sm, marginTop: spacing.md },
+        errorCard: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: spacing.sm,
+          padding: spacing.md,
+          backgroundColor: colors.errorLight,
+          borderRadius: borderRadius.md,
+          borderWidth: 1,
+          borderColor: colors.error,
+        },
+        errorText: { flex: 1, color: colors.error, fontSize: typography.sm },
+        retryButton: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+        retryText: { color: colors.error, fontSize: typography.sm, fontWeight: typography.bold },
+        statusCard: {
+          backgroundColor: colors.surface,
+          borderRadius: borderRadius.lg,
+          borderWidth: 1,
+          borderColor: colors.border,
+          overflow: "hidden",
+          marginBottom: spacing.sm,
+        },
+        statusHeader: {
+          minHeight: 56,
+          flexDirection: "row",
+          alignItems: "center",
+          gap: spacing.sm,
+          paddingHorizontal: spacing.md,
+        },
+        statusTitle: { flex: 1, color: colors.textPrimary, fontSize: typography.sm, fontWeight: typography.semibold },
+        statusTotalBadge: { minWidth: 32, paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: borderRadius.full, backgroundColor: colors.primaryLight, alignItems: "center" },
+        statusTotalText: { color: colors.primary, fontSize: typography.xs, fontWeight: typography.bold },
+        statusBody: { borderTopWidth: 1, borderTopColor: colors.border },
+        statusRow: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+        statusName: { color: colors.textSecondary, fontSize: typography.sm },
+        statusCount: { color: colors.primary, fontSize: typography.sm, fontWeight: typography.bold },
       }),
-    [colors, spacing, typography, borderRadius],
+    [colors, spacing, typography, borderRadius, shadows, insets.bottom],
   );
 
-  const users = stats?.users ?? stats?.Users;
-  const infra = stats?.infrastructure ?? stats?.Infrastructure;
+  const activePreset = presets.find((item) => item.id === presetId);
+  const periodSummary = activePreset?.label ?? `${toYmd(from)} → ${toYmd(to)}`;
+  const departmentSummary =
+    departments.find((item) => String(item.id) === String(departmentId))?.name ??
+    "Tous les départements";
 
   return (
     <View style={[styles.container, { paddingTop: spacing.sm }]}>
       <ScrollView
-        contentContainerStyle={{
-          paddingHorizontal: spacing.md,
-          paddingBottom: Math.max(insets.bottom, spacing.xl) + 88,
-        }}
+        contentContainerStyle={styles.content}
         refreshControl={
           <RefreshControl
             refreshing={loading}
@@ -370,17 +520,27 @@ export default function AdminStatisticsScreen() {
           />
         }
       >
-        <View style={styles.filterCard}>
-          <Text
-            style={{
-              fontSize: typography.sm,
-              fontWeight: "600",
-              color: colors.textSecondary,
-              marginBottom: spacing.sm,
-            }}
-          >
-            Période rapide
+        <TouchableOpacity
+          style={styles.filterSummary}
+          onPress={() => setFiltersExpanded((current) => !current)}
+          accessibilityRole="button"
+          accessibilityLabel="Afficher ou masquer les filtres"
+        >
+          <View style={styles.filterSummaryIcon}>
+            <Ionicons name="options-outline" size={20} color={colors.primary} />
+          </View>
+          <Text style={styles.filterSummaryText} numberOfLines={2}>
+            {periodSummary} · {departmentSummary}
           </Text>
+          <Ionicons
+            name={filtersExpanded ? "chevron-up" : "chevron-down"}
+            size={20}
+            color={colors.textSecondary}
+          />
+        </TouchableOpacity>
+
+        {filtersExpanded && <View style={styles.filterCard}>
+          <Text style={styles.filterLabel}>Période rapide</Text>
           <View style={styles.chipScroll}>
             {presets.map((p) => {
               const active = presetId === p.id;
@@ -412,15 +572,7 @@ export default function AdminStatisticsScreen() {
             })}
           </View>
 
-          <Text
-            style={{
-              fontSize: typography.sm,
-              fontWeight: "600",
-              color: colors.textSecondary,
-              marginTop: spacing.md,
-              marginBottom: spacing.sm,
-            }}
-          >
+          <Text style={[styles.filterLabel, styles.filterLabelSpaced]}>
             Dates personnalisées
           </Text>
           <View style={{ flexDirection: "row", gap: spacing.sm }}>
@@ -464,15 +616,7 @@ export default function AdminStatisticsScreen() {
             </TouchableOpacity>
           </View>
 
-          <Text
-            style={{
-              fontSize: typography.sm,
-              fontWeight: "600",
-              color: colors.textSecondary,
-              marginTop: spacing.md,
-              marginBottom: spacing.sm,
-            }}
-          >
+          <Text style={[styles.filterLabel, styles.filterLabelSpaced]}>
             Département
           </Text>
           <View style={styles.pickerWrap}>
@@ -494,285 +638,38 @@ export default function AdminStatisticsScreen() {
           </View>
 
           <TouchableOpacity
-            style={{
-              marginTop: spacing.md,
-              backgroundColor: colors.primary,
-              paddingVertical: spacing.sm,
-              borderRadius: borderRadius.md,
-              alignItems: "center",
-            }}
+            style={styles.applyButton}
             onPress={() => {
               setPresetId("custom");
               fetchStats();
+              setFiltersExpanded(false);
             }}
           >
-            <Text
-              style={{
-                color: "#fff",
-                fontWeight: "700",
-                fontSize: typography.sm,
-              }}
-            >
+            <Text style={styles.applyButtonText}>
               Appliquer les filtres
             </Text>
           </TouchableOpacity>
-        </View>
+        </View>}
 
         {error ? (
-          <View
-            style={{
-              padding: spacing.md,
-              backgroundColor: (colors.error ?? "#ef4444") + "15",
-              borderRadius: borderRadius.md,
-              marginBottom: spacing.md,
-            }}
-          >
-            <Text
-              style={{
-                color: colors.error ?? "#b91c1c",
-                fontSize: typography.sm,
-              }}
-            >
-              {error}
-            </Text>
+          <View style={styles.errorCard}>
+            <Ionicons name="alert-circle-outline" size={22} color={colors.error} />
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={fetchStats}>
+              <Text style={styles.retryText}>Réessayer</Text>
+            </TouchableOpacity>
           </View>
         ) : null}
 
         {loading && !stats ? (
-          <ActivityIndicator
-            size="large"
-            color={colors.primary}
-            style={{ marginTop: 24 }}
-          />
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingText}>Chargement des statistiques...</Text>
+          </View>
         ) : null}
 
-        {stats ? (
-          <>
-            <Text style={styles.sectionTitle}>Utilisateurs</Text>
-            <Text
-              style={{
-                fontSize: typography.xs,
-                color: colors.textMuted,
-                marginBottom: spacing.sm,
-              }}
-            >
-              Période API : {(stats.from ?? stats.From)?.slice?.(0, 10) ?? "—"}{" "}
-              → {(stats.to ?? stats.To)?.slice?.(0, 10) ?? "—"}
-              {(stats.departmentId ?? stats.DepartmentId) != null
-                ? ` · Dépt. #${stats.departmentId ?? stats.DepartmentId}`
-                : " · Tous départements"}
-            </Text>
-            <View style={styles.row}>
-              <StatCard
-                label="Total"
-                value={users?.total ?? users?.Total}
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-              <StatCard
-                label="Actifs"
-                value={users?.active ?? users?.Active}
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-            </View>
-            <View style={[styles.row, { marginTop: spacing.sm }]}>
-              <StatCard
-                label="En attente validation"
-                value={users?.pendingApproval ?? users?.PendingApproval}
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-              <StatCard
-                label="Inscrits sur la période"
-                value={users?.registeredInPeriod ?? users?.RegisteredInPeriod}
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-            </View>
+        {stats ? <AnalyticsDashboard stats={stats} colors={colors} styles={styles} /> : null}
 
-            <Text style={[styles.sectionTitle, { marginTop: spacing.lg }]}>
-              Infrastructure
-            </Text>
-            <View style={styles.row}>
-              <StatCard
-                label="Départements"
-                value={infra?.departments ?? infra?.Departments}
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-              <StatCard
-                label="Salles"
-                value={infra?.rooms ?? infra?.Rooms}
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-            </View>
-            <View style={[styles.row, { marginTop: spacing.sm }]}>
-              <StatCard
-                label="Tables"
-                value={infra?.officeTables ?? infra?.OfficeTables}
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-              <StatCard
-                label="Sièges"
-                value={infra?.seats ?? infra?.Seats}
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-            </View>
-
-            <Text style={[styles.sectionTitle, { marginTop: spacing.lg }]}>
-              Activité (période)
-            </Text>
-            <View style={styles.row}>
-              <StatCard
-                label="Congés (chevauch.)"
-                value={
-                  stats.leaveRequestsOverlappingPeriod ??
-                  stats.LeaveRequestsOverlappingPeriod
-                }
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-              <StatCard
-                label="Rés. salles (chevauch.)"
-                value={
-                  stats.roomReservationsOverlappingPeriod ??
-                  stats.RoomReservationsOverlappingPeriod
-                }
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-            </View>
-
-            <View style={[styles.row, { marginTop: spacing.sm }]}>
-              <StatCard
-                label="Rés. sièges (jours)"
-                value={
-                  stats.seatReservationsInPeriod ??
-                  stats.SeatReservationsInPeriod
-                }
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-              <StatCard
-                label="Demandes générales"
-                value={
-                  stats.generalRequestsCreatedInPeriod ??
-                  stats.GeneralRequestsCreatedInPeriod
-                }
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-            </View>
-
-            <View style={[styles.row, { marginTop: spacing.sm }]}>
-              <StatCard
-                label="Événements (début)"
-                value={
-                  stats.eventsStartingInPeriod ?? stats.EventsStartingInPeriod
-                }
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-            </View>
-
-            <View style={[styles.row, { marginTop: spacing.sm }]}>
-              <StatCard
-                label="Participants évén."
-                value={
-                  stats.eventParticipantsForEventsInPeriod ??
-                  stats.EventParticipantsForEventsInPeriod
-                }
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-              <StatCard
-                label="Annonces créées"
-                value={
-                  stats.announcementsCreatedInPeriod ??
-                  stats.AnnouncementsCreatedInPeriod
-                }
-                colors={colors}
-                spacing={spacing}
-                borderRadius={borderRadius}
-                typography={typography}
-              />
-            </View>
-
-            <StatusList
-              title="Congés par statut"
-              items={stats.leaveByStatus ?? stats.LeaveByStatus}
-              colors={colors}
-              spacing={spacing}
-              borderRadius={borderRadius}
-              typography={typography}
-            />
-
-            <StatusList
-              title="Réservations de salle par statut"
-              items={
-                stats.roomReservationByStatus ?? stats.RoomReservationByStatus
-              }
-              colors={colors}
-              spacing={spacing}
-              borderRadius={borderRadius}
-              typography={typography}
-            />
-
-            <StatusList
-              title="Réservations de siège par statut"
-              items={
-                stats.seatReservationByStatus ?? stats.SeatReservationByStatus
-              }
-              colors={colors}
-              spacing={spacing}
-              borderRadius={borderRadius}
-              typography={typography}
-            />
-
-            <StatusList
-              title="Demandes générales par statut"
-              items={
-                stats.generalRequestByStatus ?? stats.GeneralRequestByStatus
-              }
-              colors={colors}
-              spacing={spacing}
-              borderRadius={borderRadius}
-              typography={typography}
-            />
-          </>
-        ) : null}
       </ScrollView>
 
       {picker && Platform.OS === "android" ? (
@@ -851,22 +748,12 @@ export default function AdminStatisticsScreen() {
           </TouchableOpacity>
         </Modal>
       ) : null}
-      <TouchableOpacity
-        style={[
-          styles.chatbotButton,
-          {
-            backgroundColor: colors.primary,
-            bottom: insets.bottom + 20,
-          },
-        ]}
-        onPress={() => setChatbotVisible(true)}
-      >
-        <Ionicons name="sparkles" size={28} color="#fff" />
-      </TouchableOpacity>
-
       <ChatbotModal
-        visible={chatbotVisible}
-        onClose={() => setChatbotVisible(false)}
+        statisticsFilters={{
+          from: toYmd(from),
+          to: toYmd(to),
+          departmentId: departmentId === "" ? null : Number(departmentId),
+        }}
       />
     </View>
   );

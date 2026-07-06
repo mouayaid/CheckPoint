@@ -408,7 +408,7 @@ const StatusChip = ({ text, dotColor, styles }) => {
   );
 };
 
-const AdminStatChip = ({
+const AdminPendingCard = ({
   label,
   count,
   loading,
@@ -418,53 +418,42 @@ const AdminStatChip = ({
   colors,
 }) => {
   return (
-    <Pressable style={styles.adminChip} onPress={onPress}>
+    <Pressable style={styles.adminPendingCard} onPress={onPress}>
       {loading ? (
         <ActivityIndicator size="small" color={colors.primary} />
       ) : (
-        <Text style={styles.adminChipNum}>{count}</Text>
+        <Text style={styles.adminPendingNum}>{count}</Text>
       )}
 
-      <Text style={styles.adminChipLabel}>{label}</Text>
+      <Text style={styles.adminPendingLabel}>{label}</Text>
 
       {!loading && count > 0 && badgeText ? (
-        <View style={styles.adminChipBadge}>
-          <Text style={styles.adminChipBadgeText}>{badgeText}</Text>
+        <View style={styles.adminPendingBadge}>
+          <Text style={styles.adminPendingBadgeText}>{badgeText}</Text>
         </View>
       ) : null}
     </Pressable>
   );
 };
 
-const AdminActionCard = ({
+const AdminShortcutCard = ({
   icon,
   title,
-  description,
-  buttonTitle,
+  subtitle,
   onPress,
   styles,
   colors,
 }) => {
   return (
-    <Card style={styles.adminActionCard}>
-      <View style={styles.adminActionTop}>
-        <View style={styles.adminActionIcon}>
-          <Ionicons name={icon} size={21} color={colors.primary} />
-        </View>
-
-        <View style={{ flex: 1 }}>
-          <Text style={styles.adminActionTitle}>{title}</Text>
-          <Text style={styles.adminActionDesc}>{description}</Text>
-        </View>
+    <Pressable style={styles.adminShortcutCard} onPress={onPress}>
+      <View style={styles.adminShortcutIcon}>
+        <Ionicons name={icon} size={21} color={colors.primary} />
       </View>
-
-      <Button
-        title={buttonTitle}
-        variant="primary"
-        onPress={onPress}
-        style={styles.cardBtn}
-      />
-    </Card>
+      <Text style={styles.adminShortcutTitle}>{title}</Text>
+      {subtitle ? (
+        <Text style={styles.adminShortcutSubtitle}>{subtitle}</Text>
+      ) : null}
+    </Pressable>
   );
 };
 
@@ -759,10 +748,11 @@ const DashboardScreen = () => {
       fetchPendingUserApprovals(),
     ];
 
-    const employeeCalls = [fetchUpcomingEvents(), fetchAnnouncements()];
+    const employeeCalls = [fetchUpcomingEvents()];
 
     if (!isAdmin) {
       employeeCalls.push(
+        fetchAnnouncements(),
         fetchMyReservation(),
         fetchLeaveBalance(),
         fetchMonthCheckIns(),
@@ -924,7 +914,7 @@ const DashboardScreen = () => {
 
               <Text style={styles.heroDate}>
                 {isAdmin
-                  ? "Gérez les utilisateurs, validations et ressources"
+                  ? "Suivi rapide des validations et ressources"
                   : todayLabel}
               </Text>
             </View>
@@ -1277,10 +1267,10 @@ const DashboardScreen = () => {
 
         {isAdmin && (
           <>
-            <SectionHeader title="Vue rapide" styles={styles} />
+            <SectionHeader title="À traiter" styles={styles} />
 
             <View style={styles.adminRow}>
-              <AdminStatChip
+              <AdminPendingCard
                 label="Demandes en attente"
                 count={pendingRequestCount}
                 loading={loadingPendingRequests}
@@ -1290,7 +1280,7 @@ const DashboardScreen = () => {
                 colors={colors}
               />
 
-              <AdminStatChip
+              <AdminPendingCard
                 label="Comptes en attente"
                 count={pendingUserCount}
                 loading={loadingPendingUsers}
@@ -1301,39 +1291,58 @@ const DashboardScreen = () => {
               />
             </View>
 
-            <SectionHeader title="Administration" styles={styles} />
+            <SectionHeader title="Gestion rapide" styles={styles} />
 
-            <AdminActionCard
-              icon="people-outline"
-              title="Gestion des utilisateurs"
-              description="Consultez les utilisateurs, modifiez leurs informations, attribuez des rôles ou supprimez des comptes."
-              buttonTitle="Gérer les utilisateurs"
-              onPress={() => navigation.navigate("UserManagement")}
-              styles={styles}
-              colors={colors}
-            />
-
-            <SectionHeader title="Ressources" styles={styles} />
-
-            <AdminActionCard
-              icon="business-outline"
-              title="Gestion des salles"
-              description="Gérez les salles de réunion, leur capacité et leur disponibilité."
-              buttonTitle="Gérer les salles"
-              onPress={() => navigation.navigate("RoomManagement")}
-              styles={styles}
-              colors={colors}
-            />
-
-            <AdminActionCard
-              icon="desktop-outline"
-              title="Gestion des sièges et tables"
-              description="Organisez la disposition des tables et des sièges dans l’espace de travail."
-              buttonTitle="Gérer les sièges"
-              onPress={() => navigation.navigate("SeatManagement")}
-              styles={styles}
-              colors={colors}
-            />
+            <View style={styles.adminShortcutGrid}>
+              <AdminShortcutCard
+                icon="people-outline"
+                title="Utilisateurs"
+                subtitle="Comptes et rôles"
+                onPress={() => navigation.navigate("UserManagement")}
+                styles={styles}
+                colors={colors}
+              />
+              <AdminShortcutCard
+                icon="git-network-outline"
+                title="Départements"
+                subtitle="Équipes et affectations"
+                onPress={() => navigation.navigate("DepartmentManagement")}
+                styles={styles}
+                colors={colors}
+              />
+              <AdminShortcutCard
+                icon="desktop-outline"
+                title="Tables & sièges"
+                subtitle="Espace de travail"
+                onPress={() => navigation.navigate("SeatManagement")}
+                styles={styles}
+                colors={colors}
+              />
+              <AdminShortcutCard
+                icon="business-outline"
+                title="Salles"
+                subtitle="Capacité et accès"
+                onPress={() => navigation.navigate("RoomManagement")}
+                styles={styles}
+                colors={colors}
+              />
+              <AdminShortcutCard
+                icon="calendar-outline"
+                title="Événements"
+                subtitle="Calendrier"
+                onPress={() => navigation.navigate("EventManagement")}
+                styles={styles}
+                colors={colors}
+              />
+              <AdminShortcutCard
+                icon="megaphone-outline"
+                title="Annonces"
+                subtitle="Communication"
+                onPress={() => navigation.navigate("ManageAnnouncements")}
+                styles={styles}
+                colors={colors}
+              />
+            </View>
           </>
         )}
 
@@ -1342,7 +1351,7 @@ const DashboardScreen = () => {
             <SectionHeader title="Administration" styles={styles} />
 
             <View style={styles.adminRow}>
-              <AdminStatChip
+              <AdminPendingCard
                 label="Demandes en attente"
                 count={pendingRequestCount}
                 loading={loadingPendingRequests}
@@ -1400,7 +1409,8 @@ const DashboardScreen = () => {
               <Text style={styles.cardBody}>{eventsError}</Text>
             ) : upcomingEvents?.length > 0 ? (
               <View style={styles.eventList}>
-                {upcomingEvents.map((event, index) => {
+                {(isAdmin ? upcomingEvents.slice(0, 3) : upcomingEvents).map(
+                  (event, index) => {
                   const imageUrl = getEventImage(event);
                   const location = getEventLocation(event);
                   const description = getEventDescription(event);
@@ -1451,7 +1461,23 @@ const DashboardScreen = () => {
                       ) : null}
                     </View>
                   );
-                })}
+                  },
+                )}
+                {isAdmin ? (
+                  <Pressable
+                    style={styles.adminEventsLink}
+                    onPress={() => navigation.navigate("EventManagement")}
+                  >
+                    <Text style={styles.adminEventsLinkText}>
+                      Gérer les événements
+                    </Text>
+                    <Ionicons
+                      name="arrow-forward"
+                      size={16}
+                      color={colors.primary}
+                    />
+                  </Pressable>
+                ) : null}
               </View>
             ) : (
               <>
@@ -1935,29 +1961,31 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       marginBottom: spacing.xl,
     },
 
-    adminChip: {
+    adminPendingCard: {
       flex: 1,
       backgroundColor: colors.surface,
       borderRadius: borderRadius.lg,
       padding: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.primaryLight ?? `${colors.primary}28`,
       ...shadows.sm,
     },
 
-    adminChipNum: {
+    adminPendingNum: {
       fontSize: 28,
       fontFamily: typography.fontFamily?.bold,
-      color: colors.text,
+      color: colors.primary,
       lineHeight: 34,
     },
 
-    adminChipLabel: {
+    adminPendingLabel: {
       marginTop: 2,
       fontSize: typography.xs,
-      fontFamily: typography.fontFamily?.regular,
-      color: colors.textSecondary,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.text,
     },
 
-    adminChipBadge: {
+    adminPendingBadge: {
       marginTop: 6,
       alignSelf: "flex-start",
       backgroundColor: colors.warningLight ?? "#fef9c3",
@@ -1966,45 +1994,63 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       paddingVertical: 2,
     },
 
-    adminChipBadgeText: {
+    adminPendingBadgeText: {
       fontSize: 10,
       fontFamily: typography.fontFamily?.semibold,
       color: colors.warning ?? "#92400e",
     },
 
-    adminActionCard: {
-      backgroundColor: colors.surface,
-      padding: spacing.lg,
-      marginBottom: spacing.lg,
-    },
-
-    adminActionTop: {
+    adminShortcutGrid: {
       flexDirection: "row",
-      alignItems: "flex-start",
+      flexWrap: "wrap",
       gap: spacing.md,
+      marginBottom: spacing.xl,
     },
 
-    adminActionIcon: {
-      width: 44,
-      height: 44,
+    adminShortcutCard: {
+      width: "47.5%",
+      backgroundColor: colors.surface,
       borderRadius: borderRadius.lg,
+      padding: spacing.md,
+      minHeight: 118,
+      ...shadows.sm,
+    },
+
+    adminShortcutIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: borderRadius.md,
       backgroundColor: colors.primaryLight ?? `${colors.primary}18`,
       alignItems: "center",
       justifyContent: "center",
+      marginBottom: spacing.sm,
     },
 
-    adminActionTitle: {
-      fontSize: typography.base,
+    adminShortcutTitle: {
+      fontSize: typography.sm,
       fontFamily: typography.fontFamily?.semibold,
       color: colors.text,
-      marginBottom: 4,
     },
 
-    adminActionDesc: {
-      fontSize: typography.sm,
+    adminShortcutSubtitle: {
+      marginTop: 3,
+      fontSize: typography.xs,
       fontFamily: typography.fontFamily?.regular,
       color: colors.textSecondary,
-      lineHeight: 20,
+    },
+
+    adminEventsLink: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.xs,
+      paddingVertical: spacing.sm,
+    },
+
+    adminEventsLinkText: {
+      fontSize: typography.sm,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.primary,
     },
   });
 

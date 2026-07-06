@@ -48,3 +48,16 @@ public class StatusCountDto
     public string Status { get; set; } = string.Empty;
     public int Count { get; set; }
 }
+
+public class AdminStatisticsChatRequestDto
+{
+    public string Message { get; set; } = string.Empty;
+    public DateTime? From { get; set; }
+    public DateTime? To { get; set; }
+    public int? DepartmentId { get; set; }
+}
+
+public class AdminStatisticsChatResponseDto
+{
+    public string Answer { get; set; } = string.Empty;
+}

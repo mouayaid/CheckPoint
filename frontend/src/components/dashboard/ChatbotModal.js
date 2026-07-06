@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTheme } from "../../context/ThemeContext";
 import { adminChatbotService } from "../../services/api";
@@ -23,8 +24,9 @@ const initialChatMessages = [
   },
 ];
 
-const ChatbotModal = () => {
+const ChatbotModal = ({ statisticsFilters = {} }) => {
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(
     () => createStyles(colors, spacing, typography, borderRadius, shadows),
     [colors, spacing, typography, borderRadius, shadows],
@@ -49,7 +51,11 @@ const ChatbotModal = () => {
     setChatLoading(true);
 
     try {
-      const response = await adminChatbotService.ask(question, historySnapshot);
+      const response = await adminChatbotService.ask(
+        question,
+        historySnapshot,
+        statisticsFilters,
+      );
       const answer =
         response?.answer ??
         response?.message ??
@@ -69,7 +75,7 @@ const ChatbotModal = () => {
     } finally {
       setChatLoading(false);
     }
-  }, [chatInput, chatLoading, chatMessages]);
+  }, [chatInput, chatLoading, chatMessages, statisticsFilters]);
 
   const clearChat = useCallback(() => {
     if (chatLoading) return;
@@ -80,7 +86,10 @@ const ChatbotModal = () => {
   return (
     <>
       <Pressable
-        style={styles.chatFab}
+        style={[
+          styles.chatFab,
+          { bottom: Math.max(insets.bottom, 14) + 86 },
+        ]}
         onPress={() => setChatOpen(true)}
         accessibilityRole="button"
         accessibilityLabel="Ouvrir l'assistant IA Admin"
@@ -217,7 +226,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     chatFab: {
       position: "absolute",
       right: spacing.lg,
-      bottom: spacing.xl,
       width: 56,
       height: 56,
       borderRadius: borderRadius.full,
@@ -226,6 +234,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       justifyContent: "center",
       ...shadows.md,
       elevation: 8,
+      zIndex: 1000,
     },
 
     chatOverlay: {

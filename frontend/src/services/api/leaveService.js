@@ -10,7 +10,6 @@ export const leaveService = {
   approveLeaveRequest: (id, payload = {}) =>
     axiosInstance.put(`/Leave/requests/${id}/approve`, {
       comment: payload?.comment ?? "",
-      deductFromLeaveBalance: !!payload?.deductFromLeaveBalance,
     }),
 
   rejectLeaveRequest: (id, payload = {}) =>
@@ -63,7 +62,6 @@ export const leaveService = {
       `/Leave/requests/${id}/${isApprove ? "approve" : "reject"}`,
       {
         comment: payload?.comment ?? "",
-        deductFromLeaveBalance: !!payload?.deductFromLeaveBalance,
       },
     );
   },

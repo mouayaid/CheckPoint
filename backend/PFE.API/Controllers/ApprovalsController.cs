@@ -41,8 +41,7 @@ public class ApprovalsController : ControllerBase
                 adminId,
                 new ApproveLeaveRequestDto
                 {
-                    Comment = dto.Comment,
-                    DeductFromLeaveBalance = true
+                    Comment = dto.Comment
                 });
         }
         else if (dto.Decision.ToLower() == "reject")
@@ -66,8 +65,5 @@ public class ApprovalsController : ControllerBase
         var action = dto.Decision.ToLower() == "approve" ? "approved" : "rejected";
         return Ok(ApiResponse<bool>.SuccessResponse(true, $"Leave request {action} successfully"));
     }
-
-    // Room reservation approvals are deprecated. Reservations are confirmed immediately
-    // when the requested slot is available.
 }
 

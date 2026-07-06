@@ -56,7 +56,6 @@ const REQUEST_SUBTYPE_FILTERS = [
 
 const DEFAULT_LEAVE_BALANCE = "18";
 const DEFAULT_YEARLY_SALARY = "50000";
-const PAID_LEAVE_TYPES = ["PaidLeave", "HalfDayPaidLeave"];
 const LEAVE_TYPE_LABELS_FR = {
   PaidLeave: "Congés payés",
   UnpaidLeave: "Congés sans solde",
@@ -77,9 +76,6 @@ const formatRequestedDays = (days) => {
   if (Number.isNaN(value)) return "";
   return String(value).replace(".", ",");
 };
-
-const deductsPaidLeaveBalance = (leaveType) =>
-  PAID_LEAVE_TYPES.includes(leaveType);
 
 const normalizeMainFilterParam = (value) => {
   const normalized = String(value ?? "").trim().toLowerCase();
@@ -173,7 +169,6 @@ const ApprovalsScreen = () => {
   const [generalActionState, setGeneralActionState] = useState({});
   const [userActionState, setUserActionState] = useState({});
   const [formByUserId, setFormByUserId] = useState({});
-  const [deductByRequestId, setDeductByRequestId] = useState({});
   const requestSubtypeScrollRef = useRef(null);
   const requestSubtypeScrollOffsetRef = useRef(0);
   const requestSubtypePendingRestoreOffsetRef = useRef(null);
@@ -433,16 +428,11 @@ const ApprovalsScreen = () => {
 
   const approveLeave = async (item) => {
     const requestId = getItemId(item);
-    const typeName = leaveTypeToString(item?.type ?? item?.leaveType ?? item?.Type);
-
     try {
       setLeaveAction(requestId, "approving");
 
       await api.put(`/Leave/requests/${requestId}/approve`, {
         comment: "Approved by Admin",
-        deductFromLeaveBalance:
-          deductsPaidLeaveBalance(typeName) &&
-          (deductByRequestId[requestId] ?? true),
       });
 
       setLeaveRequests((prev) =>
@@ -718,8 +708,6 @@ const ApprovalsScreen = () => {
     const typeName = leaveTypeToString(
       item?.type ?? item?.leaveType ?? item?.Type,
     );
-    const canDeduct = deductsPaidLeaveBalance(typeName);
-    const shouldDeduct = canDeduct && (deductByRequestId[requestId] ?? true);
     const leaveType = LEAVE_TYPE_LABELS_FR[typeName] ?? typeName ?? "Congé";
     const requestedDays = item?.requestedDays ?? item?.RequestedDays;
     const dayPeriod = item?.dayPeriod ?? item?.DayPeriod;
@@ -859,44 +847,6 @@ const ApprovalsScreen = () => {
                 </Text>
               </View>
             </View>
-
-            {canDeduct && (
-              <TouchableOpacity
-                testID="leave.adminDeductBalanceToggle"
-                activeOpacity={0.85}
-                onPress={() =>
-                  setDeductByRequestId((prev) => ({
-                    ...prev,
-                    [requestId]: !shouldDeduct,
-                  }))
-                }
-                disabled={isBusy}
-                style={[styles.checkboxRow, isBusy && styles.disabledButton]}
-              >
-                <View
-                  testID={`approvals.leaveDeduct.${requestId}`}
-                  style={styles.e2eHiddenMarker}
-                />
-                <View
-                  style={[
-                    styles.checkboxBox,
-                    shouldDeduct && styles.checkboxBoxChecked,
-                  ]}
-                >
-                  {shouldDeduct ? (
-                    <Ionicons
-                      name="checkmark-outline"
-                      size={15}
-                      color={colors.textOnPrimary}
-                    />
-                  ) : null}
-                </View>
-
-                <Text style={styles.checkboxLabel}>
-                  Déduire du solde de congés payés
-                </Text>
-              </TouchableOpacity>
-            )}
 
             <View style={styles.actionsRow}>
               <TouchableOpacity
@@ -2061,37 +2011,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       marginTop: spacing.xs,
       fontSize: 12,
       color: colors.textSecondary,
-    },
-
-    checkboxRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-      marginTop: spacing.sm,
-      paddingVertical: spacing.sm,
-    },
-
-    checkboxBox: {
-      width: 22,
-      height: 22,
-      borderRadius: 6,
-      borderWidth: 1.5,
-      borderColor: colors.border,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.surface,
-    },
-
-    checkboxBoxChecked: {
-      backgroundColor: colors.primary,
-      borderColor: colors.primary,
-    },
-
-    checkboxLabel: {
-      flex: 1,
-      fontSize: typography.sm,
-      color: colors.text,
-      fontWeight: typography.medium,
     },
 
     roleRow: {

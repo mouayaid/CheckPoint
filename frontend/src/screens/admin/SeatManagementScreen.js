@@ -1,5 +1,5 @@
 import logger from "../../utils/logger";
-import React, { useCallback, useMemo, useState, useEffect } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -17,12 +17,17 @@ import {
   UIManager,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
+import QRCode from "react-native-qrcode-svg";
+import ViewShot from "react-native-view-shot";
 import { useTheme } from "../../context/ThemeContext";
 import { adminSeatService } from "../../services/api/adminSeatService";
 import { adminOfficeTableService } from "../../services/api/adminOfficeTableService";
 import { adminLayoutService } from "../../services/api/adminLayoutService";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import StatsBanner from "../../components/StatsBanner";
+import { getTableSeatLayout } from "../../utils/seatLayout";
 
 if (
   Platform.OS === "android" &&
@@ -30,6 +35,33 @@ if (
 ) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
+
+const SheetModalHeader = ({ icon, title, subtitle, colors, spacing, typography }) => (
+  <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.xl }}>
+    <View
+      style={{
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: colors.surfaceMuted,
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
+      <Ionicons name={icon} size={23} color={colors.primary} />
+    </View>
+    <View style={{ flex: 1 }}>
+      <Text style={{ fontSize: typography.xl, fontWeight: typography.bold, color: colors.text }}>
+        {title}
+      </Text>
+      <Text style={{ fontSize: typography.sm, color: colors.textSecondary, marginTop: spacing.xs }}>
+        {subtitle}
+      </Text>
+    </View>
+  </View>
+);
 
 const EditSeatModal = ({
   visible,
@@ -42,6 +74,7 @@ const EditSeatModal = ({
   spacing,
   typography,
   borderRadius,
+  shadows,
 }) => {
   const [label, setLabel] = useState("");
   const [isActive, setIsActive] = useState(true);
@@ -73,8 +106,8 @@ const EditSeatModal = ({
         positionY: 0,
       };
       const dto = seat ? { ...baseDto, isActive } : baseDto;
-      await onSave(seat?.id ?? seat?.Id, dto);
-      onClose();
+      const saved = await onSave(seat?.id ?? seat?.Id, dto);
+      if (saved !== false) onClose();
     } catch (err) {
       Alert.alert(
         "Erreur",
@@ -90,16 +123,19 @@ const EditSeatModal = ({
       StyleSheet.create({
         overlay: {
           flex: 1,
-          backgroundColor: "rgba(0,0,0,0.5)",
+          backgroundColor: colors.overlay,
           justifyContent: "flex-end",
         },
         sheet: {
           backgroundColor: colors.surface,
-          borderTopLeftRadius: 24,
-          borderTopRightRadius: 24,
+          borderTopLeftRadius: borderRadius.xl,
+          borderTopRightRadius: borderRadius.xl,
+          borderWidth: 1,
+          borderColor: colors.border,
           padding: spacing.xl,
           paddingBottom: 36,
           maxHeight: "80%",
+          ...shadows.lg,
         },
         handle: {
           width: 40,
@@ -143,15 +179,23 @@ const EditSeatModal = ({
           fontSize: typography.base,
           color: colors.text,
           marginBottom: spacing.md,
+          minHeight: 50,
         },
         statusToggle: {
           flexDirection: "row",
           alignItems: "center",
-          marginBottom: spacing.md,
-          gap: 10,
-          paddingVertical: 10,
+          marginBottom: spacing.lg,
+          gap: spacing.md,
+          padding: spacing.md,
+          borderRadius: borderRadius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surfaceMuted,
         },
         statusLabel: { fontSize: typography.sm, color: colors.text, flex: 1 },
+        statusPill: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 5, borderRadius: borderRadius.full },
+        statusDot: { width: 7, height: 7, borderRadius: 4 },
+        statusPillText: { fontSize: typography.xs, fontWeight: typography.semibold },
         btnRow: { flexDirection: "row", gap: 10, marginTop: spacing.md },
         cancel: {
           flex: 1,
@@ -162,6 +206,7 @@ const EditSeatModal = ({
           borderWidth: 1.5,
           borderColor: colors.border,
           backgroundColor: colors.surface,
+          minHeight: 50,
         },
         cancelTxt: {
           fontSize: typography.base,
@@ -175,14 +220,15 @@ const EditSeatModal = ({
           paddingVertical: 14,
           borderRadius: borderRadius.lg,
           backgroundColor: colors.primary,
+          minHeight: 50,
         },
         saveTxt: {
           fontSize: typography.base,
           fontWeight: typography.semibold,
-          color: "#fff",
+          color: colors.textOnPrimary,
         },
       }),
-    [colors, spacing, typography, borderRadius],
+    [colors, spacing, typography, borderRadius, shadows],
   );
 
   return (
@@ -190,7 +236,7 @@ const EditSeatModal = ({
       visible={visible}
       animationType="slide"
       transparent
-      onRequestClose={onClose}
+      onRequestClose={() => !saving && onClose()}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -199,14 +245,23 @@ const EditSeatModal = ({
         <TouchableOpacity
           style={{ flex: 1 }}
           activeOpacity={1}
-          onPress={onClose}
+          onPress={() => !saving && onClose()}
         />
         <View style={s.sheet}>
           <ScrollView showsVerticalScrollIndicator={false}>
             <View style={s.handle} />
-            <Text style={s.title}>
-              {seat ? "Modifier le siège" : "Ajouter un siège"}
-            </Text>
+            <SheetModalHeader
+              icon={seat ? "create-outline" : "add-circle-outline"}
+              title={seat ? "Modifier le siège" : "Ajouter un siège"}
+              subtitle={
+                seat
+                  ? "Mettez à jour le libellé et la disponibilité."
+                  : "Configurez un nouveau poste pour cette table."
+              }
+              colors={colors}
+              spacing={spacing}
+              typography={typography}
+            />
 
             {tableName && (
               <View style={s.tableCtx}>
@@ -236,11 +291,17 @@ const EditSeatModal = ({
                 onPress={() => setIsActive(!isActive)}
               >
                 <Ionicons
-                  name={isActive ? "checkbox" : "square-outline"}
+                  name="power-outline"
                   size={22}
                   color={isActive ? colors.primary : colors.textSecondary}
                 />
-                <Text style={s.statusLabel}>Siège actif</Text>
+                <Text style={s.statusLabel}>Disponibilité</Text>
+                <View style={[s.statusPill, { backgroundColor: isActive ? colors.successLight : colors.errorLight }]}>
+                  <View style={[s.statusDot, { backgroundColor: isActive ? colors.success : colors.error }]} />
+                  <Text style={[s.statusPillText, { color: isActive ? colors.success : colors.error }]}>
+                    {isActive ? "Actif" : "Inactif"}
+                  </Text>
+                </View>
               </TouchableOpacity>
             )}
 
@@ -258,7 +319,7 @@ const EditSeatModal = ({
                 disabled={saving}
               >
                 {saving ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={colors.textOnPrimary} />
                 ) : (
                   <Text style={s.saveTxt}>Enregistrer</Text>
                 )}
@@ -280,6 +341,7 @@ const EditTableModal = ({
   spacing,
   typography,
   borderRadius,
+  shadows,
 }) => {
   const [name, setName] = useState("");
   const [seatCount, setSeatCount] = useState("8");
@@ -328,16 +390,19 @@ const EditTableModal = ({
       StyleSheet.create({
         overlay: {
           flex: 1,
-          backgroundColor: "rgba(0,0,0,0.5)",
+          backgroundColor: colors.overlay,
           justifyContent: "flex-end",
         },
         sheet: {
           backgroundColor: colors.surface,
-          borderTopLeftRadius: 24,
-          borderTopRightRadius: 24,
+          borderTopLeftRadius: borderRadius.xl,
+          borderTopRightRadius: borderRadius.xl,
+          borderWidth: 1,
+          borderColor: colors.border,
           padding: spacing.xl,
           paddingBottom: 36,
           maxHeight: "80%",
+          ...shadows.lg,
         },
         handle: {
           width: 40,
@@ -369,6 +434,7 @@ const EditTableModal = ({
           fontSize: typography.base,
           color: colors.text,
           marginBottom: spacing.md,
+          minHeight: 50,
         },
         btnRow: { flexDirection: "row", gap: 10, marginTop: spacing.md },
         cancel: {
@@ -379,6 +445,8 @@ const EditTableModal = ({
           borderRadius: borderRadius.lg,
           borderWidth: 1.5,
           borderColor: colors.border,
+          backgroundColor: colors.surface,
+          minHeight: 50,
         },
         cancelTxt: {
           fontSize: typography.base,
@@ -392,14 +460,15 @@ const EditTableModal = ({
           paddingVertical: 14,
           borderRadius: borderRadius.lg,
           backgroundColor: colors.primary,
+          minHeight: 50,
         },
         saveTxt: {
           fontSize: typography.base,
           fontWeight: typography.semibold,
-          color: "#fff",
+          color: colors.textOnPrimary,
         },
       }),
-    [colors, spacing, typography, borderRadius],
+    [colors, spacing, typography, borderRadius, shadows],
   );
 
   return (
@@ -407,7 +476,7 @@ const EditTableModal = ({
       visible={visible}
       animationType="slide"
       transparent
-      onRequestClose={onClose}
+      onRequestClose={() => !saving && onClose()}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -416,14 +485,23 @@ const EditTableModal = ({
         <TouchableOpacity
           style={{ flex: 1 }}
           activeOpacity={1}
-          onPress={onClose}
+          onPress={() => !saving && onClose()}
         />
         <View style={s.sheet}>
           <ScrollView showsVerticalScrollIndicator={false}>
             <View style={s.handle} />
-            <Text style={s.title}>
-              {table ? "Modifier la table" : "Ajouter une table"}
-            </Text>
+            <SheetModalHeader
+              icon={table ? "create-outline" : "grid-outline"}
+              title={table ? "Modifier la table" : "Ajouter une table"}
+              subtitle={
+                table
+                  ? "Modifiez le nom affiché dans le plan des sièges."
+                  : "Créez une table et générez ses sièges automatiquement."
+              }
+              colors={colors}
+              spacing={spacing}
+              typography={typography}
+            />
 
             <Text style={s.label}>Nom de la table</Text>
             <TextInput
@@ -465,7 +543,7 @@ const EditTableModal = ({
                 disabled={saving}
               >
                 {saving ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={colors.textOnPrimary} />
                 ) : (
                   <Text style={s.saveTxt}>Enregistrer</Text>
                 )}
@@ -504,6 +582,11 @@ const SeatManagementScreen = () => {
 
   const [deletingSeatId, setDeletingSeatId] = useState(null);
   const [deletingTableId, setDeletingTableId] = useState(null);
+  const [selectedSeat, setSelectedSeat] = useState(null);
+  const [selectedSeatTableId, setSelectedSeatTableId] = useState(null);
+  const [qrSeat, setQrSeat] = useState(null);
+  const [updatingSeatStatus, setUpdatingSeatStatus] = useState(false);
+  const qrRef = useRef(null);
 
   const getTableName = (tableId) => {
     const t = tables.find((t) => (t.id ?? t.Id) === tableId);
@@ -642,7 +725,7 @@ const SeatManagementScreen = () => {
         "Validation",
         `Le siège "${dto.label}" existe déjà dans cette table.`,
       );
-      return;
+      return false;
     }
 
     if (id) {
@@ -655,6 +738,7 @@ const SeatManagementScreen = () => {
           (s.id ?? s.Id) === id ? { ...s, ...updated } : s,
         ),
       }));
+      return true;
     } else {
       const res = await adminSeatService.createSeat(dto);
       const created = adminSeatService.extractData(res);
@@ -663,6 +747,7 @@ const SeatManagementScreen = () => {
         ...prev,
         [tableId]: [...(prev[tableId] ?? []), created],
       }));
+      return true;
     }
   };
   
@@ -678,6 +763,7 @@ const SeatManagementScreen = () => {
           setDeletingSeatId(id);
           try {
             await adminSeatService.deleteSeat(id);
+            setSelectedSeat(null);
             setSeatsByTableId((prev) => ({
               ...prev,
               [tableId]: (prev[tableId] ?? []).filter(
@@ -694,33 +780,93 @@ const SeatManagementScreen = () => {
     ]);
   };
 
-  const getTableLayout = (tableSeats) => {
-    const count = tableSeats.length;
-    if (count === 11) {
-      return {
-        type: "eleven",
-        leftSeats: tableSeats.slice(0, 5),
-        rightSeats: tableSeats.slice(5, 10),
-        endSeat: tableSeats[10],
-      };
-    }
-    if (count === 8) {
-      return {
-        type: "eight",
-        leftSeats: tableSeats.slice(0, 4),
-        rightSeats: tableSeats.slice(4, 8),
-      };
-    }
-    const middle = Math.ceil(count / 2);
-    return {
-      type: "generic",
-      leftSeats: tableSeats.slice(0, middle),
-      rightSeats: tableSeats.slice(middle),
+  const openSeatActions = (seat, tableId) => {
+    setSelectedSeat(seat);
+    setSelectedSeatTableId(tableId);
+  };
+
+  const handleToggleSeatStatus = async () => {
+    if (!selectedSeat) return;
+    const id = selectedSeat.id ?? selectedSeat.Id;
+    const isActive = selectedSeat.isActive ?? selectedSeat.IsActive ?? true;
+    const dto = {
+      label: selectedSeat.label ?? selectedSeat.Label,
+      positionX: selectedSeat.positionX ?? selectedSeat.PositionX ?? 0,
+      positionY: selectedSeat.positionY ?? selectedSeat.PositionY ?? 0,
+      isActive: !isActive,
     };
+    setUpdatingSeatStatus(true);
+    try {
+      const res = await adminSeatService.updateSeat(id, dto);
+      const responseSeat = adminSeatService.extractData(res) ?? {};
+      const updated = {
+        ...responseSeat,
+        isActive: !isActive,
+        IsActive: !isActive,
+      };
+      setSeatsByTableId((previous) => ({
+        ...previous,
+        [selectedSeatTableId]: (previous[selectedSeatTableId] ?? []).map((seat) =>
+          (seat.id ?? seat.Id) === id ? { ...seat, ...updated } : seat,
+        ),
+      }));
+      setSelectedSeat((current) => ({ ...current, ...updated }));
+    } catch (error) {
+      Alert.alert(
+        "Erreur",
+        error?.response?.data?.message || "Impossible de modifier l’état du siège.",
+      );
+    } finally {
+      setUpdatingSeatStatus(false);
+    }
+  };
+
+  const getQrValue = (seat) => {
+    const id = seat?.id ?? seat?.Id;
+    return seat?.qrCodeValue ?? seat?.QrCodeValue ?? `SEAT:${id}`;
+  };
+
+  const captureQr = async () => {
+    if (!qrRef.current) throw new Error("QR indisponible");
+    return qrRef.current.capture();
+  };
+
+  const handleShareQr = async () => {
+    try {
+      const uri = await captureQr();
+      await Sharing.shareAsync(uri);
+    } catch (error) {
+      logger.error("Seat QR share error", error);
+      Alert.alert("Erreur", "Impossible de partager le QR.");
+    }
+  };
+
+  const handlePrintQr = async () => {
+    try {
+      const uri = await captureQr();
+      const base64 = await fetch(uri)
+        .then((response) => response.blob())
+        .then(
+          (blob) =>
+            new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.readAsDataURL(blob);
+            }),
+        );
+      const label = qrSeat?.label ?? qrSeat?.Label ?? "Siège";
+      const tableName = getTableName(selectedSeatTableId);
+      await Print.printAsync({
+        html: `<html><body style="text-align:center;padding-top:48px;font-family:sans-serif"><h2>${label}</h2><p>${tableName}</p><img src="${base64}" style="width:240px;height:240px"/><p>${getQrValue(qrSeat)}</p></body></html>`,
+      });
+    } catch (error) {
+      logger.error("Seat QR print error", error);
+      Alert.alert("Erreur", "Impossible d’imprimer le QR.");
+    }
   };
 
   const renderSeat = (seat, tableId) => {
-    const isActive = seat.isActive ?? seat.IsActive;
+    const isActive = seat.isActive ?? seat.IsActive ?? true;
     const isDeleting = deletingSeatId === (seat.id ?? seat.Id);
 
     return (
@@ -729,17 +875,13 @@ const SeatManagementScreen = () => {
         style={[
           styles.seatBox,
           {
-            backgroundColor: isActive ? colors.primary : "#94A3B8",
-            borderColor: "transparent",
+            backgroundColor: isActive ? colors.primary : colors.surfaceMuted,
+            borderColor: isActive ? colors.primary : colors.border,
           },
         ]}
         onPress={() => {
-          setEditSeat(seat);
-          setDefaultTableIdForSeat(tableId);
-          setSeatModalVisible(true);
+          openSeatActions(seat, tableId);
         }}
-        onLongPress={() => handleDeleteSeat(seat, tableId)}
-        delayLongPress={500}
         activeOpacity={0.8}
       >
         {isDeleting ? (
@@ -749,9 +891,16 @@ const SeatManagementScreen = () => {
             <Ionicons
               name={isActive ? "desktop-outline" : "close-circle-outline"}
               size={14}
-              color="#fff"
+              color={isActive ? colors.textOnPrimary : colors.textSecondary}
             />
-            <Text style={styles.seatLabel}>{seat.label ?? seat.Label}</Text>
+            <Text
+              style={[
+                styles.seatLabel,
+                { color: isActive ? colors.textOnPrimary : colors.textSecondary },
+              ]}
+            >
+              {seat.label ?? seat.Label}
+            </Text>
           </>
         )}
       </TouchableOpacity>
@@ -779,8 +928,7 @@ const SeatManagementScreen = () => {
       return n(a.label ?? a.Label) - n(b.label ?? b.Label);
     });
 
-    const layout = getTableLayout(sortedSeats);
-    const isEleven = layout.type === "eleven";
+    const layout = getTableSeatLayout(sortedSeats);
 
     return (
       <View key={`table-${id}`} style={styles.tableCard}>
@@ -790,6 +938,11 @@ const SeatManagementScreen = () => {
         </View>
 
         <View style={styles.tableWrap}>
+          {layout.topSeat && (
+            <View style={styles.topSeatContainer}>
+              {renderSeat(layout.topSeat, id)}
+            </View>
+          )}
           <View style={styles.tableRow}>
             {renderSeatColumn(layout.leftSeats, id)}
 
@@ -797,7 +950,12 @@ const SeatManagementScreen = () => {
               <View
                 style={[
                   styles.tableVisual,
-                  isEleven ? styles.tableVisualLarge : styles.tableVisualMedium,
+                  {
+                    minHeight: Math.max(
+                      150,
+                      layout.maxSideCount * 58 + Math.max(0, layout.maxSideCount - 1) * spacing.sm,
+                    ),
+                  },
                 ]}
               >
                 <View style={styles.tableInnerLine} />
@@ -850,12 +1008,6 @@ const SeatManagementScreen = () => {
 
             {renderSeatColumn(layout.rightSeats, id)}
           </View>
-
-          {layout.type === "eleven" && layout.endSeat && (
-            <View style={styles.endSeatContainer}>
-              {renderSeat(layout.endSeat, id)}
-            </View>
-          )}
         </View>
       </View>
     );
@@ -960,6 +1112,7 @@ const SeatManagementScreen = () => {
         spacing={spacing}
         typography={typography}
         borderRadius={borderRadius}
+        shadows={shadows}
       />
 
       <EditTableModal
@@ -971,7 +1124,173 @@ const SeatManagementScreen = () => {
         spacing={spacing}
         typography={typography}
         borderRadius={borderRadius}
+        shadows={shadows}
       />
+
+      <Modal
+        visible={Boolean(selectedSeat)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !updatingSeatStatus && setSelectedSeat(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={() => !updatingSeatStatus && setSelectedSeat(null)}
+          />
+          <View style={styles.actionSheet}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.actionHeader}>
+              <View style={styles.actionIconBadge}>
+                <Ionicons name="desktop-outline" size={22} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.actionTitle}>
+                  {selectedSeat?.label ?? selectedSeat?.Label ?? "Siège"}
+                </Text>
+                <Text style={styles.actionSubtitle}>
+                  {getTableName(selectedSeatTableId)}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.statusBadge,
+                  {
+                    backgroundColor:
+                      (selectedSeat?.isActive ?? selectedSeat?.IsActive ?? true)
+                        ? colors.successLight
+                        : colors.errorLight,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.statusDot,
+                    {
+                      backgroundColor:
+                        (selectedSeat?.isActive ?? selectedSeat?.IsActive ?? true)
+                          ? colors.success
+                          : colors.error,
+                    },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.statusText,
+                    {
+                      color:
+                        (selectedSeat?.isActive ?? selectedSeat?.IsActive ?? true)
+                          ? colors.success
+                          : colors.error,
+                    },
+                  ]}
+                >
+                  {(selectedSeat?.isActive ?? selectedSeat?.IsActive ?? true)
+                    ? "Actif"
+                    : "Inactif"}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.sheetAction}
+              onPress={() => {
+                setQrSeat(selectedSeat);
+                setSelectedSeat(null);
+              }}
+            >
+              <Ionicons name="qr-code-outline" size={21} color={colors.primary} />
+              <Text style={styles.sheetActionText}>Voir le QR</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sheetAction}
+              onPress={() => {
+                setEditSeat(selectedSeat);
+                setDefaultTableIdForSeat(selectedSeatTableId);
+                setSelectedSeat(null);
+                setSeatModalVisible(true);
+              }}
+            >
+              <Ionicons name="create-outline" size={21} color={colors.text} />
+              <Text style={styles.sheetActionText}>Modifier le siège</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.sheetAction}
+              onPress={handleToggleSeatStatus}
+              disabled={updatingSeatStatus}
+            >
+              {updatingSeatStatus ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons
+                  name={(selectedSeat?.isActive ?? selectedSeat?.IsActive ?? true) ? "pause-circle-outline" : "checkmark-circle-outline"}
+                  size={21}
+                  color={colors.text}
+                />
+              )}
+              <Text style={styles.sheetActionText}>
+                {(selectedSeat?.isActive ?? selectedSeat?.IsActive ?? true)
+                  ? "Désactiver"
+                  : "Activer"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sheetAction, styles.destructiveAction]}
+              onPress={() => handleDeleteSeat(selectedSeat, selectedSeatTableId)}
+              disabled={deletingSeatId === (selectedSeat?.id ?? selectedSeat?.Id)}
+            >
+              {deletingSeatId === (selectedSeat?.id ?? selectedSeat?.Id) ? (
+                <ActivityIndicator size="small" color={colors.error} />
+              ) : (
+                <Ionicons name="trash-outline" size={21} color={colors.error} />
+              )}
+              <Text style={[styles.sheetActionText, { color: colors.error }]}>Supprimer le siège</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(qrSeat)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setQrSeat(null)}
+      >
+        <View style={styles.qrOverlay}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setQrSeat(null)}
+          />
+          <View style={styles.qrCard}>
+            <View style={styles.qrHeaderBadge}>
+              <Ionicons name="qr-code-outline" size={24} color={colors.primary} />
+            </View>
+            <Text style={styles.qrTitle}>{qrSeat?.label ?? qrSeat?.Label}</Text>
+            <Text style={styles.qrSubtitle}>{getTableName(selectedSeatTableId)}</Text>
+            <ViewShot
+              ref={qrRef}
+              options={{ format: "png", quality: 1 }}
+              style={styles.qrCapture}
+            >
+              <QRCode value={getQrValue(qrSeat)} size={210} backgroundColor="#FFFFFF" color="#000000" />
+            </ViewShot>
+            <Text style={styles.qrValue}>{getQrValue(qrSeat)}</Text>
+            <TouchableOpacity style={styles.primaryModalButton} onPress={handlePrintQr}>
+              <Ionicons name="print-outline" size={19} color="#FFFFFF" />
+              <Text style={styles.primaryModalButtonText}>Imprimer</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryModalButton} onPress={handleShareQr}>
+              <Ionicons name="share-outline" size={19} color={colors.text} />
+              <Text style={styles.secondaryModalButtonText}>Partager / Enregistrer</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.closeQrButton} onPress={() => setQrSeat(null)}>
+              <Text style={styles.closeQrText}>Fermer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -1054,6 +1373,10 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     tableWrap: {
       alignItems: "center",
     },
+    topSeatContainer: {
+      alignItems: "center",
+      marginBottom: spacing.md,
+    },
     tableRow: {
       flexDirection: "row",
       justifyContent: "center",
@@ -1133,15 +1456,46 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       ...shadows.sm,
     },
     seatLabel: {
-      color: "#fff",
       fontSize: 11,
       fontWeight: typography.bold,
       marginTop: 2,
     },
-    endSeatContainer: {
-      marginTop: spacing.md,
-      alignItems: "center",
+    modalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: colors.overlay },
+    modalBackdrop: { flex: 1 },
+    actionSheet: {
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: borderRadius.xl,
+      borderTopRightRadius: borderRadius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.xl,
+      paddingBottom: spacing.xxxl,
+      ...shadows.md,
     },
+    sheetHandle: { width: 42, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginBottom: spacing.lg },
+    actionHeader: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.lg },
+    actionIconBadge: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted },
+    actionTitle: { fontSize: typography.lg, fontWeight: typography.bold, color: colors.text },
+    actionSubtitle: { fontSize: typography.sm, color: colors.textSecondary, marginTop: 2 },
+    statusBadge: { flexDirection: "row", alignItems: "center", borderRadius: borderRadius.full, paddingHorizontal: 9, paddingVertical: 5 },
+    statusDot: { width: 7, height: 7, borderRadius: 4, marginRight: 5 },
+    statusText: { fontSize: typography.xs, fontWeight: typography.semibold },
+    sheetAction: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: borderRadius.md, backgroundColor: colors.surfaceMuted, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
+    sheetActionText: { fontSize: typography.base, fontWeight: typography.medium, color: colors.text },
+    destructiveAction: { marginTop: spacing.xs, backgroundColor: colors.errorLight, borderColor: colors.error },
+    qrOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, backgroundColor: colors.overlay },
+    qrCard: { width: "100%", maxWidth: 380, alignItems: "center", backgroundColor: colors.surface, borderRadius: borderRadius.xl, borderWidth: 1, borderColor: colors.border, padding: spacing.xl, ...shadows.lg },
+    qrHeaderBadge: { width: 50, height: 50, borderRadius: 25, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceMuted, marginBottom: spacing.sm },
+    qrTitle: { fontSize: typography.xl, fontWeight: typography.bold, color: colors.text },
+    qrSubtitle: { fontSize: typography.sm, color: colors.textSecondary, marginTop: 2, marginBottom: spacing.lg },
+    qrCapture: { backgroundColor: "#FFFFFF", padding: spacing.md, borderRadius: borderRadius.md, borderWidth: 1, borderColor: colors.border, ...shadows.sm },
+    qrValue: { fontSize: typography.xs, color: colors.textSecondary, marginVertical: spacing.md },
+    primaryModalButton: { width: "100%", minHeight: 48, borderRadius: borderRadius.md, backgroundColor: colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, marginTop: spacing.sm },
+    primaryModalButtonText: { color: "#FFFFFF", fontSize: typography.sm, fontWeight: typography.semibold },
+    secondaryModalButton: { width: "100%", minHeight: 48, borderRadius: borderRadius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceMuted, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, marginTop: spacing.sm },
+    secondaryModalButtonText: { color: colors.text, fontSize: typography.sm, fontWeight: typography.semibold },
+    closeQrButton: { minHeight: 44, justifyContent: "center", paddingHorizontal: spacing.xl, marginTop: spacing.sm },
+    closeQrText: { color: colors.textSecondary, fontSize: typography.sm, fontWeight: typography.medium },
 
     emptyState: { marginTop: 60, alignItems: "center", paddingHorizontal: 32 },
     emptyStateIcon: {

@@ -72,39 +72,6 @@ public class RoomReservationService : IRoomReservationService
         return _mapper.Map<List<RoomReservationForDayDto>>(reservations);
     }
 
-    public async Task<List<RoomReservationDto>> GetPendingReservationsAsync(int managerUserId)
-    {
-        await CleanupExpiredUnstartedReservationsAsync();
-
-        var manager = await _context.Users
-            .Include(u => u.Department)
-            .Include(u => u.Role)
-            .FirstOrDefaultAsync(u => u.Id == managerUserId);
-
-        if (manager == null)
-            throw new NotFoundException($"User with id {managerUserId} not found.");
-
-        var query = _context.RoomReservations
-            .Include(r => r.Room)
-            .Include(r => r.User)
-                .ThenInclude(u => u.Department)
-            .Where(r => r.Status == ReservationStatus.Pending);
-
-        if (manager.Role.Name == "Manager")
-        {
-            if (!manager.DepartmentId.HasValue)
-                throw new InvalidOperationException("Manager is not assigned to a department.");
-
-            query = query.Where(r => r.User.DepartmentId == manager.DepartmentId);
-        }
-
-        var pending = await query
-            .OrderBy(r => r.StartDateTime)
-            .ToListAsync();
-
-        return _mapper.Map<List<RoomReservationDto>>(pending);
-    }
-
     public async Task<RoomReservationDto> CreateReservationAsync(int creatorId, CreateRoomReservationDto dto)
     {
         await CleanupExpiredUnstartedReservationsAsync();
@@ -163,17 +130,21 @@ public class RoomReservationService : IRoomReservationService
         if (reservation == null)
             throw new NotFoundException("Reservation not found.");
 
+        var actorRole = await GetActorRoleAsync(userId);
+        EnsureCanFinish(reservation, userId, actorRole);
+
         if (reservation.Status != ReservationStatus.InProgress)
-            throw new ConflictException("Reservation is not in progress.");
+            throw new BadRequestException("Only an in-progress reservation can be finished.");
 
         if (reservation.RoomId != scannedRoomId)
             throw new BadRequestException("Scanned room does not match reservation room.");
 
         if (!reservation.StartedAt.HasValue)
-            throw new ConflictException("Meeting not started.");
+            throw new BadRequestException("Meeting not started.");
 
         reservation.Status = ReservationStatus.Completed;
         reservation.EndedAt = DateTime.UtcNow;
+        reservation.EndedById = userId;
 
         await _context.SaveChangesAsync();
     }
@@ -189,11 +160,11 @@ public class RoomReservationService : IRoomReservationService
         if (reservation == null)
             throw new NotFoundException("Reservation not found.");
 
-        if (reservation.Status == ReservationStatus.Completed)
-            throw new ConflictException("Reservation is already completed.");
+        var actorRole = await GetActorRoleAsync(userId);
+        EnsureCanFinish(reservation, userId, actorRole);
 
         if (reservation.Status != ReservationStatus.InProgress)
-            throw new ConflictException("Reservation is not in progress.");
+            throw new BadRequestException("Only an in-progress reservation can be finished.");
 
         reservation.Status = ReservationStatus.Completed;
         reservation.EndedAt = DateTime.UtcNow;
@@ -207,16 +178,24 @@ public class RoomReservationService : IRoomReservationService
         var reservation = await _context.RoomReservations.FindAsync(reservationId);
 
         if (reservation == null)
-            throw new Exception("Reservation not found.");
+            throw new NotFoundException("Reservation not found.");
+
+        var actorRole = await GetActorRoleAsync(scannerUserId);
+
+        if (actorRole != "Manager")
+            throw new ForbiddenException("Only the manager who owns the reservation can start it.");
+
+        if (!IsOwner(reservation, scannerUserId))
+            throw new ForbiddenException("You cannot start another user's reservation.");
 
         if (reservation.RoomId != scannedRoomId)
-            throw new Exception("QR does not match this room.");
+            throw new BadRequestException("QR does not match this room.");
 
         if (reservation.Status != ReservationStatus.Active)
-            throw new Exception("Only active reservations can be started.");
+            throw new BadRequestException("Only an active reservation can be started.");
 
         if (reservation.StartedAt != null)
-            throw new Exception("Meeting already started.");
+            throw new BadRequestException("Meeting already started.");
 
         reservation.StartedAt = DateTime.UtcNow;
         reservation.StartedById = scannerUserId;
@@ -231,22 +210,48 @@ public class RoomReservationService : IRoomReservationService
             .FirstOrDefaultAsync(r => r.Id == reservationId);
 
         if (reservation == null)
-            throw new Exception("Reservation not found.");
+            throw new NotFoundException("Reservation not found.");
 
-        if (reservation.UserId != userId && reservation.CreatedById != userId)
-            throw new Exception("You can only cancel your own reservations.");
+        var actorRole = await GetActorRoleAsync(userId);
 
-        if (reservation.Status == ReservationStatus.InProgress)
-            throw new Exception("Cannot cancel a meeting that has already started.");
+        if (actorRole != "Admin" && (actorRole != "Manager" || !IsOwner(reservation, userId)))
+            throw new ForbiddenException("You cannot cancel another user's reservation.");
 
-        if (reservation.Status == ReservationStatus.Completed)
-            throw new Exception("Cannot cancel a completed meeting.");
-
-        if (reservation.Status == ReservationStatus.Cancelled)
-            throw new Exception("Reservation is already cancelled.");
+        if (reservation.Status is not ReservationStatus.Pending and not ReservationStatus.Active)
+            throw new BadRequestException("Only pending or active reservations can be cancelled.");
 
         reservation.Status = ReservationStatus.Cancelled;
 
         await _context.SaveChangesAsync();
+    }
+
+    private async Task<string> GetActorRoleAsync(int userId)
+    {
+        var actor = await _context.Users
+            .AsNoTracking()
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (actor == null)
+            throw new NotFoundException("User not found.");
+
+        return actor.Role.Name;
+    }
+
+    private static bool IsOwner(RoomReservation reservation, int userId)
+    {
+        return reservation.UserId == userId || reservation.CreatedById == userId;
+    }
+
+    private static void EnsureCanFinish(
+        RoomReservation reservation,
+        int userId,
+        string actorRole)
+    {
+        if (actorRole == "Admin")
+            return;
+
+        if (actorRole != "Manager" || !IsOwner(reservation, userId))
+            throw new ForbiddenException("You cannot finish another user's reservation.");
     }
 }

@@ -59,7 +59,7 @@ module.exports = {
       permissions: ["READ_MEDIA_IMAGES", "WRITE_EXTERNAL_STORAGE"],
     },
     extra: {
-      apiHost: "192.168.1.64",
+      apiHost: "172.30.20.128",
       apiUrl: apiUrls[environment],
       e2eApiUrl: "http://10.0.2.2:5000/api",
       environment,

@@ -31,6 +31,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
 import FeedbackModal from "../components/FeedbackModal";
 import { useFeedback } from "../hooks/useFeedback";
+import { getTableSeatLayout } from "../utils/seatLayout";
 
 const { width } = Dimensions.get("window");
 
@@ -242,8 +243,6 @@ const createStyles = (
       overflow: "hidden",
       ...shadows.sm,
     },
-    tableVisualLarge: { minHeight: 280 },
-    tableVisualMedium: { minHeight: 220 },
     tableInnerLine: {
       position: "absolute",
       top: 16,
@@ -282,10 +281,11 @@ const createStyles = (
       fontWeight: typography.bold,
       marginTop: 2,
     },
-    endSeatContainer: {
-      marginTop: spacing.md,
+    topSeatContainer: {
+      marginBottom: spacing.md,
       alignItems: "center",
     },
+    topSeatIcon: { transform: [{ rotate: "180deg" }] },
 
     legend: {
       flexDirection: "row",
@@ -1127,32 +1127,7 @@ const DeskScreen = () => {
     return colors.seatAvailable;
   };
 
-  const getTableLayout = (tableSeats) => {
-    const count = tableSeats.length;
-    if (count === 11) {
-      return {
-        type: "eleven",
-        leftSeats: tableSeats.slice(0, 5),
-        rightSeats: tableSeats.slice(5, 10),
-        endSeat: tableSeats[10],
-      };
-    }
-    if (count === 8) {
-      return {
-        type: "eight",
-        leftSeats: tableSeats.slice(0, 4),
-        rightSeats: tableSeats.slice(4, 8),
-      };
-    }
-    const middle = Math.ceil(count / 2);
-    return {
-      type: "generic",
-      leftSeats: tableSeats.slice(0, middle),
-      rightSeats: tableSeats.slice(middle),
-    };
-  };
-
-  const renderSeat = (seat) => {
+  const renderSeat = (seat, position = "side") => {
     const isMySeat = mySeatLabel && seat.label === mySeatLabel;
     const isLoadingThisSeat = reservingSeatId === seat.id;
     const isDisabled =
@@ -1195,6 +1170,7 @@ const DeskScreen = () => {
               }
               size={14}
               color={colors.textOnPrimary}
+              style={position === "top" ? styles.topSeatIcon : undefined}
             />
             <Text style={styles.seatLabel}>{seat.label}</Text>
           </>
@@ -1211,8 +1187,8 @@ const DeskScreen = () => {
 
   const renderTable = (table) => {
     if (!table) return null;
-    const layout = getTableLayout(table.seats);
-    const isEleven = layout.type === "eleven";
+    const layout = getTableSeatLayout(table.seats);
+    const tableMinHeight = Math.max(140, layout.maxSideCount * 58);
 
     return (
       <Card key={table.tableId} style={styles.tableCard}>
@@ -1222,6 +1198,11 @@ const DeskScreen = () => {
         </View>
 
         <View style={styles.tableWrap}>
+          {layout.topSeat && (
+            <View style={styles.topSeatContainer}>
+              {renderSeat(layout.topSeat, "top")}
+            </View>
+          )}
           <View style={styles.tableRow}>
             {renderSeatColumn(layout.leftSeats)}
 
@@ -1229,7 +1210,7 @@ const DeskScreen = () => {
               <View
                 style={[
                   styles.tableVisual,
-                  isEleven ? styles.tableVisualLarge : styles.tableVisualMedium,
+                  { minHeight: tableMinHeight },
                 ]}
               >
                 <View style={styles.tableInnerLine} />
@@ -1239,12 +1220,6 @@ const DeskScreen = () => {
 
             {renderSeatColumn(layout.rightSeats)}
           </View>
-
-          {layout.type === "eleven" && layout.endSeat && (
-            <View style={styles.endSeatContainer}>
-              {renderSeat(layout.endSeat)}
-            </View>
-          )}
         </View>
       </Card>
     );

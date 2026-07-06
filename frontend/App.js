@@ -58,6 +58,7 @@ import CustomBottomTabBar from "./src/components/CustomBottomTabBar";
 import AnimatedTabScreen from "./src/components/AnimatedTabScreen";
 import RoomManagementScreen from "./src/screens/admin/RoomManagementScreen";
 import AdminStatisticsScreen from "./src/screens/admin/AdminStatisticsScreen";
+import DepartmentManagementScreen from "./src/screens/admin/DepartmentManagementScreen";
 import SwipeTabsPager from "./src/components/SwipeTabsPager";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import ErrorBoundary from "./src/components/ErrorBoundary";
@@ -361,6 +362,12 @@ function AppNavigator() {
                 name="UserManagement"
                 component={UserManagementScreen}
                 options={{ title: "Gestion des Utilisateurs" }}
+              />
+
+              <Stack.Screen
+                name="DepartmentManagement"
+                component={DepartmentManagementScreen}
+                options={{ title: "Gestion des départements" }}
               />
 
               <Stack.Screen

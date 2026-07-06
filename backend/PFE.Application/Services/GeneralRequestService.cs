@@ -5,6 +5,7 @@ using PFE.Application.DTOs.GeneralRequest;
 using PFE.Domain.Entities;
 using PFE.Domain.Enums;
 using PFE.Application.Abstractions;
+using PFE.Application.Common.Exceptions;
 using System.Text.Json;
 
 namespace PFE.Application.Services;
@@ -49,6 +50,8 @@ public class GeneralRequestService : IGeneralRequestService
 
     public async Task<GeneralRequestDto?> CreateRequestAsync(int userId, CreateGeneralRequestDto dto)
     {
+        List<RecoverySlotDto>? normalizedRecoverySlots = null;
+
         if (!Enum.IsDefined(typeof(RequestCategory), dto.Category))
         {
             return null;
@@ -77,10 +80,7 @@ public class GeneralRequestService : IGeneralRequestService
         }
         else if (dto.Category == RequestCategory.Recovery)
         {
-            if (!ValidateRecovery(dto))
-            {
-                return null;
-            }
+            normalizedRecoverySlots = ValidateAndNormalizeRecovery(dto);
         }
         else if (string.IsNullOrWhiteSpace(dto.Title) ||
             string.IsNullOrWhiteSpace(dto.Description))
@@ -152,7 +152,7 @@ public class GeneralRequestService : IGeneralRequestService
                 : null,
 
             RecoverySlotsJson = dto.Category == RequestCategory.Recovery
-                ? JsonSerializer.Serialize(dto.RecoverySlots)
+                ? JsonSerializer.Serialize(normalizedRecoverySlots)
                 : null,
             Motif = dto.Category is RequestCategory.ExitAuthorization or RequestCategory.Recovery
                 ? dto.Motif!.Trim()
@@ -463,60 +463,88 @@ public class GeneralRequestService : IGeneralRequestService
             requestText.Length >= 10;
     }
 
-    private static bool ValidateRecovery(CreateGeneralRequestDto dto)
+    private static List<RecoverySlotDto> ValidateAndNormalizeRecovery(CreateGeneralRequestDto dto)
     {
         var motif = dto.Motif?.Trim();
         var recoveryPermutationType = dto.RecoveryPermutationType?.Trim();
         var recoveryNature = dto.RecoveryNature?.Trim();
 
         if (string.IsNullOrEmpty(motif) || motif.Length < 10)
-        {
-            return false;
-        }
+            throw new BadRequestException("Recovery motif is required and must contain at least 10 characters.");
 
         if (!string.Equals(recoveryPermutationType, RecoveryPermutationLeave, StringComparison.Ordinal) &&
             !string.Equals(recoveryPermutationType, RecoveryPermutationAuthorization, StringComparison.Ordinal))
-        {
-            return false;
-        }
+            throw new BadRequestException("Recovery permutation type is invalid.");
 
         if (recoveryPermutationType == RecoveryPermutationLeave && string.IsNullOrWhiteSpace(recoveryNature))
-        {
-            return false;
-        }
+            throw new BadRequestException("Recovery nature is required for leave recovery requests.");
 
         if (dto.RequiredRecoveryMinutes is null or <= 0)
-        {
-            return false;
-        }
+            throw new BadRequestException("Required recovery minutes must be greater than zero.");
 
-        var recoverySlots = dto.RecoverySlots ?? [];
-        var totalRecoveryMinutes = dto.TotalRecoveryMinutes ?? 0;
+        if (dto.TotalRecoveryMinutes is null or <= 0)
+            throw new BadRequestException("Recovery total minutes must be greater than zero.");
 
-        if (recoverySlots.Count == 0)
-        {
-            return totalRecoveryMinutes == 0;
-        }
+        if (dto.RecoverySlots == null || dto.RecoverySlots.Count == 0)
+            throw new BadRequestException("At least one recovery slot is required.");
 
+        var normalizedSlots = new List<RecoverySlotDto>(dto.RecoverySlots.Count);
+        var uniqueSlots = new HashSet<(DateTime Date, TimeSpan StartTime, TimeSpan EndTime)>();
         var calculatedTotalRecoveryMinutes = 0;
 
-        foreach (var slot in recoverySlots)
+        foreach (var slot in dto.RecoverySlots)
         {
-            if (slot.EndTime <= slot.StartTime)
-            {
-                return false;
-            }
+            if (!slot.Date.HasValue || slot.Date.Value == default)
+                throw new BadRequestException("Recovery slot date is required.");
 
-            var slotMinutes = (int)(slot.EndTime - slot.StartTime).TotalMinutes;
+            var slotDate = slot.Date.Value.Date;
 
-            if (slot.Minutes <= 0 || slot.Minutes != slotMinutes)
-            {
-                return false;
-            }
+            if (slotDate < DateTime.UtcNow.Date)
+                throw new BadRequestException("Recovery slot date cannot be in the past.");
+
+            if (!slot.StartTime.HasValue || !slot.EndTime.HasValue)
+                throw new BadRequestException("Recovery slot start and end times are required.");
+
+            var startTime = slot.StartTime.Value;
+            var endTime = slot.EndTime.Value;
+
+            if (startTime < TimeSpan.Zero || startTime >= TimeSpan.FromDays(1) ||
+                endTime <= TimeSpan.Zero || endTime > TimeSpan.FromDays(1))
+                throw new BadRequestException("Recovery slot start and end times are invalid.");
+
+            if (endTime <= startTime)
+                throw new BadRequestException("Recovery slot end time must be after start time.");
+
+            if (!uniqueSlots.Add((slotDate, startTime, endTime)))
+                throw new BadRequestException("Duplicate recovery slots are not allowed.");
+
+            var slotMinutes = (int)(endTime - startTime).TotalMinutes;
 
             calculatedTotalRecoveryMinutes += slotMinutes;
+
+            normalizedSlots.Add(new RecoverySlotDto
+            {
+                Date = slotDate,
+                StartTime = startTime,
+                EndTime = endTime,
+                Minutes = slotMinutes
+            });
         }
 
-        return totalRecoveryMinutes == calculatedTotalRecoveryMinutes;
+        foreach (var slotsForDate in normalizedSlots.GroupBy(slot => slot.Date!.Value.Date))
+        {
+            var orderedSlots = slotsForDate.OrderBy(slot => slot.StartTime!.Value).ToList();
+
+            for (var index = 1; index < orderedSlots.Count; index++)
+            {
+                if (orderedSlots[index].StartTime!.Value < orderedSlots[index - 1].EndTime!.Value)
+                    throw new BadRequestException("Recovery slots cannot overlap.");
+            }
+        }
+
+        if (calculatedTotalRecoveryMinutes != dto.TotalRecoveryMinutes.Value)
+            throw new BadRequestException("Recovery slot total must equal the requested recovery minutes.");
+
+        return normalizedSlots;
     }
 }

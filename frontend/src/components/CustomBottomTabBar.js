@@ -255,7 +255,7 @@ function AnimatedTabItem({
 export default function CustomBottomTabBar({ state, navigation }) {
   const { colors, typography, shadows, darkMode } = useTheme();
   const { channelUnreadCount } = useDepartmentChannel();
-  const { canReviewRequests } = useRoles();
+  const { isAdmin, canReviewRequests } = useRoles();
   const insets = useSafeAreaInsets();
 
   const [barWidth, setBarWidth] = useState(0);
@@ -290,13 +290,16 @@ export default function CustomBottomTabBar({ state, navigation }) {
         return false;
       }
 
-      if (route.name === "Approvals" && !canReviewRequests) {
+      if (
+        route.name === "Approvals" &&
+        (isAdmin || !canReviewRequests)
+      ) {
         return false;
       }
 
       return true;
     });
-  }, [state.routes, canReviewRequests]);
+  }, [state.routes, isAdmin, canReviewRequests]);
 
   const currentVisibleIndex = Math.max(
     0,

@@ -6,8 +6,14 @@ const unwrap = (res) => {
 };
 
 export const adminChatbotService = {
-  ask: async (question, history = []) => {
-    const res = await api.post("/admin/chatbot/ask", { question, history });
+  ask: async (question, history = [], filters = {}) => {
+    const res = await api.post("/admin/statistics/chat", {
+      message: question,
+      history,
+      from: filters.from,
+      to: filters.to,
+      departmentId: filters.departmentId,
+    });
     return unwrap(res);
   },
 };

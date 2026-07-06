@@ -105,7 +105,7 @@ public class RoomReservationsController : ControllerBase
     }
 
     [HttpPost("{id}/scan-start")]
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Manager")]
     public async Task<ActionResult<ApiResponse<object>>> ScanStart(
         [FromRoute] int id,
         [FromBody] ScanRoomDto dto)
@@ -129,7 +129,15 @@ public class RoomReservationsController : ControllerBase
                 )
             );
         }
-        catch (Exception ex)
+        catch (NotFoundException ex)
+        {
+            return NotFound(ApiResponse<object>.ErrorResponse(ex.Message));
+        }
+        catch (ForbiddenException ex)
+        {
+            return StatusCode(403, ApiResponse<object>.ErrorResponse(ex.Message));
+        }
+        catch (BadRequestException ex)
         {
             return BadRequest(
                 ApiResponse<object>.ErrorResponse(
@@ -165,7 +173,15 @@ public class RoomReservationsController : ControllerBase
                 )
             );
         }
-        catch (Exception ex)
+        catch (NotFoundException ex)
+        {
+            return NotFound(ApiResponse<object>.ErrorResponse(ex.Message));
+        }
+        catch (ForbiddenException ex)
+        {
+            return StatusCode(403, ApiResponse<object>.ErrorResponse(ex.Message));
+        }
+        catch (BadRequestException ex)
         {
             return BadRequest(
                 ApiResponse<object>.ErrorResponse(
@@ -205,6 +221,10 @@ public class RoomReservationsController : ControllerBase
                 )
             );
         }
+        catch (ForbiddenException ex)
+        {
+            return StatusCode(403, ApiResponse<object>.ErrorResponse(ex.Message));
+        }
         catch (ConflictException ex)
         {
             return Conflict(
@@ -215,15 +235,6 @@ public class RoomReservationsController : ControllerBase
             );
         }
         catch (BadRequestException ex)
-        {
-            return BadRequest(
-                ApiResponse<object>.ErrorResponse(
-                    "Failed to finish meeting.",
-                    new List<string> { ex.Message }
-                )
-            );
-        }
-        catch (Exception ex)
         {
             return BadRequest(
                 ApiResponse<object>.ErrorResponse(
@@ -254,7 +265,15 @@ public class RoomReservationsController : ControllerBase
                 )
             );
         }
-        catch (Exception ex)
+        catch (NotFoundException ex)
+        {
+            return NotFound(ApiResponse<object>.ErrorResponse(ex.Message));
+        }
+        catch (ForbiddenException ex)
+        {
+            return StatusCode(403, ApiResponse<object>.ErrorResponse(ex.Message));
+        }
+        catch (BadRequestException ex)
         {
             return BadRequest(
                 ApiResponse<object>.ErrorResponse(

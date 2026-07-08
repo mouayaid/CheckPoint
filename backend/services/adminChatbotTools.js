@@ -9,10 +9,9 @@ const REQUEST_STATUS = Object.freeze({
 });
 
 const RESERVATION_STATUS = Object.freeze({
-  pending: 0,
   active: 1,
+  cancelled: 2,
   completed: 3,
-  rejected: 4,
   inProgress: 5,
 });
 
@@ -166,24 +165,6 @@ async function getPendingRequests() {
     UNION ALL
 
     SELECT TOP (100)
-      'RoomReservation' AS requestType,
-      rr.Id AS requestId,
-      u.FullName AS requesterName,
-      u.Email AS requesterEmail,
-      d.Name AS departmentName,
-      r.Name AS category,
-      rr.Purpose AS title,
-      rr.CreatedAt AS createdAt,
-      'Pending' AS status
-    FROM RoomReservations rr
-    INNER JOIN Users u ON u.Id = rr.UserId
-    INNER JOIN Departments d ON d.Id = u.DepartmentId
-    INNER JOIN Rooms r ON r.Id = rr.RoomId
-    WHERE rr.Status = ${RESERVATION_STATUS.pending}
-
-    UNION ALL
-
-    SELECT TOP (100)
       'UserRegistration' AS requestType,
       u.Id AS requestId,
       u.FullName AS requesterName,
@@ -232,9 +213,10 @@ async function getRequestStats() {
 
       SELECT 'RoomReservation' AS requestType,
         CASE
-          WHEN Status = ${RESERVATION_STATUS.pending} THEN 'Pending'
-          WHEN Status IN (${RESERVATION_STATUS.active}, ${RESERVATION_STATUS.inProgress}, ${RESERVATION_STATUS.completed}) THEN 'Approved'
-          WHEN Status = ${RESERVATION_STATUS.rejected} THEN 'Rejected'
+          WHEN Status = ${RESERVATION_STATUS.active} THEN 'Active'
+          WHEN Status = ${RESERVATION_STATUS.inProgress} THEN 'InProgress'
+          WHEN Status = ${RESERVATION_STATUS.completed} THEN 'Completed'
+          WHEN Status = ${RESERVATION_STATUS.cancelled} THEN 'Cancelled'
           ELSE 'Other'
         END AS status
       FROM RoomReservations
@@ -307,25 +289,6 @@ async function getApprovedRequests() {
     UNION ALL
 
     SELECT TOP (100)
-      'RoomReservation' AS requestType,
-      rr.Id AS requestId,
-      u.FullName AS requesterName,
-      u.Email AS requesterEmail,
-      d.Name AS departmentName,
-      r.Name AS category,
-      rr.Purpose AS title,
-      rr.CreatedAt AS createdAt,
-      rr.ReviewedAt AS reviewedAt,
-      'Approved' AS status
-    FROM RoomReservations rr
-    INNER JOIN Users u ON u.Id = rr.UserId
-    INNER JOIN Departments d ON d.Id = u.DepartmentId
-    INNER JOIN Rooms r ON r.Id = rr.RoomId
-    WHERE rr.Status IN (${RESERVATION_STATUS.active}, ${RESERVATION_STATUS.inProgress}, ${RESERVATION_STATUS.completed})
-
-    UNION ALL
-
-    SELECT TOP (100)
       'UserRegistration' AS requestType,
       u.Id AS requestId,
       u.FullName AS requesterName,
@@ -382,25 +345,6 @@ async function getRejectedRequests() {
     INNER JOIN Users u ON u.Id = gr.UserId
     INNER JOIN Departments d ON d.Id = u.DepartmentId
     WHERE gr.Status = ${REQUEST_STATUS.rejected}
-
-    UNION ALL
-
-    SELECT TOP (100)
-      'RoomReservation' AS requestType,
-      rr.Id AS requestId,
-      u.FullName AS requesterName,
-      u.Email AS requesterEmail,
-      d.Name AS departmentName,
-      r.Name AS category,
-      rr.Purpose AS title,
-      rr.CreatedAt AS createdAt,
-      rr.ReviewedAt AS reviewedAt,
-      'Rejected' AS status
-    FROM RoomReservations rr
-    INNER JOIN Users u ON u.Id = rr.UserId
-    INNER JOIN Departments d ON d.Id = u.DepartmentId
-    INNER JOIN Rooms r ON r.Id = rr.RoomId
-    WHERE rr.Status = ${RESERVATION_STATUS.rejected}
 
     UNION ALL
 

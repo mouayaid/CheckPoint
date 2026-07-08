@@ -1,6 +1,5 @@
 using AutoMapper;
 using Microsoft.EntityFrameworkCore;
-using System.Data;
 using PFE.Application.DTOs.Room;
 using PFE.Domain.Entities;
 using PFE.Application.Abstractions;
@@ -139,100 +138,16 @@ public class RoomService : IRoomService
 
     // ===== Extra room reservation methods you already use elsewhere =====
 
-    public async Task<List<RoomReservationDto>> GetAvailableTimeSlotsAsync(int roomId, DateTime date)
-    {
-        var startOfDay = date.Date;
-        var endOfDay = startOfDay.AddDays(1);
-
-        var roomExists = await _context.Rooms
-            .AnyAsync(r => r.Id == roomId && r.IsActive);
-
-        if (!roomExists)
-            throw new NotFoundException($"Room with id {roomId} not found.");
-
-        var reservations = await _context.RoomReservations
-            .Include(r => r.User)
-            .Include(r => r.Room)
-            .Where(r => r.RoomId == roomId &&
-                        (((r.Status == ReservationStatus.Pending ||
-                           r.Status == ReservationStatus.Active) &&
-                          r.StartDateTime < endOfDay &&
-                          r.EndDateTime > startOfDay) ||
-                         (r.Status == ReservationStatus.InProgress &&
-                          (r.StartedAt ?? r.StartDateTime) < endOfDay)))
-            .ToListAsync();
-
-        return _mapper.Map<List<RoomReservationDto>>(reservations);
-    }
-
-    public async Task<RoomReservationDto?> CreateReservationAsync(int userId, CreateRoomReservationDto dto)
-    {
-        await using var transaction = await _context.Database.BeginTransactionAsync(
-            IsolationLevel.Serializable);
-
-        var actorRole = await GetActorRoleAsync(userId);
-        if (actorRole != "Manager")
-            throw new ForbiddenException("Only managers can create room reservations.");
-
-        var room = await _context.Rooms.FindAsync(dto.RoomId);
-        if (room == null || !room.IsActive)
-        {
-            return null;
-        }
-
-        if (dto.EndDateTime <= dto.StartDateTime)
-            return null;
-
-        if (dto.StartDateTime <= DateTime.UtcNow)
-            throw new BadRequestException("Reservation start time must be in the future.");
-
-        var overlapping = await _context.RoomReservations
-            .AnyAsync(r => r.RoomId == dto.RoomId &&
-                          (((r.Status == ReservationStatus.Pending ||
-                             r.Status == ReservationStatus.Active) &&
-                            r.StartDateTime < dto.EndDateTime &&
-                            r.EndDateTime > dto.StartDateTime) ||
-                           (r.Status == ReservationStatus.InProgress &&
-                            (r.StartedAt ?? r.StartDateTime) < dto.EndDateTime)));
-
-        if (overlapping)
-        {
-            return null;
-        }
-
-        var reservation = new RoomReservation
-        {
-            UserId = userId,
-            RoomId = dto.RoomId,
-            StartDateTime = dto.StartDateTime,
-            EndDateTime = dto.EndDateTime,
-            Purpose = dto.Purpose,
-            Status = ReservationStatus.Active,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        _context.RoomReservations.Add(reservation);
-        await _context.SaveChangesAsync();
-        await transaction.CommitAsync();
-
-        var reservationDto = await _context.RoomReservations
-            .Include(r => r.User)
-            .Include(r => r.Room)
-            .FirstOrDefaultAsync(r => r.Id == reservation.Id);
-
-        return _mapper.Map<RoomReservationDto>(reservationDto);
-    }
-
     public async Task<List<RoomReservationDto>> GetUserReservationsAsync(int userId)
     {
         var reservations = await _context.RoomReservations
             .Include(r => r.User)
             .Include(r => r.Room)
             .Where(r => r.UserId == userId &&
-                        (r.Status == ReservationStatus.Pending ||
-                         r.Status == ReservationStatus.Active ||
+                        (r.Status == ReservationStatus.Active ||
                          r.Status == ReservationStatus.InProgress ||
-                         r.Status == ReservationStatus.Completed))
+                         r.Status == ReservationStatus.Completed ||
+                         r.Status == ReservationStatus.Cancelled))
             .OrderByDescending(r => r.StartDateTime)
             .ToListAsync();
 
@@ -251,9 +166,8 @@ public class RoomService : IRoomService
         if (reservation == null)
             throw new NotFoundException("Reservation not found.");
 
-        if (reservation.Status != ReservationStatus.Pending &&
-            reservation.Status != ReservationStatus.Active)
-            throw new ConflictException("Only pending or active reservations can be cancelled.");
+        if (reservation.Status != ReservationStatus.Active)
+            throw new ConflictException("Only an active reservation can be cancelled.");
 
         reservation.Status = ReservationStatus.Cancelled;
 

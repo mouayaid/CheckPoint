@@ -12,12 +12,6 @@ public class RoomReservation
     public int UserId { get; set; }
     public User User { get; set; } = null!;
 
-    public int? ManagerId { get; set; }
-    public User? Manager { get; set; }
-
-    public string? ManagerComment { get; set; }
-    public DateTime? ReviewedAt { get; set; }
-
     public DateTime StartDateTime { get; set; }
     public DateTime EndDateTime { get; set; }
     public string Purpose { get; set; } = string.Empty;

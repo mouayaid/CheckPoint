@@ -35,6 +35,7 @@ import { leaveService, profileService } from "../services/api";
 import {
   roleToString,
   requestStatusToString,
+  formatDate,
   leaveTypeToInt,
   leaveTypeToString,
 } from "../utils/helpers";
@@ -494,8 +495,8 @@ export default function LeaveRequestScreen() {
     try {
       const payload = {
         type: leaveTypeToInt(type),
-        startDate: startDate.toISOString(),
-        endDate: isHalfDay ? startDate.toISOString() : endDate.toISOString(),
+        startDate: formatDate(startDate),
+        endDate: isHalfDay ? formatDate(startDate) : formatDate(endDate),
         reason: trimmedReason,
       };
 

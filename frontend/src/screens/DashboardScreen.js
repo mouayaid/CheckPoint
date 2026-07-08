@@ -61,7 +61,53 @@ const getRoleFlags = (role) => {
   };
 };
 
-const formatDateForApi = (date) => date.toISOString().split("T")[0];
+const TUNISIA_TIME_ZONE = "Africa/Tunis";
+
+const getTunisiaParts = (date) => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TUNISIA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  return Object.fromEntries(
+    parts
+      .filter(({ type }) => type !== "literal")
+      .map(({ type, value }) => [type, Number(value)]),
+  );
+};
+
+const parseApiInstant = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const hasOffset = /(?:z|[+-]\d{2}:?\d{2})$/i.test(value);
+    return new Date(hasOffset ? value : `${value}Z`);
+  }
+  return new Date(value);
+};
+
+const formatTunisiaDateKey = (date) => {
+  const parts = getTunisiaParts(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(
+    parts.day,
+  ).padStart(2, "0")}`;
+};
+
+const addDaysToDateKey = (dateKey, days) => {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const value = new Date(year, month - 1, day);
+  value.setDate(value.getDate() + days);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(
+    2,
+    "0",
+  )}-${String(value.getDate()).padStart(2, "0")}`;
+};
 
 const getEventId = (event, index) => event?.id ?? event?.Id ?? `event-${index}`;
 
@@ -90,7 +136,7 @@ const getEventStartTime = (event) => {
   const raw = getEventStartValue(event);
   if (!raw) return 0;
 
-  const timestamp = new Date(raw).getTime();
+  const timestamp = parseApiInstant(raw).getTime();
   return Number.isNaN(timestamp) ? 0 : timestamp;
 };
 
@@ -98,27 +144,209 @@ const getEventEndTime = (event) => {
   const raw = getEventEndValue(event);
   if (!raw) return getEventStartTime(event);
 
-  const timestamp = new Date(raw).getTime();
+  const timestamp = parseApiInstant(raw).getTime();
   return Number.isNaN(timestamp) ? getEventStartTime(event) : timestamp;
+};
+
+const EVENT_TYPE_CONFIGS = {
+  1: {
+    label: "Réunion",
+    icon: "people-outline",
+    color: "#3B82F6",
+    aliases: ["meeting", "réunion", "reunion"],
+  },
+  2: {
+    label: "Formation",
+    icon: "school-outline",
+    color: "#10B981",
+    aliases: ["training", "formation"],
+  },
+  3: {
+    label: "Atelier",
+    icon: "construct-outline",
+    color: "#F59E0B",
+    aliases: ["workshop", "atelier"],
+  },
+  4: {
+    label: "Conférence",
+    icon: "mic-outline",
+    color: "#8B5CF6",
+    aliases: ["conference", "conférence"],
+  },
+  5: {
+    label: "Social",
+    icon: "happy-outline",
+    color: "#EC4899",
+    aliases: ["social"],
+  },
+  6: {
+    label: "Annonce",
+    icon: "megaphone-outline",
+    color: "#6B7280",
+    aliases: ["announcement", "annonce"],
+  },
+  7: {
+    label: "Autre",
+    icon: "calendar-outline",
+    color: "#9CA3AF",
+    aliases: ["other", "autre"],
+  },
+};
+
+const getEventTypeValue = (event) => {
+  const rawType =
+    event?.type ?? event?.Type ?? event?.eventType ?? event?.EventType;
+
+  if (typeof rawType === "number" && EVENT_TYPE_CONFIGS[rawType]) {
+    return rawType;
+  }
+
+  if (typeof rawType === "string") {
+    const numericType = Number(rawType);
+    if (EVENT_TYPE_CONFIGS[numericType]) return numericType;
+
+    const normalized = rawType.trim().toLowerCase();
+    const match = Object.entries(EVENT_TYPE_CONFIGS).find(([, config]) =>
+      config.aliases.includes(normalized),
+    );
+
+    if (match) return Number(match[0]);
+  }
+
+  return 7;
+};
+
+const getEventTypeConfig = (event) =>
+  EVENT_TYPE_CONFIGS[getEventTypeValue(event)] ?? EVENT_TYPE_CONFIGS[7];
+
+const getEventBool = (event, camelKey, pascalKey, fallback = false) => {
+  const value = event?.[camelKey] ?? event?.[pascalKey] ?? fallback;
+
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.trim().toLowerCase() === "true";
+
+  return Boolean(value);
+};
+
+const isEventMandatory = (event) =>
+  getEventBool(event, "isMandatory", "IsMandatory", false);
+
+const isEventRsvpEnabled = (event) => {
+  if (isEventMandatory(event)) return false;
+  return getEventBool(event, "rsvpEnabled", "RSVPEnabled", false);
+};
+
+const canRespondToEventRsvp = (event) =>
+  isEventRsvpEnabled(event) && getEventStartTime(event) > Date.now();
+
+const normalizeRsvpStatus = (status) => {
+  if (status == null) return null;
+
+  if (typeof status === "number") {
+    if (status === 2) return "Going";
+    if (status === 3) return "NotGoing";
+    if (status === 4) return "Maybe";
+    return null;
+  }
+
+  const normalized = String(status)
+    .trim()
+    .replace(/[_\s-]/g, "")
+    .toLowerCase();
+
+  if (["going", "accepted", "accept", "participera"].includes(normalized)) {
+    return "Going";
+  }
+
+  if (
+    ["notgoing", "declined", "decline", "neparticiperapas"].includes(normalized)
+  ) {
+    return "NotGoing";
+  }
+
+  if (["maybe", "peutetre", "peutêtre"].includes(normalized)) {
+    return "Maybe";
+  }
+
+  return null;
+};
+
+const getCurrentUserRsvpStatus = (event) =>
+  normalizeRsvpStatus(
+    event?.currentUserRsvpStatus ??
+      event?.CurrentUserRsvpStatus ??
+      event?.currentUserRSVPStatus ??
+      event?.CurrentUserRSVPStatus,
+  );
+
+const RSVP_STATUS_VALUES = {
+  Going: 2,
+  NotGoing: 3,
+};
+
+const getRsvpStatusValue = (status) => {
+  if (typeof status === "number") return status;
+
+  const normalized = normalizeRsvpStatus(status);
+  return normalized ? RSVP_STATUS_VALUES[normalized] : null;
+};
+
+const getEventCount = (event, camelKey, pascalKey) => {
+  const raw = event?.[camelKey] ?? event?.[pascalKey] ?? 0;
+  const count = Number(raw);
+  return Number.isNaN(count) ? 0 : count;
+};
+
+const applyRsvpStatusToEvent = (event, nextStatus) => {
+  const previousStatus = getCurrentUserRsvpStatus(event);
+  const normalizedNext = normalizeRsvpStatus(nextStatus);
+
+  const counts = {
+    Going: getEventCount(event, "goingCount", "GoingCount"),
+    NotGoing: getEventCount(event, "notGoingCount", "NotGoingCount"),
+    Maybe: getEventCount(event, "maybeCount", "MaybeCount"),
+  };
+
+  if (previousStatus && counts[previousStatus] > 0) {
+    counts[previousStatus] -= 1;
+  }
+
+  if (normalizedNext) {
+    counts[normalizedNext] += 1;
+  }
+
+  return {
+    ...event,
+    currentUserRsvpStatus: normalizedNext,
+    CurrentUserRsvpStatus: normalizedNext,
+    goingCount: counts.Going,
+    GoingCount: counts.Going,
+    notGoingCount: counts.NotGoing,
+    NotGoingCount: counts.NotGoing,
+    maybeCount: counts.Maybe,
+    MaybeCount: counts.Maybe,
+  };
 };
 
 const formatEventDateTime = (event) => {
   const startRaw = getEventStartValue(event);
   if (!startRaw) return "Date à confirmer";
 
-  const start = new Date(startRaw);
+  const start = parseApiInstant(startRaw);
   if (Number.isNaN(start.getTime())) return "Date à confirmer";
 
   const endRaw = getEventEndValue(event);
-  const end = endRaw ? new Date(endRaw) : null;
+  const end = endRaw ? parseApiInstant(endRaw) : null;
 
   const datePart = start.toLocaleDateString("fr-FR", {
+    timeZone: TUNISIA_TIME_ZONE,
     weekday: "short",
     day: "numeric",
     month: "short",
   });
 
   const startTime = start.toLocaleTimeString("fr-FR", {
+    timeZone: TUNISIA_TIME_ZONE,
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -126,32 +354,15 @@ const formatEventDateTime = (event) => {
   const endTime =
     end && !Number.isNaN(end.getTime())
       ? end.toLocaleTimeString("fr-FR", {
+          timeZone: TUNISIA_TIME_ZONE,
           hour: "2-digit",
           minute: "2-digit",
         })
       : null;
 
-  return endTime ? `${datePart} · ${startTime} - ${endTime}` : `${datePart} · ${startTime}`;
-};
-
-const isEventImportant = (event) => {
-  const isImportant = event?.isImportant ?? event?.IsImportant ?? false;
-  if (isImportant === true) return true;
-  if (typeof isImportant === "string") {
-    return ["true", "important", "urgent", "high"].includes(
-      isImportant.trim().toLowerCase(),
-    );
-  }
-
-  const priority = event?.priority ?? event?.Priority;
-  if (typeof priority === "number") return priority > 0;
-  if (typeof priority === "string") {
-    return ["important", "urgent", "high", "haute", "elevee", "élevée"].includes(
-      priority.trim().toLowerCase(),
-    );
-  }
-
-  return event?.isMandatory === true || event?.IsMandatory === true;
+  return endTime
+    ? `${datePart} · ${startTime} - ${endTime}`
+    : `${datePart} · ${startTime}`;
 };
 
 const sortEventsNearestFirst = (events) =>
@@ -233,6 +444,11 @@ const buildAttendanceSummary = (monthCheckIns, currentYear, currentMonth) => {
     const dateObj = new Date(year, monthIndex, day);
     if (dateObj > today) continue;
 
+    const dayOfWeek = dateObj.getDay();
+    const isWorkDay = dayOfWeek >= 1 && dayOfWeek <= 5;
+
+    if (!isWorkDay) continue;
+
     const dateStr = `${year}-${String(currentMonth).padStart(2, "0")}-${String(
       day,
     ).padStart(2, "0")}`;
@@ -247,38 +463,41 @@ const buildAttendanceSummary = (monthCheckIns, currentYear, currentMonth) => {
   }
 
   const recentDays = [];
-  for (let offset = 6; offset >= 0; offset--) {
-    const d = new Date();
-    d.setDate(today.getDate() - offset);
+  const cursor = new Date(today);
 
-    const isSameMonth = d.getFullYear() === year && d.getMonth() === monthIndex;
+  while (recentDays.length < 5) {
+    const dayOfWeek = cursor.getDay();
+    const isWorkDay = dayOfWeek >= 1 && dayOfWeek <= 5;
 
-    if (!isSameMonth) {
-      recentDays.push({
-        key: `outside-${offset}`,
-        label: "",
-        type: "empty",
-      });
-      continue;
+    if (isWorkDay) {
+      const isSameMonth =
+        cursor.getFullYear() === year && cursor.getMonth() === monthIndex;
+
+      if (isSameMonth) {
+        const dateStr = `${cursor.getFullYear()}-${String(
+          cursor.getMonth() + 1,
+        ).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
+
+        const entry = checkInMap[dateStr];
+        const isToday = cursor.toDateString() === today.toDateString();
+
+        let type = "today";
+
+        if (isCheckedInEntry(entry)) {
+          type = "checked";
+        } else if (!isToday) {
+          type = "missed";
+        }
+
+        recentDays.unshift({
+          key: dateStr,
+          label: String(cursor.getDate()),
+          type,
+        });
+      }
     }
 
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
-      2,
-      "0",
-    )}-${String(d.getDate()).padStart(2, "0")}`;
-
-    const entry = checkInMap[dateStr];
-    const isToday = d.toDateString() === today.toDateString();
-
-    let type = "today";
-    if (isCheckedInEntry(entry)) type = "checked";
-    else if (!isToday) type = "missed";
-
-    recentDays.push({
-      key: dateStr,
-      label: String(d.getDate()),
-      type,
-    });
+    cursor.setDate(cursor.getDate() - 1);
   }
 
   const todayStr = `${today.getFullYear()}-${String(
@@ -296,7 +515,7 @@ const buildAttendanceSummary = (monthCheckIns, currentYear, currentMonth) => {
 const getGreeting = () => {
   const hour = new Date().getHours();
 
-  if (hour < 12) return { greeting: "Bonjour", emoji: "🌅" };
+  if (hour < 12) return { greeting: "Bonjour", emoji: "👋" };
   if (hour < 18) return { greeting: "Bon après-midi", emoji: "👋" };
 
   return { greeting: "Bonsoir", emoji: "🌙" };
@@ -335,9 +554,14 @@ const isAnnouncementImportant = (announcement) => {
   const priority = announcement?.priority ?? announcement?.Priority;
   if (typeof priority === "number") return priority > 0;
   if (typeof priority === "string") {
-    return ["important", "urgent", "high", "haute", "elevee", "élevée"].includes(
-      priority.trim().toLowerCase(),
-    );
+    return [
+      "important",
+      "urgent",
+      "high",
+      "haute",
+      "elevee",
+      "élevée",
+    ].includes(priority.trim().toLowerCase());
   }
 
   return false;
@@ -347,7 +571,7 @@ const getAnnouncementTime = (announcement) => {
   const raw = getAnnouncementDateValue(announcement);
   if (!raw) return 0;
 
-  const timestamp = new Date(raw).getTime();
+  const timestamp = parseApiInstant(raw).getTime();
   return Number.isNaN(timestamp) ? 0 : timestamp;
 };
 
@@ -355,10 +579,11 @@ const formatAnnouncementDate = (announcement) => {
   const raw = getAnnouncementDateValue(announcement);
   if (!raw) return null;
 
-  const date = new Date(raw);
+  const date = parseApiInstant(raw);
   if (Number.isNaN(date.getTime())) return null;
 
   return date.toLocaleDateString("fr-FR", {
+    timeZone: TUNISIA_TIME_ZONE,
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -441,18 +666,49 @@ const AdminShortcutCard = ({
   title,
   subtitle,
   onPress,
+  fullWidth = false,
+  horizontal = false,
   styles,
   colors,
 }) => {
   return (
-    <Pressable style={styles.adminShortcutCard} onPress={onPress}>
+    <Pressable
+      style={[
+        styles.adminShortcutCard,
+        fullWidth && styles.adminShortcutCardFullWidth,
+        horizontal && styles.adminShortcutCardHorizontal,
+      ]}
+      onPress={onPress}
+    >
       <View style={styles.adminShortcutIcon}>
         <Ionicons name={icon} size={21} color={colors.primary} />
       </View>
-      <Text style={styles.adminShortcutTitle}>{title}</Text>
-      {subtitle ? (
-        <Text style={styles.adminShortcutSubtitle}>{subtitle}</Text>
-      ) : null}
+
+      {horizontal ? (
+        <>
+          <View style={styles.adminShortcutHorizontalContent}>
+            <Text style={styles.adminShortcutTitle}>{title}</Text>
+
+            {subtitle ? (
+              <Text style={styles.adminShortcutSubtitle}>{subtitle}</Text>
+            ) : null}
+          </View>
+
+          <Ionicons
+            name="chevron-forward"
+            size={22}
+            color={colors.textSecondary}
+          />
+        </>
+      ) : (
+        <>
+          <Text style={styles.adminShortcutTitle}>{title}</Text>
+
+          {subtitle ? (
+            <Text style={styles.adminShortcutSubtitle}>{subtitle}</Text>
+          ) : null}
+        </>
+      )}
     </Pressable>
   );
 };
@@ -480,6 +736,8 @@ const DashboardScreen = () => {
   const [loadingEvent, setLoadingEvent] = useState(true);
   const [eventsError, setEventsError] = useState("");
   const [eventsExpanded, setEventsExpanded] = useState(true);
+  const [rsvpSubmittingByEvent, setRsvpSubmittingByEvent] = useState({});
+  const [rsvpErrorByEvent, setRsvpErrorByEvent] = useState({});
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -511,7 +769,7 @@ const DashboardScreen = () => {
   const goToPendingRequests = useCallback(() => {
     navigation.navigate("HomeTabs", {
       screen: "Approvals",
-      params: { mainFilter: "Demandes" },
+      params: { mainFilter: "Toutes" },
     });
   }, [navigation]);
 
@@ -527,17 +785,13 @@ const DashboardScreen = () => {
 
     try {
       setEventsError("");
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const todayKey = formatTunisiaDateKey(new Date());
 
       const result = [];
 
       for (let i = 0; i < 30; i++) {
-        const checkDate = new Date(today);
-        checkDate.setDate(today.getDate() + i);
-
         const response = await eventService.getEventsByDate(
-          formatDateForApi(checkDate),
+          addDaysToDateKey(todayKey, i),
         );
 
         const events = getResponseData(response);
@@ -562,7 +816,9 @@ const DashboardScreen = () => {
         uniqueEvents.push(event);
       }
 
-      const upcoming = sortEventsNearestFirst(filterUpcomingEvents(uniqueEvents));
+      const upcoming = sortEventsNearestFirst(
+        filterUpcomingEvents(uniqueEvents),
+      );
 
       if (__DEV__) {
         console.log("DASHBOARD EVENTS SUMMARY:", {
@@ -585,6 +841,71 @@ const DashboardScreen = () => {
       setUpcomingEvents([]);
     } finally {
       setLoadingEvent(false);
+    }
+  }, []);
+
+  const submitEventRsvp = useCallback(async (event, status, index) => {
+    const eventId = event?.id ?? event?.Id;
+    const eventKey = String(getEventId(event, index));
+
+    if (eventId == null) {
+      setRsvpErrorByEvent((prev) => ({
+        ...prev,
+        [eventKey]: "Impossible d'envoyer la réponse : événement introuvable.",
+      }));
+      return;
+    }
+
+    const numericStatus = getRsvpStatusValue(status);
+
+    if (numericStatus == null) {
+      setRsvpErrorByEvent((prev) => ({
+        ...prev,
+        [eventKey]: "Impossible d'enregistrer votre réponse.",
+      }));
+      return;
+    }
+
+    setRsvpSubmittingByEvent((prev) => ({ ...prev, [eventKey]: status }));
+    setRsvpErrorByEvent((prev) => ({ ...prev, [eventKey]: "" }));
+
+    try {
+      await eventService.rsvpEvent(eventId, numericStatus);
+
+      setUpcomingEvents((prev) =>
+        prev.map((item, itemIndex) => {
+          const itemId = item?.id ?? item?.Id;
+          const sameItem =
+            itemId != null
+              ? String(itemId) === String(eventId)
+              : getEventId(item, itemIndex) === getEventId(event, index);
+
+          return sameItem ? applyRsvpStatusToEvent(item, status) : item;
+        }),
+      );
+    } catch (error) {
+      if (__DEV__) {
+        console.log("Dashboard RSVP error", {
+          eventId,
+          status,
+          numericStatus,
+          message: error?.message,
+          statusCode: error?.status ?? error?.response?.status,
+          data: error?.data ?? error?.response?.data,
+          url: error?.url ?? error?.config?.url,
+          baseURL: error?.baseURL ?? error?.config?.baseURL,
+        });
+      }
+
+      setRsvpErrorByEvent((prev) => ({
+        ...prev,
+        [eventKey]: "Impossible d'enregistrer votre réponse.",
+      }));
+    } finally {
+      setRsvpSubmittingByEvent((prev) => ({
+        ...prev,
+        [eventKey]: null,
+      }));
     }
   }, []);
 
@@ -743,12 +1064,11 @@ const DashboardScreen = () => {
   }, [currentYear, currentMonth]);
 
   const loadDashboardData = useCallback(async () => {
-    const adminCalls = [
-      fetchPendingRequests(),
-      fetchPendingUserApprovals(),
-    ];
+    const sharedCalls = [fetchUpcomingEvents()];
 
-    const employeeCalls = [fetchUpcomingEvents()];
+    const adminCalls = [fetchPendingRequests(), fetchPendingUserApprovals()];
+
+    const employeeCalls = [];
 
     if (!isAdmin) {
       employeeCalls.push(
@@ -759,9 +1079,9 @@ const DashboardScreen = () => {
       );
     }
 
-    await Promise.all([...adminCalls, ...employeeCalls]);
+    await Promise.all([...sharedCalls, ...adminCalls, ...employeeCalls]);
   }, [
-    showEmployeeDashboard,
+    isAdmin,
     fetchMyReservation,
     fetchLeaveBalance,
     fetchUpcomingEvents,
@@ -1086,8 +1406,8 @@ const DashboardScreen = () => {
 
                   {noLeaveDaysLeft && (
                     <Text style={styles.balanceWarning}>
-                      Vous n&apos;avez plus de jours de congé disponibles.
-                      Les autres types de demandes restent accessibles.
+                      Vous n&apos;avez plus de jours de congé disponibles. Les
+                      autres types de demandes restent accessibles.
                     </Text>
                   )}
 
@@ -1182,9 +1502,7 @@ const DashboardScreen = () => {
                 </View>
 
                 <Ionicons
-                  name={
-                    announcementsExpanded ? "chevron-up" : "chevron-down"
-                  }
+                  name={announcementsExpanded ? "chevron-up" : "chevron-down"}
                   size={22}
                   color={colors.textSecondary}
                 />
@@ -1329,16 +1647,10 @@ const DashboardScreen = () => {
               <AdminShortcutCard
                 icon="calendar-outline"
                 title="Événements"
-                subtitle="Calendrier"
+                subtitle="Gérer le calendrier"
                 onPress={() => navigation.navigate("EventManagement")}
-                styles={styles}
-                colors={colors}
-              />
-              <AdminShortcutCard
-                icon="megaphone-outline"
-                title="Annonces"
-                subtitle="Communication"
-                onPress={() => navigation.navigate("ManageAnnouncements")}
+                fullWidth
+                horizontal
                 styles={styles}
                 colors={colors}
               />
@@ -1346,149 +1658,291 @@ const DashboardScreen = () => {
           </>
         )}
 
-        {!isAdmin && canReviewLeave && (
-          <>
-            <SectionHeader title="Administration" styles={styles} />
+        {!isAdmin ? (
+          <Card style={styles.card}>
+            <Pressable
+              style={styles.eventSectionHeader}
+              onPress={() => setEventsExpanded((isExpanded) => !isExpanded)}
+              accessibilityRole="button"
+            >
+              <View style={styles.eventHeaderTitleWrap}>
+                <View
+                  style={[
+                    styles.cardHeaderIconWrap,
+                    {
+                      backgroundColor:
+                        colors.primaryLight ?? `${colors.primary}18`,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="calendar-clear-outline"
+                    size={18}
+                    color={colors.primary}
+                  />
+                </View>
 
-            <View style={styles.adminRow}>
-              <AdminPendingCard
-                label="Demandes en attente"
-                count={pendingRequestCount}
-                loading={loadingPendingRequests}
-                badgeText="À valider"
-                onPress={goToPendingRequests}
-                styles={styles}
-                colors={colors}
-              />
-            </View>
-          </>
-        )}
-
-        <Card style={styles.card}>
-          <Pressable
-            style={styles.eventSectionHeader}
-            onPress={() => setEventsExpanded((isExpanded) => !isExpanded)}
-            accessibilityRole="button"
-          >
-            <View style={styles.eventHeaderTitleWrap}>
-              <View
-                style={[
-                  styles.cardHeaderIconWrap,
-                  {
-                    backgroundColor:
-                      colors.primaryLight ?? `${colors.primary}18`,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="calendar-clear-outline"
-                  size={18}
-                  color={colors.primary}
-                />
-              </View>
-
-              <Text style={styles.eventSectionTitle}>
-                Prochains événements ({upcomingEvents.length})
-              </Text>
-            </View>
-
-            <Ionicons
-              name={eventsExpanded ? "chevron-up" : "chevron-down"}
-              size={22}
-              color={colors.textSecondary}
-            />
-          </Pressable>
-
-          {eventsExpanded ? (
-            loadingEvent ? (
-              <View style={styles.inlineLoader}>
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.loaderText}>Chargement du calendrier…</Text>
-              </View>
-            ) : eventsError ? (
-              <Text style={styles.cardBody}>{eventsError}</Text>
-            ) : upcomingEvents?.length > 0 ? (
-              <View style={styles.eventList}>
-                {(isAdmin ? upcomingEvents.slice(0, 3) : upcomingEvents).map(
-                  (event, index) => {
-                  const imageUrl = getEventImage(event);
-                  const location = getEventLocation(event);
-                  const description = getEventDescription(event);
-                  const important = isEventImportant(event);
-
-                  return (
-                    <View
-                      key={getEventId(event, index)}
-                      style={styles.eventItem}
-                    >
-                      {imageUrl ? (
-                        <Image source={{ uri: imageUrl }} style={styles.eventImage} />
-                      ) : null}
-
-                      <View style={styles.eventMetaRow}>
-                        {important ? (
-                          <View style={styles.eventBadge}>
-                            <Text style={styles.eventBadgeText}>Important</Text>
-                          </View>
-                        ) : null}
-
-                        <Text style={styles.eventDateText}>
-                          {formatEventDateTime(event)}
-                        </Text>
-                      </View>
-
-                      <Text style={styles.eventTitle} numberOfLines={2}>
-                        {getEventTitle(event)}
-                      </Text>
-
-                      {location ? (
-                        <View style={styles.eventLocationRow}>
-                          <Ionicons
-                            name="location-outline"
-                            size={14}
-                            color={colors.textSecondary}
-                          />
-                          <Text style={styles.eventLocationText} numberOfLines={1}>
-                            {location}
-                          </Text>
-                        </View>
-                      ) : null}
-
-                      {description ? (
-                        <Text style={styles.eventDescription} numberOfLines={3}>
-                          {truncateAnnouncement(description, 136)}
-                        </Text>
-                      ) : null}
-                    </View>
-                  );
-                  },
-                )}
-                {isAdmin ? (
-                  <Pressable
-                    style={styles.adminEventsLink}
-                    onPress={() => navigation.navigate("EventManagement")}
-                  >
-                    <Text style={styles.adminEventsLinkText}>
-                      Gérer les événements
-                    </Text>
-                    <Ionicons
-                      name="arrow-forward"
-                      size={16}
-                      color={colors.primary}
-                    />
-                  </Pressable>
-                ) : null}
-              </View>
-            ) : (
-              <>
-                <Text style={styles.cardEmptyTitle}>Aucun événement prévu</Text>
-                <Text style={styles.cardBody}>
-                  Rien dans les 30 prochains jours.
+                <Text style={styles.eventSectionTitle}>
+                  Prochains événements ({upcomingEvents.length})
                 </Text>
-              </>
-            )
-          ) : null}
-        </Card>
+              </View>
+
+              <Ionicons
+                name={eventsExpanded ? "chevron-up" : "chevron-down"}
+                size={22}
+                color={colors.textSecondary}
+              />
+            </Pressable>
+
+            {eventsExpanded ? (
+              loadingEvent ? (
+                <View style={styles.inlineLoader}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                  <Text style={styles.loaderText}>
+                    Chargement du calendrier…
+                  </Text>
+                </View>
+              ) : eventsError ? (
+                <Text style={styles.cardBody}>{eventsError}</Text>
+              ) : upcomingEvents?.length > 0 ? (
+                <View style={styles.eventList}>
+                  {upcomingEvents.map((event, index) => {
+                    const imageUrl = getEventImage(event);
+                    const location = getEventLocation(event);
+                    const description = getEventDescription(event);
+                    const eventKey = String(getEventId(event, index));
+                    const mandatory = isEventMandatory(event);
+                    const rsvpEnabled = isEventRsvpEnabled(event);
+                    const eventType = getEventTypeConfig(event);
+                    const attendanceLabel = mandatory
+                      ? "Obligatoire"
+                      : rsvpEnabled
+                        ? "RSVP"
+                        : null;
+                    const canRespond = canRespondToEventRsvp(event);
+                    const currentRsvpStatus = getCurrentUserRsvpStatus(event);
+                    const submittingStatus = rsvpSubmittingByEvent[eventKey];
+                    const rsvpError = rsvpErrorByEvent[eventKey];
+
+                    return (
+                      <View key={eventKey} style={styles.eventItem}>
+                        <View
+                          style={[
+                            styles.eventAccent,
+                            { backgroundColor: eventType.color },
+                          ]}
+                        />
+
+                        <View style={styles.eventContent}>
+                          {imageUrl ? (
+                            <Image
+                              source={{ uri: imageUrl }}
+                              style={styles.eventImage}
+                            />
+                          ) : null}
+
+                          <View style={styles.eventTitleRow}>
+                            <Text style={styles.eventTitle} numberOfLines={2}>
+                              {getEventTitle(event)}
+                            </Text>
+
+                            {attendanceLabel ? (
+                              <View
+                                style={[
+                                  styles.eventAttendancePill,
+                                  mandatory
+                                    ? styles.eventMandatoryPill
+                                    : {
+                                        backgroundColor: `${eventType.color}18`,
+                                        borderColor: `${eventType.color}55`,
+                                      },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.eventAttendancePillText,
+                                    mandatory
+                                      ? styles.eventMandatoryPillText
+                                      : { color: eventType.color },
+                                  ]}
+                                >
+                                  {attendanceLabel}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+
+                          <View style={styles.eventTypeRow}>
+                            <View
+                              style={[
+                                styles.eventTypeIcon,
+                                { backgroundColor: `${eventType.color}18` },
+                              ]}
+                            >
+                              <Ionicons
+                                name={eventType.icon}
+                                size={15}
+                                color={eventType.color}
+                              />
+                            </View>
+
+                            <Text
+                              style={[
+                                styles.eventTypeText,
+                                { color: eventType.color },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {eventType.label}
+                            </Text>
+                          </View>
+
+                          <View style={styles.eventDateRow}>
+                            <Ionicons
+                              name="calendar-outline"
+                              size={13}
+                              color={colors.textSecondary}
+                            />
+                            <Text
+                              style={styles.eventDateText}
+                              numberOfLines={1}
+                            >
+                              {formatEventDateTime(event)}
+                            </Text>
+                          </View>
+
+                          {description ? (
+                            <Text
+                              style={styles.eventDescription}
+                              numberOfLines={3}
+                            >
+                              {truncateAnnouncement(description, 136)}
+                            </Text>
+                          ) : null}
+
+                          {location ? (
+                            <View style={styles.eventLocationRow}>
+                              <Ionicons
+                                name="location-outline"
+                                size={14}
+                                color={colors.textSecondary}
+                              />
+                              <Text
+                                style={styles.eventLocationText}
+                                numberOfLines={1}
+                              >
+                                {location}
+                              </Text>
+                            </View>
+                          ) : null}
+
+                          {mandatory ? (
+                            <View style={styles.mandatoryHelperRow}>
+                              <Ionicons
+                                name="alert-circle-outline"
+                                size={14}
+                                color={colors.textSecondary}
+                              />
+                              <Text style={styles.mandatoryHelperText}>
+                                Votre présence est requise
+                              </Text>
+                            </View>
+                          ) : null}
+
+                          {!mandatory && rsvpEnabled && canRespond ? (
+                            <View style={styles.rsvpActionRow}>
+                              {[
+                                ["Going", "Participer"],
+                                ["NotGoing", "Ne pas participer"],
+                              ].map(([status, label]) => {
+                                const selected = currentRsvpStatus === status;
+                                const loading = submittingStatus === status;
+                                const disabled = !!submittingStatus;
+
+                                return (
+                                  <Pressable
+                                    key={status}
+                                    style={[
+                                      styles.rsvpButton,
+                                      selected &&
+                                        (status === "Going"
+                                          ? styles.rsvpButtonGoingSelected
+                                          : styles.rsvpButtonNotGoingSelected),
+                                      disabled && styles.rsvpButtonDisabled,
+                                    ]}
+                                    onPress={() =>
+                                      submitEventRsvp(event, status, index)
+                                    }
+                                    disabled={disabled}
+                                  >
+                                    {loading ? (
+                                      <ActivityIndicator
+                                        size="small"
+                                        color={
+                                          selected
+                                            ? colors.textOnPrimary
+                                            : colors.primary
+                                        }
+                                      />
+                                    ) : (
+                                      <View style={styles.rsvpButtonContent}>
+                                        {selected ? (
+                                          <Ionicons
+                                            name={
+                                              status === "Going"
+                                                ? "checkmark"
+                                                : "close"
+                                            }
+                                            size={13}
+                                            color={colors.textOnPrimary}
+                                          />
+                                        ) : null}
+                                        <Text
+                                          style={[
+                                            styles.rsvpButtonText,
+                                            selected &&
+                                              styles.rsvpButtonTextSelected,
+                                          ]}
+                                        >
+                                          {label}
+                                        </Text>
+                                      </View>
+                                    )}
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          ) : null}
+
+                          {!mandatory && rsvpEnabled && !canRespond ? (
+                            <Text style={styles.rsvpClosedText}>
+                              RSVP fermé
+                            </Text>
+                          ) : null}
+
+                          {rsvpError ? (
+                            <Text style={styles.rsvpErrorText}>
+                              {rsvpError}
+                            </Text>
+                          ) : null}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.cardEmptyTitle}>
+                    Aucun événement prévu
+                  </Text>
+                  <Text style={styles.cardBody}>
+                    Rien dans les 30 prochains jours.
+                  </Text>
+                </>
+              )
+            ) : null}
+          </Card>
+        ) : null}
       </Animated.View>
     </ScrollView>
   );
@@ -1723,24 +2177,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       marginTop: spacing.md,
     },
 
-    successPill: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      backgroundColor: colors.successLight,
-      paddingVertical: 7,
-      paddingHorizontal: spacing.md,
-      borderRadius: borderRadius.md,
-      alignSelf: "flex-start",
-      marginBottom: spacing.xs,
-    },
-
-    successPillText: {
-      fontSize: typography.sm,
-      fontFamily: typography.fontFamily?.semibold,
-      color: colors.success,
-    },
-
     balanceBigNum: {
       fontSize: 38,
       fontFamily: typography.fontFamily?.bold,
@@ -1789,12 +2225,22 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     },
 
     eventItem: {
+      flexDirection: "row",
+      overflow: "hidden",
       borderWidth: 1,
       borderColor: colors.border ?? `${colors.text}14`,
       borderRadius: borderRadius.lg,
       backgroundColor: colors.surfaceMuted ?? colors.background,
+    },
+
+    eventAccent: {
+      width: 5,
+    },
+
+    eventContent: {
+      flex: 1,
+      minWidth: 0,
       padding: spacing.md,
-      ...shadows.sm,
     },
 
     eventImage: {
@@ -1805,26 +2251,62 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       marginBottom: spacing.md,
     },
 
-    eventMetaRow: {
-      minHeight: 22,
+    eventTitleRow: {
       flexDirection: "row",
-      alignItems: "center",
+      alignItems: "flex-start",
       gap: spacing.sm,
-      marginBottom: spacing.xs,
+      marginBottom: 7,
     },
 
-    eventBadge: {
+    eventAttendancePill: {
+      alignSelf: "flex-start",
+      flexShrink: 0,
       borderRadius: borderRadius.full,
-      backgroundColor: colors.warningLight ?? "#fef3c7",
-      paddingHorizontal: 9,
+      borderWidth: 1,
+      paddingHorizontal: 8,
       paddingVertical: 3,
     },
 
-    eventBadgeText: {
+    eventAttendancePillText: {
       fontSize: 10,
       fontFamily: typography.fontFamily?.semibold,
+    },
+
+    eventMandatoryPill: {
+      backgroundColor: colors.warningLight ?? "#fef3c7",
+      borderColor: colors.warningLight ?? "#fef3c7",
+    },
+
+    eventMandatoryPillText: {
       color: colors.warning ?? "#92400e",
-      textTransform: "uppercase",
+    },
+
+    eventTypeRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
+      marginBottom: 5,
+    },
+
+    eventTypeIcon: {
+      width: 24,
+      height: 24,
+      borderRadius: borderRadius.full,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    eventTypeText: {
+      flex: 1,
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.semibold,
+    },
+
+    eventDateRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      marginBottom: spacing.sm,
     },
 
     eventDateText: {
@@ -1838,8 +2320,7 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       flexDirection: "row",
       alignItems: "center",
       gap: 5,
-      marginTop: 2,
-      marginBottom: spacing.xs,
+      marginTop: spacing.sm,
     },
 
     eventLocationText: {
@@ -1856,17 +2337,91 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       lineHeight: 19,
     },
 
+    mandatoryHelperRow: {
+      marginTop: spacing.sm,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      alignSelf: "flex-start",
+    },
+
+    mandatoryHelperText: {
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.medium,
+      color: colors.textSecondary,
+    },
+
+    rsvpActionRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+      marginTop: spacing.sm,
+    },
+
+    rsvpButton: {
+      minHeight: 30,
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6,
+      borderRadius: borderRadius.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+
+    rsvpButtonGoingSelected: {
+      borderColor: colors.success,
+      backgroundColor: colors.success,
+    },
+
+    rsvpButtonNotGoingSelected: {
+      borderColor: colors.error,
+      backgroundColor: colors.error,
+    },
+
+    rsvpButtonContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 4,
+    },
+
+    rsvpButtonDisabled: {
+      opacity: 0.65,
+    },
+
+    rsvpButtonText: {
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.text,
+    },
+
+    rsvpButtonTextSelected: {
+      color: colors.textOnPrimary,
+    },
+
+    rsvpClosedText: {
+      marginTop: spacing.xs,
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.medium,
+      color: colors.textTertiary,
+    },
+
+    rsvpErrorText: {
+      marginTop: spacing.sm,
+      fontSize: typography.xs,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.error,
+    },
+
     eventTitle: {
+      flex: 1,
       fontSize: typography.base,
       fontFamily: typography.fontFamily?.semibold,
       color: colors.text,
-      marginBottom: 3,
-    },
-
-    divider: {
-      height: 1,
-      backgroundColor: colors.border ?? `${colors.text}12`,
-      marginVertical: spacing.md,
+      lineHeight: 21,
     },
 
     announcementSectionHeader: {
@@ -2016,6 +2571,21 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       ...shadows.sm,
     },
 
+    adminShortcutCardFullWidth: {
+      width: "100%",
+    },
+
+    adminShortcutCardHorizontal: {
+      minHeight: 88,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+    },
+
+    adminShortcutHorizontalContent: {
+      flex: 1,
+    },
+
     adminShortcutIcon: {
       width: 38,
       height: 38,
@@ -2037,20 +2607,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       fontSize: typography.xs,
       fontFamily: typography.fontFamily?.regular,
       color: colors.textSecondary,
-    },
-
-    adminEventsLink: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: spacing.xs,
-      paddingVertical: spacing.sm,
-    },
-
-    adminEventsLinkText: {
-      fontSize: typography.sm,
-      fontFamily: typography.fontFamily?.semibold,
-      color: colors.primary,
     },
   });
 

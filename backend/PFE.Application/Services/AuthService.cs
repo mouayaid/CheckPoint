@@ -282,6 +282,18 @@ public class AuthService : IAuthService
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
 
+        var activeRefreshTokens = await _context.RefreshTokens
+            .Where(token =>
+                token.UserId == user.Id &&
+                !token.IsRevoked &&
+                token.ExpiresAt > DateTime.UtcNow)
+            .ToListAsync();
+
+        foreach (var refreshToken in activeRefreshTokens)
+        {
+            refreshToken.IsRevoked = true;
+        }
+
         await _context.SaveChangesAsync();
 
         return true;

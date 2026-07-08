@@ -1,5 +1,12 @@
 import logger from "../utils/logger";
-import React, { createContext, useState, useEffect, useContext } from "react";
+import React, {
+  createContext,
+  useState,
+  useEffect,
+  useContext,
+  useCallback,
+  useRef,
+} from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { STORAGE_KEYS } from "../utils/constants";
@@ -21,6 +28,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const isAuthenticatedRef = useRef(false);
 
   const [refreshFlag, setRefreshFlag] = useState(0);
 
@@ -32,6 +40,33 @@ export const AuthProvider = ({ children }) => {
     loadStoredAuth();
   }, []);
 
+  useEffect(() => {
+    isAuthenticatedRef.current = isAuthenticated;
+  }, [isAuthenticated]);
+
+  const resetAuthState = useCallback(() => {
+    const wasAuthenticated = isAuthenticatedRef.current;
+
+    setUser(null);
+    setIsAuthenticated(false);
+    setIsLoading(false);
+    isAuthenticatedRef.current = false;
+
+    if (wasAuthenticated) {
+      triggerRefresh();
+    }
+  }, []);
+
+  useEffect(() => {
+    globalThis.__CHECKPOINT_ON_SIGN_OUT__ = resetAuthState;
+
+    return () => {
+      if (globalThis.__CHECKPOINT_ON_SIGN_OUT__ === resetAuthState) {
+        delete globalThis.__CHECKPOINT_ON_SIGN_OUT__;
+      }
+    };
+  }, [resetAuthState]);
+
   const loadStoredAuth = async () => {
     try {
       const token = await SecureStore.getItemAsync(STORAGE_KEYS.USER_TOKEN);
@@ -42,6 +77,7 @@ export const AuthProvider = ({ children }) => {
         await axiosInstance.setAuthToken(token, refreshToken);
         setUser(JSON.parse(userData));
         setIsAuthenticated(true);
+        isAuthenticatedRef.current = true;
       }
     } catch (error) {
       logger.error("Error loading stored auth:", error);
@@ -67,6 +103,7 @@ export const AuthProvider = ({ children }) => {
 
       setUser(userData);
       setIsAuthenticated(true);
+      isAuthenticatedRef.current = true;
       triggerRefresh();
     } catch (error) {
       logger.error("Error signing in:", error);
@@ -76,17 +113,9 @@ export const AuthProvider = ({ children }) => {
 
   const signOut = async () => {
     try {
-      await Promise.all([
-        SecureStore.deleteItemAsync(STORAGE_KEYS.USER_TOKEN),
-        SecureStore.deleteItemAsync(STORAGE_KEYS.REFRESH_TOKEN),
-        AsyncStorage.removeItem(STORAGE_KEYS.USER_DATA),
-      ]);
-
       await axiosInstance.clearAuthToken();
 
-      setUser(null);
-      setIsAuthenticated(false);
-      triggerRefresh();
+      resetAuthState();
     } catch (error) {
       logger.error("Error signing out:", error);
       throw error;

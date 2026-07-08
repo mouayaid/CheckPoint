@@ -12,7 +12,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   Modal,
   Platform,
   RefreshControl,
@@ -34,7 +33,7 @@ import roomService from "../services/api/roomService";
 import { roomReservationService } from "../services/api/roomReservationService";
 import { useTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
-import { getTunisiaNow, roleToString } from "../utils/helpers";
+import { roleToString } from "../utils/helpers";
 import RoomFilterBar from "../components/rooms/RoomFilterBar";
 import RoomList from "../components/rooms/RoomList";
 import ReservationModal from "../components/rooms/ReservationModal";
@@ -48,6 +47,100 @@ const formatDateKey = (date) => {
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+};
+
+const TUNISIA_TIME_ZONE = "Africa/Tunis";
+const TUNISIA_UTC_OFFSET_MINUTES = 60;
+
+const getTunisiaParts = (date) => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TUNISIA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  return Object.fromEntries(
+    parts
+      .filter(({ type }) => type !== "literal")
+      .map(({ type, value }) => [type, Number(value)]),
+  );
+};
+
+const formatTunisiaDateKey = (date) => {
+  const parts = getTunisiaParts(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(
+    parts.day,
+  ).padStart(2, "0")}`;
+};
+
+const formatTunisiaTime = (date) => {
+  const parts = getTunisiaParts(date);
+  return `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(
+    2,
+    "0",
+  )}`;
+};
+
+const parseApiInstant = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const hasOffset = /(?:z|[+-]\d{2}:?\d{2})$/i.test(value);
+    return new Date(hasOffset ? value : `${value}Z`);
+  }
+  return new Date(value);
+};
+
+const getTunisiaWallClockParts = (date = new Date()) => getTunisiaParts(date);
+
+const createTunisiaDateTimeCarrier = (date = new Date()) => {
+  const parts = getTunisiaParts(date);
+  return new Date(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+    0,
+  );
+};
+
+const createTimePickerValue = (hour, minute) => {
+  const value = new Date();
+  value.setHours(hour, minute, 0, 0);
+  return value;
+};
+
+const createTimePickerValueFromInstant = (instant) => {
+  const { hour, minute } = getTunisiaWallClockParts(instant);
+  return createTimePickerValue(hour, minute);
+};
+
+const getTimePartsFromPickerValue = (timeDateObj) => ({
+  hour: timeDateObj.getHours(),
+  minute: timeDateObj.getMinutes(),
+});
+
+const makeTunisiaInstant = (dateStr, hour, minute) => {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(
+    Date.UTC(y, m - 1, d, hour, minute, 0, 0) -
+      TUNISIA_UTC_OFFSET_MINUTES * 60000,
+  );
+};
+
+const formatTunisiaLocalDateTimePayload = (dateStr, timeDateObj) => {
+  const { hour, minute } = getTimePartsFromPickerValue(timeDateObj);
+  return `${dateStr}T${String(hour).padStart(2, "0")}:${String(minute).padStart(
+    2,
+    "0",
+  )}:00`;
 };
 
 const parseDateKey = (dateStr) => {
@@ -74,50 +167,41 @@ const getWorkWeekDays = (baseDate) => {
 };
 
 const formatReservationDate = (start, end) => {
-  const s = new Date(start);
-  const e = new Date(end);
+  const s = parseApiInstant(start);
+  const e = parseApiInstant(end);
   const date = s.toLocaleDateString("fr-FR", {
+    timeZone: TUNISIA_TIME_ZONE,
     weekday: "short",
     day: "numeric",
     month: "short",
   });
-  const startFormatted = s.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  const endFormatted = e.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const startFormatted = formatTunisiaTime(s);
+  const endFormatted = formatTunisiaTime(e);
   return `${date} · ${startFormatted} – ${endFormatted}`;
 };
 
 const combineDateAndTime = (dateStr, timeDateObj) => {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const hh = timeDateObj.getHours();
-  const mm = timeDateObj.getMinutes();
-  return new Date(y, m - 1, d, hh, mm, 0, 0);
+  const { hour, minute } = getTimePartsFromPickerValue(timeDateObj);
+  return makeTunisiaInstant(dateStr, hour, minute);
 };
 
 function normalizeStatusKey(status) {
-  if (typeof status === "number" && Number.isFinite(status)) {
-    // Backend ReservationStatus: Pending=0, Active=1, Cancelled=2, Completed=3, Rejected=4, InProgress=5
-    const map = {
-      0: "pending",
-      1: "active",
-      2: "cancelled",
-      3: "completed",
-      4: "rejected",
-      5: "inprogress",
-    };
-    return map[status] ?? String(status);
-  }
   return String(status ?? "").toLowerCase();
 }
 
+const isCancelledReservation = (reservation) => {
+  const status = reservation?.status ?? reservation?.Status;
+  if (status === 2) return true;
+  const key = normalizeStatusKey(status);
+  return key === "cancelled" || key === "canceled";
+};
+
+const withoutCancelledReservations = (reservations = []) =>
+  reservations.filter((reservation) => !isCancelledReservation(reservation));
+
 const getBlockingRange = (reservation) => {
   const key = normalizeStatusKey(reservation.status ?? reservation.Status);
-  if (key !== "pending" && key !== "active" && key !== "inprogress") {
+  if (key !== "active" && key !== "inprogress") {
     return null;
   }
 
@@ -130,14 +214,14 @@ const getBlockingRange = (reservation) => {
         reservation.start
       : reservation.startDateTime || reservation.startDate || reservation.start;
 
-  const start = new Date(startSource);
+  const start = parseApiInstant(startSource);
   if (Number.isNaN(start.getTime())) return null;
 
   if (key === "inprogress") {
     return { start, end: null };
   }
 
-  const end = new Date(
+  const end = parseApiInstant(
     reservation.endDateTime || reservation.endDate || reservation.end,
   );
   if (Number.isNaN(end.getTime())) return null;
@@ -155,35 +239,31 @@ const getReservationPlannedDateKey = (reservation) => {
     reservation.startDate ||
     reservation.start;
 
-  if (typeof startSource === "string") {
-    const datePrefix = startSource.match(/^(\d{4}-\d{2}-\d{2})/);
-    if (datePrefix) return datePrefix[1];
-  }
-
-  const start = new Date(startSource);
-  return Number.isNaN(start.getTime()) ? null : formatDateKey(start);
+  const start = parseApiInstant(startSource);
+  return Number.isNaN(start.getTime()) ? null : formatTunisiaDateKey(start);
 };
 
 const getDisplayedReservations = (reservations, selectedDate) => {
-  const tunisiaNow = getTunisiaNow();
-  const isToday = selectedDate === formatDateKey(tunisiaNow);
+  const isToday = selectedDate === formatTunisiaDateKey(new Date());
 
   return getBlockingReservations(reservations).filter((reservation) => {
+    const key = normalizeStatusKey(reservation.status ?? reservation.Status);
+    if (key === "inprogress") return true;
+
     if (getReservationPlannedDateKey(reservation) !== selectedDate) {
       return false;
     }
 
-    const key = normalizeStatusKey(reservation.status ?? reservation.Status);
-    if (!isToday || key === "inprogress") return true;
+    if (!isToday) return true;
 
     const endSource =
       reservation.endDateTime ||
       reservation.EndDateTime ||
       reservation.endDate ||
       reservation.end;
-    const plannedEnd = new Date(endSource);
+    const plannedEnd = parseApiInstant(endSource);
 
-    return !Number.isNaN(plannedEnd.getTime()) && plannedEnd >= tunisiaNow;
+    return !Number.isNaN(plannedEnd.getTime()) && plannedEnd >= new Date();
   });
 };
 
@@ -201,60 +281,73 @@ const isInstantBlockedByReservation = (reservation, instant) => {
   return instant >= range.start && instant < range.end;
 };
 
-const roundUpToNextQuarterHour = (date) => {
-  const rounded = new Date(date);
-  rounded.setSeconds(0, 0);
+const getNextTunisiaQuarterTime = (nowInstant = new Date()) => {
+  const parts = getTunisiaWallClockParts(nowInstant);
+  const totalMinutes = parts.hour * 60 + parts.minute;
+  const nextQuarterTotal = Math.floor(totalMinutes / 15) * 15 + 15;
 
-  // Always move to the next quarter, including at an exact boundary,
-  // because reservation starts must be strictly in the future.
-  const nextQuarterMinute = Math.floor(rounded.getMinutes() / 15) * 15 + 15;
-  rounded.setMinutes(nextQuarterMinute);
-  return rounded;
+  if (nextQuarterTotal >= 24 * 60) {
+    return null;
+  }
+
+  return {
+    hour: Math.floor(nextQuarterTotal / 60),
+    minute: nextQuarterTotal % 60,
+  };
 };
 
 const findNextAvailableSlot = (reservations, dateStr, durationMinutes = 60) => {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const workStart = new Date(y, m - 1, d, 8, 0, 0, 0);
-  const workEnd = new Date(y, m - 1, d, 17, 0, 0, 0);
+  const todayKey = formatTunisiaDateKey(new Date());
+  if (dateStr < todayKey) return null;
+
+  const dayStart = makeTunisiaInstant(dateStr, 0, 0);
+  const nextDate = parseDateKey(dateStr);
+  nextDate.setDate(nextDate.getDate() + 1);
+  const nextDateStr = formatDateKey(nextDate);
+  const dayEnd = makeTunisiaInstant(nextDateStr, 0, 0);
   const sorted = getBlockingReservations(reservations)
     .map((reservation) => getBlockingRange(reservation))
     .sort((a, b) => a.start - b.start);
-  let candidateStart = new Date(workStart);
-  const tunisiaNow = getTunisiaNow();
-  if (dateStr === formatDateKey(tunisiaNow)) {
-    const nextQuarterHour = roundUpToNextQuarterHour(tunisiaNow);
-    if (nextQuarterHour > candidateStart) candidateStart = nextQuarterHour;
+  let candidateStart = new Date(dayStart);
+  if (dateStr === todayKey) {
+    const nextQuarter = getNextTunisiaQuarterTime();
+    if (!nextQuarter) return null;
+    const nextQuarterInstant = makeTunisiaInstant(
+      dateStr,
+      nextQuarter.hour,
+      nextQuarter.minute,
+    );
+    if (nextQuarterInstant > candidateStart) {
+      candidateStart = nextQuarterInstant;
+    }
   }
-  if (candidateStart >= workEnd) return null;
+  if (candidateStart >= dayEnd) return null;
   for (const range of sorted) {
     const candidateEnd = new Date(candidateStart);
     candidateEnd.setMinutes(candidateEnd.getMinutes() + durationMinutes);
-    if (candidateEnd <= range.start)
-      return { start: candidateStart, end: candidateEnd };
+    if (candidateEnd < dayEnd && candidateEnd <= range.start) {
+      return {
+        start: createTimePickerValueFromInstant(candidateStart),
+        end: createTimePickerValueFromInstant(candidateEnd),
+      };
+    }
     if (range.end == null) return null;
     if (candidateStart < range.end) candidateStart = new Date(range.end);
   }
   const finalEnd = new Date(candidateStart);
   finalEnd.setMinutes(finalEnd.getMinutes() + durationMinutes);
-  if (finalEnd <= workEnd) return { start: candidateStart, end: finalEnd };
+  if (finalEnd < dayEnd) {
+    return {
+      start: createTimePickerValueFromInstant(candidateStart),
+      end: createTimePickerValueFromInstant(finalEnd),
+    };
+  }
   return null;
 };
 
 const getDurationMinutes = (start, end) => {
   if (!start || !end) return 0;
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
-};
-
-const isWithinWorkHours = (start, end) => {
-  if (!start || !end) return false;
-
-  const workStart = new Date(start);
-  workStart.setHours(8, 0, 0, 0);
-
-  const workEnd = new Date(start);
-  workEnd.setHours(17, 0, 0, 0);
-
-  return start >= workStart && end <= workEnd;
 };
 
 const formatDuration = (minutes) => {
@@ -270,6 +363,8 @@ function getErrorMessage(error, fallback) {
   if (!error) return fallback;
   if (typeof error === "string") return error;
   return (
+    error.data?.errors?.[0] ||
+    error.response?.data?.errors?.[0] ||
     error.message ||
     error.data?.message ||
     error.response?.data?.message ||
@@ -278,10 +373,20 @@ function getErrorMessage(error, fallback) {
 }
 
 /** Start / finish meeting actions for a room reservation row */
-function getRoomResActionState(reservation) {
+function getRoomResActionState(reservation, now = new Date()) {
   const key = normalizeStatusKey(reservation.status ?? reservation.Status);
   const isStarted = !!(reservation.startedAt || reservation.StartedAt);
-  const canStart = key === "active" && !isStarted;
+  const start = parseApiInstant(
+    reservation.startDateTime || reservation.StartDateTime,
+  );
+  const end = parseApiInstant(reservation.endDateTime || reservation.EndDateTime);
+  const startWindowOpensAt = new Date(start.getTime() - 15 * 60 * 1000);
+  const isInsideStartWindow =
+    !Number.isNaN(start.getTime()) &&
+    !Number.isNaN(end.getTime()) &&
+    now >= startWindowOpensAt &&
+    now <= end;
+  const canStart = key === "active" && !isStarted && isInsideStartWindow;
   const canFinish = key === "inprogress";
   return { key, isStarted, canStart, canFinish };
 }
@@ -315,13 +420,43 @@ export default function RoomReservationScreen({ navigation }) {
     () => createStyles(colors, spacing, borderRadius, typography, shadows),
     [colors, spacing, borderRadius, typography, shadows],
   );
+  const showError = (title, message) =>
+    showFeedback({
+      type: "error",
+      title,
+      message,
+      confirmText: "Compris",
+    });
+  const showSuccessMessage = (title, message) =>
+    showFeedback({
+      type: "success",
+      title,
+      message,
+      confirmText: "OK",
+    });
 
-  const today = useMemo(() => getTunisiaNow(), []);
-  const todayStr = useMemo(() => formatDateKey(today), [today]);
+  const [lifecycleNow, setLifecycleNow] = useState(() => new Date());
+  const today = useMemo(
+    () => createTunisiaDateTimeCarrier(lifecycleNow),
+    [lifecycleNow],
+  );
+  const todayStr = useMemo(
+    () => formatTunisiaDateKey(lifecycleNow),
+    [lifecycleNow],
+  );
   const currentWeekStart = useMemo(() => startOfWeekMonday(today), [today]);
 
-  const [weekStartDate, setWeekStartDate] = useState(startOfWeekMonday(today));
-  const [selectedDate, setSelectedDate] = useState(todayStr);
+  const [weekStartDate, setWeekStartDate] = useState(() =>
+    startOfWeekMonday(createTunisiaDateTimeCarrier()),
+  );
+  const [selectedDate, setSelectedDate] = useState(() =>
+    formatTunisiaDateKey(new Date()),
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => setLifecycleNow(new Date()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   const [rooms, setRooms] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -430,14 +565,14 @@ export default function RoomReservationScreen({ navigation }) {
       const response = await roomService.getAllRooms();
       if (response?.success) setRooms(response.data || []);
       else
-        Alert.alert(
+        showError(
           "Impossible de charger les salles",
-          response?.message || "Actualiser et réessayer.",
+          response?.message || "Actualisez la page puis réessayez.",
         );
     } catch (error) {
-      Alert.alert(
+      showError(
         "Impossible de charger les salles",
-        getErrorMessage(error, "Vérifiez votre connexion."),
+        getErrorMessage(error, "Vérifiez votre connexion puis réessayez."),
       );
     }
   };
@@ -447,7 +582,9 @@ export default function RoomReservationScreen({ navigation }) {
     setLoadingMyReservations(true);
     try {
       const response = await roomService.getMyReservations();
-      setMyReservations(response?.success ? response.data || [] : []);
+      setMyReservations(
+        response?.success ? withoutCancelledReservations(response.data || []) : [],
+      );
     } catch {
       setMyReservations([]);
     } finally {
@@ -459,15 +596,15 @@ export default function RoomReservationScreen({ navigation }) {
     if (cameraPermission?.granted) return true;
     const result = await requestCameraPermission();
     if (!result?.granted)
-      Alert.alert(
+      showError(
         "Permission refusée",
-        "Accès caméra nécessaire pour scanner le QR.",
+        "L'accès à la caméra est nécessaire pour scanner le QR de la salle.",
       );
     return result?.granted ?? false;
   };
 
   const denyRoomAccess = () => {
-    Alert.alert(
+    showError(
       "Accès refusé",
       "Seuls les managers peuvent gérer les réservations de salles.",
     );
@@ -501,9 +638,9 @@ export default function RoomReservationScreen({ navigation }) {
     const roomId = parseRoomQrPayload(data);
     if (roomId == null) {
       releaseScan();
-      Alert.alert(
+      showError(
         "QR invalide",
-        "Ce code ne correspond pas à une salle. Utilisez le QR fixe sur la salle (format ROOM:ID).",
+        "Ce code ne correspond pas à une salle. Utilisez le QR permanent affiché dans la salle.",
       );
       return;
     }
@@ -515,7 +652,7 @@ export default function RoomReservationScreen({ navigation }) {
     if (expectedRoomId != null && roomId !== expectedRoomId) {
       releaseScan();
       const roomLabel = resRow?.roomName ?? resRow?.RoomName ?? "votre salle";
-      Alert.alert(
+      showError(
         "Mauvaise salle",
         `Ce QR ne correspond pas à la salle réservée (${roomLabel}).`,
       );
@@ -530,13 +667,12 @@ export default function RoomReservationScreen({ navigation }) {
       setScannerVisible(false);
       await loadMyReservations();
       await loadRoomStatusesForSelectedDate();
-      showFeedback({
-        type: "success",
-        title: "Réunion démarrée",
-        message: "La réunion a démarré.",
-      });
+      showSuccessMessage("Réunion démarrée", "La réunion a bien démarré.");
     } catch (error) {
-      Alert.alert("Erreur", getErrorMessage(error, "Action impossible."));
+      showError(
+        "Action impossible",
+        getErrorMessage(error, "Cette action est impossible pour le moment."),
+      );
     } finally {
       releaseScan();
     }
@@ -549,7 +685,11 @@ export default function RoomReservationScreen({ navigation }) {
         date,
       );
       if (res?.success)
-        return { ok: true, data: res.data || [], message: null };
+        return {
+          ok: true,
+          data: withoutCancelledReservations(res.data || []),
+          message: null,
+        };
       return {
         ok: false,
         data: [],
@@ -622,15 +762,6 @@ export default function RoomReservationScreen({ navigation }) {
       const suggestion = findNextAvailableSlot(reservations, selectedDate, 60);
       setStartTime(suggestion?.start ?? null);
       setEndTime(suggestion?.end ?? null);
-      if (__DEV__) {
-        console.log("RoomReservation time debug", {
-          deviceNow: new Date().toString(),
-          tunisiaNow: getTunisiaNow().toString(),
-          selectedDate,
-          suggestedStart: suggestion?.start?.toString(),
-          suggestedEnd: suggestion?.end?.toString(),
-        });
-      }
     } catch (error) {
       setDayReservations([]);
       setModalScheduleError(
@@ -683,42 +814,38 @@ export default function RoomReservationScreen({ navigation }) {
       return;
     }
     if (!selectedRoom?.id) {
-      Alert.alert("Aucune salle", "Choisissez d'abord une salle.");
+      showError("Aucune salle sélectionnée", "Choisissez d'abord une salle.");
       return;
     }
     if (!startTime || !endTime) {
-      Alert.alert(
+      showError(
         "Plage horaire requise",
-        "Sélectionnez une heure de début et de fin.",
+        "Sélectionnez une heure de début et une heure de fin.",
       );
       return;
     }
     if (!purpose.trim()) {
-      Alert.alert("Objet requis", "Décrivez brièvement la réunion.");
+      showError("Objet requis", "Décrivez brièvement la réunion.");
       return;
     }
     const startDateTime = combineDateAndTime(selectedDate, startTime);
     const endDateTime = combineDateAndTime(selectedDate, endTime);
     if (endDateTime <= startDateTime) {
-      Alert.alert("Plage invalide", "L'heure de fin doit être après le début.");
+      showError(
+        "Plage invalide",
+        "L'heure de fin doit être après l'heure de début.",
+      );
       return;
     }
-    if (startDateTime <= getTunisiaNow()) {
-      Alert.alert(
+    if (startDateTime <= new Date()) {
+      showError(
         "Plage invalide",
         "L'heure de début doit être dans le futur.",
       );
       return;
     }
-    if (!isWithinWorkHours(startDateTime, endDateTime)) {
-      Alert.alert(
-        "Horaire non autorisé",
-        "Les réservations sont possibles uniquement entre 08:00 et 17:00.",
-      );
-      return;
-    }
     if (hasOverlap(startDateTime, endDateTime)) {
-      Alert.alert(
+      showError(
         "Conflit horaire",
         "Ce créneau chevauche une réservation existante.",
       );
@@ -728,8 +855,11 @@ export default function RoomReservationScreen({ navigation }) {
     try {
       const payload = {
         roomId: Number(selectedRoom.id),
-        startDateTime: startDateTime.toISOString(),
-        endDateTime: endDateTime.toISOString(),
+        startDateTime: formatTunisiaLocalDateTimePayload(
+          selectedDate,
+          startTime,
+        ),
+        endDateTime: formatTunisiaLocalDateTimePayload(selectedDate, endTime),
         purpose: purpose.trim(),
       };
       const response = await roomReservationService.createReservation(payload);
@@ -741,20 +871,22 @@ export default function RoomReservationScreen({ navigation }) {
         ]);
         resetModal();
 
-        showFeedback({
-          type: "success",
-          title: "Réservation confirmée",
-          message: "Votre réservation est confirmée.",
-        });
+        showSuccessMessage(
+          "Réservation confirmée",
+          "Votre réservation a bien été confirmée.",
+        );
       } else {
-        Alert.alert("Échec", response?.message || "Une erreur s'est produite.");
+        showError(
+          "Opération échouée",
+          response?.message || "Une erreur est survenue. Réessayez dans un instant.",
+        );
       }
     } catch (error) {
       const status = error?.status || error?.response?.status;
       const msg = getErrorMessage(error, "Impossible de créer la réservation.");
-      if (status === 409) Alert.alert("Créneau indisponible", msg);
-      else if (status === 400) Alert.alert("Demande invalide", msg);
-      else Alert.alert("Échec", msg);
+      if (status === 409) showError("Créneau indisponible", msg);
+      else if (status === 400) showError("Demande invalide", msg);
+      else showError("Opération échouée", msg);
     } finally {
       setReserving(false);
     }
@@ -769,8 +901,15 @@ export default function RoomReservationScreen({ navigation }) {
       return { label: "Aucune donnée", color: colors.textTertiary };
     if (blockingReservations.length === 0)
       return { label: "Libre", color: colors.success };
+    if (
+      blockingReservations.some(
+        (r) => normalizeStatusKey(r.status ?? r.Status) === "inprogress",
+      )
+    ) {
+      return { label: "Réunion en cours", color: colors.error };
+    }
     if (selectedDate === todayStr) {
-      const now = getTunisiaNow();
+      const now = new Date();
       const busyNow = blockingReservations.some((r) =>
         isInstantBlockedByReservation(r, now),
       );
@@ -810,6 +949,9 @@ export default function RoomReservationScreen({ navigation }) {
     [dayReservations, selectedDate],
   );
 
+  // selectedDate is a Tunisia YYYY-MM-DD key. startTime/endTime are picker
+  // carrier values whose local hour/minute represent Tunisia wall-clock time;
+  // the backend receives YYYY-MM-DDTHH:mm:ss and interprets it as Tunisia local.
   const durationMinutes =
     startTime && endTime
       ? getDurationMinutes(
@@ -839,8 +981,7 @@ export default function RoomReservationScreen({ navigation }) {
     !!combinedStart &&
     !!combinedEnd &&
     combinedEnd > combinedStart &&
-    combinedStart > getTunisiaNow() &&
-    isWithinWorkHours(combinedStart, combinedEnd) &&
+    combinedStart > new Date() &&
     !modalScheduleError;
 
   const handleCancelReservation = async (reservationId) => {
@@ -886,14 +1027,13 @@ export default function RoomReservationScreen({ navigation }) {
       ]);
 
       setFinishReservationId(null);
-      showFeedback({
-        type: "success",
-        title: "Réunion terminée",
-        message: "La salle est maintenant libérée.",
-      });
+      showSuccessMessage(
+        "Réunion terminée",
+        "La salle est maintenant libérée.",
+      );
     } catch (error) {
-      Alert.alert(
-        "Erreur",
+      showError(
+        "Opération échouée",
         getErrorMessage(error, "Impossible de terminer la réunion."),
       );
     } finally {
@@ -925,13 +1065,13 @@ export default function RoomReservationScreen({ navigation }) {
       ]);
 
       setCancelReservationId(null);
-      Alert.alert(
+      showSuccessMessage(
         "Réservation annulée",
-        "La réservation a été annulée.",
+        "La réservation a bien été annulée.",
       );
     } catch (error) {
-      Alert.alert(
-        "Erreur",
+      showError(
+        "Opération échouée",
         getErrorMessage(error, "Impossible d'annuler la réservation."),
       );
     } finally {
@@ -985,7 +1125,9 @@ export default function RoomReservationScreen({ navigation }) {
           myReservations={myReservations}
           loadingMyReservations={loadingMyReservations}
           reservationIdOf={reservationIdOf}
-          getRoomResActionState={getRoomResActionState}
+          getRoomResActionState={(reservation) =>
+            getRoomResActionState(reservation, lifecycleNow)
+          }
           formatReservationDate={formatReservationDate}
           onScanPress={handleScanPress}
           onFinishReservation={handleFinishReservation}

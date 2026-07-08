@@ -39,7 +39,13 @@ public class MeetingTranscriptionsController : ControllerBase
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(ex.Message);
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (TranscriptionProcessingException ex)
+        {
+            return StatusCode(
+                StatusCodes.Status503ServiceUnavailable,
+                new { message = ex.Message });
         }
     }
 

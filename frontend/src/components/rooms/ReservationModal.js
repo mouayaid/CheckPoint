@@ -22,7 +22,37 @@ const QUICK_DURATIONS = [
   { label: "2 h", minutes: 120 },
 ];
 
-const formatTime = (dateObj) => {
+const TUNISIA_TIME_ZONE = "Africa/Tunis";
+
+const parseApiInstant = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const hasOffset = /(?:z|[+-]\d{2}:?\d{2})$/i.test(value);
+    return new Date(hasOffset ? value : `${value}Z`);
+  }
+  return new Date(value);
+};
+
+const formatInstantTime = (dateObj) => {
+  if (!dateObj) return "";
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TUNISIA_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(dateObj);
+  const values = Object.fromEntries(
+    parts
+      .filter(({ type }) => type !== "literal")
+      .map(({ type, value }) => [type, value]),
+  );
+  const hh = values.hour ?? "00";
+  const mm = values.minute ?? "00";
+  return `${hh}:${mm}`;
+};
+
+const formatPickerTime = (dateObj) => {
   if (!dateObj) return "";
   const hh = String(dateObj.getHours()).padStart(2, "0");
   const mm = String(dateObj.getMinutes()).padStart(2, "0");
@@ -30,9 +60,9 @@ const formatTime = (dateObj) => {
 };
 
 const formatRange = (isoStart, isoEnd) => {
-  const s = new Date(isoStart);
-  const e = new Date(isoEnd);
-  return `${formatTime(s)} – ${formatTime(e)}`;
+  const s = parseApiInstant(isoStart);
+  const e = parseApiInstant(isoEnd);
+  return `${formatInstantTime(s)} – ${formatInstantTime(e)}`;
 };
 
 export default function ReservationModal({
@@ -129,8 +159,8 @@ export default function ReservationModal({
                 {[...displayedReservations]
                   .sort(
                     (a, b) =>
-                      new Date(a.startDateTime || a.startDate || a.start) -
-                      new Date(b.startDateTime || b.startDate || b.start),
+                      parseApiInstant(a.startDateTime || a.startDate || a.start) -
+                      parseApiInstant(b.startDateTime || b.startDate || b.start),
                   )
                   .map((r, i) => {
                     const who =
@@ -177,7 +207,7 @@ export default function ReservationModal({
               >
                 <Text style={styles.timePickerLabel}>Début</Text>
                 <Text style={styles.timePickerValue}>
-                  {startTime ? formatTime(startTime) : "--:--"}
+                  {startTime ? formatPickerTime(startTime) : "--:--"}
                 </Text>
               </Pressable>
               <View style={styles.timePickerSep}>
@@ -189,7 +219,7 @@ export default function ReservationModal({
               >
                 <Text style={styles.timePickerLabel}>Fin</Text>
                 <Text style={styles.timePickerValue}>
-                  {endTime ? formatTime(endTime) : "--:--"}
+                  {endTime ? formatPickerTime(endTime) : "--:--"}
                 </Text>
               </Pressable>
             </View>
@@ -202,19 +232,6 @@ export default function ReservationModal({
                   color={colors.primary}
                 />
                 <Text style={styles.durationText}>{durationMinutes}</Text>
-                {overlapWarning && (
-                  <>
-                    <View style={styles.durationSep} />
-                    <Ionicons
-                      name="warning-outline"
-                      size={14}
-                      color={colors.error}
-                    />
-                    <Text style={styles.durationConflict}>
-                      Conflit détecté
-                    </Text>
-                  </>
-                )}
               </View>
             )}
 
@@ -278,18 +295,6 @@ export default function ReservationModal({
               onChangeText={setPurpose}
               multiline
             />
-
-            {overlapWarning && (
-              <View style={styles.conflictCard}>
-                <Ionicons name="alert-circle" size={18} color={colors.error} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.conflictTitle}>Conflit horaire</Text>
-                  <Text style={styles.conflictText}>
-                    Ajustez le créneau pour éviter les réservations existantes.
-                  </Text>
-                </View>
-              </View>
-            )}
 
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -511,12 +516,6 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       color: colors.primary,
       flex: 1,
     },
-    durationSep: { width: 1, height: 14, backgroundColor: colors.border },
-    durationConflict: {
-      fontSize: typography.sm,
-      fontWeight: typography.bold,
-      color: colors.error,
-    },
     quickRow: {
       flexDirection: "row",
       gap: spacing.sm,
@@ -546,28 +545,6 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
       color: colors.text,
       backgroundColor: colors.inputBackground,
       lineHeight: 22,
-    },
-    conflictCard: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.sm,
-      marginTop: spacing.md,
-      backgroundColor: colors.errorLight,
-      padding: spacing.md,
-      borderRadius: borderRadius.md,
-      borderWidth: 1,
-      borderColor: colors.error,
-    },
-    conflictTitle: {
-      fontSize: typography.sm,
-      fontWeight: typography.bold,
-      color: colors.error,
-      marginBottom: 3,
-    },
-    conflictText: {
-      fontSize: typography.xs,
-      color: colors.error,
-      lineHeight: 17,
     },
     modalActions: {
       flexDirection: "row",

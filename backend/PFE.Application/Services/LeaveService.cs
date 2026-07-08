@@ -12,13 +12,16 @@ public class LeaveService : ILeaveService
 {
     private readonly IApplicationDbContext _context;
     private readonly INotificationService _notificationService;
+    private readonly IAppTimeProvider _timeProvider;
 
     public LeaveService(
         IApplicationDbContext context,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IAppTimeProvider timeProvider)
     {
         _context = context;
         _notificationService = notificationService;
+        _timeProvider = timeProvider;
     }
 
     public async Task<List<LeaveRequestDto>> GetUserLeaveRequestsAsync(int userId)
@@ -56,7 +59,7 @@ public class LeaveService : ILeaveService
         if (user == null)
             throw new NotFoundException("User not found.");
 
-        ValidateLeaveRequest(dto);
+        ValidateLeaveRequest(dto, _timeProvider.TunisiaToday);
         var requestedDays = CalculateRequestedDays(dto.Type, dto.StartDate, dto.EndDate);
         var shouldCheckBalance = ShouldDeductFromBalance(dto.Type);
 
@@ -324,7 +327,7 @@ public class LeaveService : ILeaveService
             existing.DayPeriod == incoming.DayPeriod;
     }
 
-    private static void ValidateLeaveRequest(CreateLeaveRequestDto dto)
+    private static void ValidateLeaveRequest(CreateLeaveRequestDto dto, DateOnly tunisiaToday)
     {
         if (!Enum.IsDefined(typeof(LeaveType), dto.Type))
             throw new BadRequestException("Veuillez sélectionner un type de congé.");
@@ -332,7 +335,7 @@ public class LeaveService : ILeaveService
         if (string.IsNullOrWhiteSpace(dto.Reason))
             throw new BadRequestException("Veuillez saisir le motif de votre demande.");
 
-        if (dto.StartDate.Date < DateTime.UtcNow.Date)
+        if (DateOnly.FromDateTime(dto.StartDate.Date) < tunisiaToday)
             throw new BadRequestException("La date de début ne peut pas être dans le passé.");
 
         if (dto.EndDate.Date < dto.StartDate.Date)

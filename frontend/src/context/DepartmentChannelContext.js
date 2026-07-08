@@ -8,24 +8,30 @@ import React, {
 } from "react";
 import { departmentChannelService } from "../services/api/departmentChannelService";
 import { useAuth } from "./AuthContext";
+
 const DepartmentChannelContext = createContext();
 
 export const DepartmentChannelProvider = ({ children }) => {
   const { isAuthenticated } = useAuth();
   const [channelUnreadCount, setChannelUnreadCount] = useState(0);
   const [channelInfo, setChannelInfo] = useState(null);
-
   const refreshChannelInfo = useCallback(async () => {
     try {
       const res = await departmentChannelService.getMyChannel();
       const payload = res?.data?.data ?? res?.data ?? res ?? null;
+      const unreadCount = Number(payload?.unreadCount ?? 0);
 
-      setChannelUnreadCount(payload?.unreadCount ?? 0);
+      logger.debug("[DepartmentChannelContext] my-channel", {
+        unreadCount,
+        lastMessagePreview: payload?.lastMessagePreview,
+        lastActivityAt: payload?.lastActivityAt,
+      });
+
       setChannelInfo(payload);
+      setChannelUnreadCount(unreadCount);
     } catch (error) {
+      // Keep previous channelUnreadCount to avoid hiding badges on transient failures.
       logger.debug("Failed to load department channel info:", error);
-      setChannelUnreadCount(0);
-      setChannelInfo(null);
     }
   }, []);
 

@@ -121,8 +121,9 @@ const normalizeRequestTypeParam = (value) => {
   return category?.name ?? "all";
 };
 
-const ApprovalsScreen = () => {
+const ApprovalsScreen = ({ pagerParams } = {}) => {
   const route = useRoute();
+  const navigationParams = pagerParams ?? route.params ?? {};
   const { isAdmin } = useRoles();
 
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
@@ -134,28 +135,30 @@ const ApprovalsScreen = () => {
 
   const [activeTab, setActiveTab] = useState("all");
   const [requestSubtypeFilter, setRequestSubtypeFilter] = useState("all");
-  useFocusEffect(
-    useCallback(() => {
-      const legacyFilter = String(route.params?.filter ?? "").toLowerCase();
-      const nextTab = normalizeMainFilterParam(
-        route.params?.mainFilter ?? route.params?.filter,
-      );
-      const nextSubtype = normalizeRequestTypeParam(
-        route.params?.requestType ??
-          (legacyFilter === "leaves" ? "leave" : undefined),
-      );
+  useEffect(() => {
+    const legacyFilter = String(navigationParams.filter ?? "").toLowerCase();
+    const nextTab = normalizeMainFilterParam(
+      navigationParams.mainFilter ?? navigationParams.filter,
+    );
+    const nextSubtype = normalizeRequestTypeParam(
+      navigationParams.requestType ??
+        (legacyFilter === "leaves" ? "leave" : undefined),
+    );
 
-      if (nextTab) {
-        setActiveTab(nextTab);
-      }
+    if (nextTab) {
+      setActiveTab(nextTab);
+    }
 
-      if (nextTab === "general" || route.params?.requestType) {
-        setRequestSubtypeFilter(nextSubtype);
-      } else if (nextTab) {
-        setRequestSubtypeFilter("all");
-      }
-    }, [route.params?.filter, route.params?.mainFilter, route.params?.requestType]),
-  );
+    if (nextTab === "general" || navigationParams.requestType) {
+      setRequestSubtypeFilter(nextSubtype);
+    } else if (nextTab) {
+      setRequestSubtypeFilter("all");
+    }
+  }, [
+    navigationParams.filter,
+    navigationParams.mainFilter,
+    navigationParams.requestType,
+  ]);
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [generalRequests, setGeneralRequests] = useState([]);
   const [pendingUsers, setPendingUsers] = useState([]);

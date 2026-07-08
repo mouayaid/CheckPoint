@@ -11,24 +11,32 @@ namespace PFE.Application.Services;
 
 public class RoomReservationService : IRoomReservationService
 {
+    private static readonly TimeSpan StartWindowLeadTime = TimeSpan.FromMinutes(15);
+
     private readonly IApplicationDbContext _context;
     private readonly IMapper _mapper;
     private readonly INotificationService _notificationService;
+    private readonly IAppTimeProvider _timeProvider;
 
     public RoomReservationService(
         IApplicationDbContext context,
         IMapper mapper,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IAppTimeProvider timeProvider)
     {
         _context = context;
         _mapper = mapper;
         _notificationService = notificationService;
+        _timeProvider = timeProvider;
     }
 
     public async Task<List<RoomReservationForDayDto>> GetReservationsForDayAsync(int roomId, DateTime date)
     {
-        var startOfDay = date.Date;
-        var endOfDay = startOfDay.AddDays(1);
+        var tunisiaDate = DateOnly.FromDateTime(date);
+        var startOfDay = _timeProvider.ConvertTunisiaToUtc(
+            tunisiaDate.ToDateTime(TimeOnly.MinValue));
+        var endOfDay = _timeProvider.ConvertTunisiaToUtc(
+            tunisiaDate.AddDays(1).ToDateTime(TimeOnly.MinValue));
 
         var reservations = await _context.RoomReservations
             .AsNoTracking()
@@ -36,8 +44,7 @@ public class RoomReservationService : IRoomReservationService
                 .ThenInclude(u => u.Department)
             .Include(r => r.Room)
             .Where(r => r.RoomId == roomId &&
-                        (((r.Status == ReservationStatus.Pending ||
-                           r.Status == ReservationStatus.Active) &&
+                        ((r.Status == ReservationStatus.Active &&
                           r.StartDateTime < endOfDay &&
                           r.EndDateTime > startOfDay) ||
                          (r.Status == ReservationStatus.InProgress &&
@@ -63,21 +70,27 @@ public class RoomReservationService : IRoomReservationService
         if (!roomExists)
             throw new NotFoundException($"Room with id {dto.RoomId} not found.");
 
-        if (dto.EndDateTime <= dto.StartDateTime)
+        var startUtc = NormalizeReservationInputToUtc(dto.StartDateTime);
+        var endUtc = NormalizeReservationInputToUtc(dto.EndDateTime);
+        var startTunisia = _timeProvider.ConvertUtcToTunisia(startUtc);
+        var endTunisia = _timeProvider.ConvertUtcToTunisia(endUtc);
+
+        if (endUtc <= startUtc)
             throw new BadRequestException("Reservation end time must be after start time.");
 
-        if (dto.StartDateTime <= DateTime.UtcNow)
+        EnsureSameTunisiaDay(startTunisia, endTunisia);
+
+        if (startUtc <= _timeProvider.UtcNow)
             throw new BadRequestException("Reservation start time must be in the future.");
 
         var hasConflict = await _context.RoomReservations
             .AnyAsync(r =>
                 r.RoomId == dto.RoomId &&
-                (((r.Status == ReservationStatus.Pending ||
-                   r.Status == ReservationStatus.Active) &&
-                  r.StartDateTime < dto.EndDateTime &&
-                  r.EndDateTime > dto.StartDateTime) ||
+                ((r.Status == ReservationStatus.Active &&
+                  r.StartDateTime < endUtc &&
+                  r.EndDateTime > startUtc) ||
                  (r.Status == ReservationStatus.InProgress &&
-                  (r.StartedAt ?? r.StartDateTime) < dto.EndDateTime)));
+                  (r.StartedAt ?? r.StartDateTime) < endUtc)));
 
         if (hasConflict)
             throw new ConflictException("This room is already reserved for the selected time slot.");
@@ -85,14 +98,14 @@ public class RoomReservationService : IRoomReservationService
         var reservation = new RoomReservation
         {
             RoomId = dto.RoomId,
-            StartDateTime = dto.StartDateTime,
-            EndDateTime = dto.EndDateTime,
+            StartDateTime = startUtc,
+            EndDateTime = endUtc,
             Purpose = dto.Purpose,
             // Active is the current confirmed/usable room reservation state.
             Status = ReservationStatus.Active,
             UserId = creatorId,
             CreatedById = creatorId,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = _timeProvider.UtcNow
         };
 
         _context.RoomReservations.Add(reservation);
@@ -126,7 +139,7 @@ public class RoomReservationService : IRoomReservationService
             throw new BadRequestException("Only an in-progress reservation can be finished.");
 
         reservation.Status = ReservationStatus.Completed;
-        reservation.EndedAt = DateTime.UtcNow;
+        reservation.EndedAt = _timeProvider.UtcNow;
         reservation.EndedById = userId;
 
         await _context.SaveChangesAsync();
@@ -156,7 +169,14 @@ public class RoomReservationService : IRoomReservationService
         if (reservation.StartedAt != null)
             throw new BadRequestException("Meeting already started.");
 
-        reservation.StartedAt = DateTime.UtcNow;
+        var now = _timeProvider.UtcNow;
+        if (now < reservation.StartDateTime.Subtract(StartWindowLeadTime))
+            throw new BadRequestException("This reservation can only be started up to 15 minutes before its scheduled start time.");
+
+        if (now > reservation.EndDateTime)
+            throw new BadRequestException("This reservation cannot be started because its scheduled time has passed.");
+
+        reservation.StartedAt = now;
         reservation.StartedById = scannerUserId;
         reservation.Status = ReservationStatus.InProgress;
 
@@ -176,8 +196,8 @@ public class RoomReservationService : IRoomReservationService
         if (actorRole != "Manager" || !IsOwner(reservation, userId))
             throw new ForbiddenException("You cannot cancel another user's reservation.");
 
-        if (reservation.Status is not ReservationStatus.Pending and not ReservationStatus.Active)
-            throw new BadRequestException("Only pending or active reservations can be cancelled.");
+        if (reservation.Status != ReservationStatus.Active)
+            throw new BadRequestException("Only an active reservation can be cancelled.");
 
         reservation.Status = ReservationStatus.Cancelled;
 
@@ -209,5 +229,24 @@ public class RoomReservationService : IRoomReservationService
     {
         if (actorRole != "Manager" || !IsOwner(reservation, userId))
             throw new ForbiddenException("You cannot finish another user's reservation.");
+    }
+
+    private DateTime NormalizeReservationInputToUtc(DateTime value)
+    {
+        if (value.Kind == DateTimeKind.Utc)
+        {
+            return value;
+        }
+
+        var tunisiaLocal = DateTime.SpecifyKind(value, DateTimeKind.Unspecified);
+        return _timeProvider.ConvertTunisiaToUtc(tunisiaLocal);
+    }
+
+    private static void EnsureSameTunisiaDay(DateTime startTunisia, DateTime endTunisia)
+    {
+        if (startTunisia.Date != endTunisia.Date)
+        {
+            throw new BadRequestException("Reservation must start and end on the same Tunisia business day.");
+        }
     }
 }

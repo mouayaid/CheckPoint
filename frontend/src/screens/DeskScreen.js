@@ -112,6 +112,8 @@ const createStyles = (
       borderWidth: 1,
       borderColor: colors.border,
       backgroundColor: colors.surface,
+      flexGrow: 0,
+      flexShrink: 0,
     },
     statusCardBooked: {
       backgroundColor: colors.successLight,
@@ -119,8 +121,61 @@ const createStyles = (
     },
     statusRow: {
       flexDirection: "row",
-      alignItems: "center",
+      alignItems: "flex-start",
+      flexWrap: "wrap",
+      columnGap: spacing.md,
+      rowGap: spacing.sm,
+    },
+    activeReservationCardBody: {
       gap: spacing.md,
+    },
+    activeReservationHeader: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.md,
+    },
+    activeReservationText: {
+      flex: 1,
+      minWidth: 0,
+    },
+    activeReservationTitleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    statusPill: {
+      flexShrink: 0,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      borderRadius: borderRadius.full,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+      backgroundColor: colors.success,
+    },
+    statusPillText: {
+      fontSize: typography.xs,
+      fontWeight: typography.bold,
+      color: colors.textOnPrimary,
+    },
+    activeReservationActions: {
+      gap: spacing.sm,
+    },
+    secondaryActionRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm,
+    },
+    primaryActionButton: {
+      width: "100%",
+      marginTop: 0,
+    },
+    secondaryActionButton: {
+      alignSelf: "flex-start",
+      marginTop: 0,
+      minHeight: 42,
+      height: 44,
     },
     statusIconWrap: {
       width: 38,
@@ -132,6 +187,8 @@ const createStyles = (
     },
     statusTextWrap: {
       flex: 1,
+      flexShrink: 1,
+      minWidth: 0,
     },
     statusTitle: {
       fontSize: typography.sm,
@@ -661,7 +718,10 @@ const DeskScreen = () => {
     reservationStatus === "CheckedIn" ||
     reservationStatusText === "2" ||
     reservationStatusText === "checkedin" ||
-    reservationStatusText === "checked_in";
+    reservationStatusText === "checked_in" ||
+    reservationStatusText === "present" ||
+    reservationStatusText === "inprogress" ||
+    reservationStatusText === "in_progress";
   const isCompleted =
     reservationStatus === 4 ||
     reservationStatus === "Completed" ||
@@ -682,6 +742,9 @@ const DeskScreen = () => {
     reservationStatusText === "1" ||
     reservationStatusText === "active" ||
     (hasMyReservation && !isCheckedIn && !isCompleted && !isCancelledOrNoShow);
+  const hasActiveDeskReservation =
+    hasMyReservation && !isCompleted && !isCancelledOrNoShow;
+  const activeSeatLabel = hasActiveDeskReservation ? mySeatLabel : null;
 
   // ─────────────────────────────────────────────────────────────────
   // Scanner
@@ -761,7 +824,7 @@ const DeskScreen = () => {
           "Check-out réussi",
           "Votre journée de présence est terminée.",
         );
-        await fetchMyReservation();
+        await Promise.all([fetchSeatMap(), fetchMyReservation()]);
       } else {
         showFeedbackAlert(
           "Check-out refusé",
@@ -794,7 +857,7 @@ const DeskScreen = () => {
       showFeedbackAlert(
         "QR incorrect",
         "Le QR du poste doit avoir le format SEAT:{id}.",
-        [{ text: "RÃ©essayer", onPress: resetScan }],
+        [{ text: "Réessayer", onPress: resetScan }],
       );
       return;
     }
@@ -960,9 +1023,9 @@ const DeskScreen = () => {
   useEffect(() => {
     if (!seatsByTable.length) return;
 
-    if (mySeatLabel) {
+    if (activeSeatLabel) {
       const myTable = seatsByTable.find((t) =>
-        t.seats.some((s) => s.label === mySeatLabel),
+        t.seats.some((s) => s.label === activeSeatLabel),
       );
       if (myTable) {
         setSelectedTableId(myTable.tableId);
@@ -984,7 +1047,7 @@ const DeskScreen = () => {
     if (!selectedTableId) {
       setSelectedTableId(seatsByTable[0].tableId);
     }
-  }, [seatsByTable, mySeatLabel]);
+  }, [seatsByTable, activeSeatLabel]);
 
   const selectedTable = useMemo(
     () => seatsByTable.find((t) => t.tableId === selectedTableId),
@@ -996,7 +1059,7 @@ const DeskScreen = () => {
   // ─────────────────────────────────────────────────────────────────
   const handleSeatPress = (seat) => {
     if (!seat) return;
-    const isMySeat = mySeatLabel && seat.label === mySeatLabel;
+    const isMySeat = activeSeatLabel && seat.label === activeSeatLabel;
 
     if (isMySeat) {
       showFeedbackAlert(
@@ -1020,7 +1083,7 @@ const DeskScreen = () => {
       return;
     }
 
-    if (hasMyReservation) {
+    if (hasActiveDeskReservation) {
       showFeedbackAlert(
         "Déjà réservé",
         `Vous avez le poste ${mySeatLabel}. Annulez d'abord cette réservation.`,
@@ -1065,7 +1128,7 @@ const DeskScreen = () => {
   };
 
   const handleCancelReservation = () => {
-    if (!hasMyReservation) return;
+    if (!hasActiveDeskReservation) return;
     if (!isActiveReservation) {
       showFeedbackAlert(
         "Réservation non annulable",
@@ -1116,24 +1179,24 @@ const DeskScreen = () => {
   // Rendering helpers
   // ─────────────────────────────────────────────────────────────────
   const getSeatColor = (seat) => {
-    const isMySeat = mySeatLabel && seat.label === mySeatLabel;
+    const isMySeat = activeSeatLabel && seat.label === activeSeatLabel;
     const isSelected = selectedAvailableSeat?.id === seat.id;
     const isLoadingThisSeat = reservingSeatId === seat.id;
 
     if (isMySeat) return colors.seatMine;
     if (isLoadingThisSeat || isSelected) return colors.seatSelected;
     if (seat.isReserved) return colors.seatReserved;
-    if (hasMyReservation) return colors.border;
+    if (hasActiveDeskReservation) return colors.border;
     return colors.seatAvailable;
   };
 
   const renderSeat = (seat, position = "side") => {
-    const isMySeat = mySeatLabel && seat.label === mySeatLabel;
+    const isMySeat = activeSeatLabel && seat.label === activeSeatLabel;
     const isLoadingThisSeat = reservingSeatId === seat.id;
     const isDisabled =
       cancelling ||
       !!reservingSeatId ||
-      (hasMyReservation && !seat.isReserved && !isMySeat);
+      (hasActiveDeskReservation && !seat.isReserved && !isMySeat);
     const isSelected = selectedAvailableSeat?.id === seat.id;
 
     return (
@@ -1230,7 +1293,8 @@ const DeskScreen = () => {
     ({ item: table }) => {
       const isActive = table.tableId === selectedTableId;
       const hasMyTable =
-        !!mySeatLabel && table.seats.some((s) => s.label === mySeatLabel);
+        !!activeSeatLabel &&
+        table.seats.some((s) => s.label === activeSeatLabel);
       const available = table.seats.filter((s) => !s.isReserved).length;
       const total = table.seats.length;
       const DOT_LIMIT = 6;
@@ -1259,7 +1323,7 @@ const DeskScreen = () => {
                   styles.tableOptionDot,
                   {
                     backgroundColor:
-                      s.label === mySeatLabel
+                      s.label === activeSeatLabel
                         ? colors.seatMine
                         : s.isReserved
                           ? colors.seatReserved
@@ -1292,7 +1356,7 @@ const DeskScreen = () => {
         </TouchableOpacity>
       );
     },
-    [selectedTableId, mySeatLabel, colors, styles],
+    [selectedTableId, activeSeatLabel, colors, styles],
   );
 
   const renderTableSelector = () => {
@@ -1360,7 +1424,9 @@ const DeskScreen = () => {
       <Card
         style={[
           styles.statusCard,
-          hasMyReservation && !loadingMyReservation && styles.statusCardBooked,
+          hasActiveDeskReservation &&
+            !loadingMyReservation &&
+            styles.statusCardBooked,
         ]}
       >
         {loadingMyReservation ? (
@@ -1372,64 +1438,83 @@ const DeskScreen = () => {
               Vérification de votre réservation…
             </Text>
           </View>
-        ) : hasMyReservation ? (
-          <View style={styles.statusRow}>
-            <View style={[styles.statusIconWrap, styles.statusIconSuccess]}>
-              <Ionicons name="checkmark" size={18} color={colors.success} />
-            </View>
-            <View style={styles.statusTextWrap}>
-              <Text style={styles.statusTitle}>
-                Poste {mySeatLabel} réservé
-              </Text>
-              <Text style={styles.statusHint}>Aujourd&apos;hui · confirmé</Text>
-              <Text testID="attendance.status" style={styles.statusHint}>
-                {isCompleted
-                  ? "checked-out"
-                  : isCheckedIn
-                    ? "checked-in"
-                    : "reserved"}
-              </Text>
-              {isCheckedIn && reservationCheckedInAt ? (
-                <Text testID="desk.checkInStatus" style={styles.statusHint}>
-                  Check-in :{" "}
-                  {new Date(reservationCheckedInAt).toLocaleTimeString(
-                    "fr-FR",
-                    { hour: "2-digit", minute: "2-digit" },
-                  )}
+        ) : hasActiveDeskReservation ? (
+          <View style={styles.activeReservationCardBody}>
+            <View style={styles.activeReservationHeader}>
+              <View style={[styles.statusIconWrap, styles.statusIconSuccess]}>
+                <Ionicons name="checkmark" size={18} color={colors.success} />
+              </View>
+
+              <View style={styles.activeReservationText}>
+                <View style={styles.activeReservationTitleRow}>
+                  <Text style={styles.statusTitle} numberOfLines={1}>
+                    Poste {mySeatLabel} réservé
+                  </Text>
+
+                  {isCheckedIn ? (
+                    <View style={styles.statusPill}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={13}
+                        color={colors.textOnPrimary}
+                      />
+                      <Text style={styles.statusPillText}>Présent</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                <Text style={styles.statusHint} numberOfLines={2}>
+                  Aujourd&apos;hui
+                  {isCheckedIn && reservationCheckedInAt
+                    ? ` · Check-in : ${new Date(
+                        reservationCheckedInAt,
+                      ).toLocaleTimeString("fr-FR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}`
+                    : " · confirmé"}
                 </Text>
-              ) : null}
-              {isCompleted ? (
-                <Text testID="desk.checkOutStatus" style={styles.statusHint}>
-                  Check-out effectué
+
+                <Text testID="attendance.status" style={styles.e2eHiddenMarker}>
+                  {isCheckedIn ? "checked-in" : "reserved"}
                 </Text>
+              </View>
+            </View>
+
+            <View style={styles.activeReservationActions}>
+              {isCheckedIn ? (
+                <Button
+                  testID="attendance.checkOutButton"
+                  title="Check-out"
+                  onPress={handleCheckOut}
+                  loading={checkingOut}
+                  disabled={checkingOut}
+                  style={styles.primaryActionButton}
+                />
+              ) : (
+                <Button
+                  testID="attendance.checkInButton"
+                  title="Scanner QR"
+                  onPress={openScanner}
+                  disabled={checkingIn || !isActiveReservation}
+                  style={styles.primaryActionButton}
+                />
+              )}
+
+              {!isCheckedIn && isActiveReservation ? (
+                <View style={styles.secondaryActionRow}>
+                  <Button
+                    testID="desk.cancelReservationButton"
+                    title="Libérer"
+                    variant="secondary"
+                    onPress={handleCancelReservation}
+                    loading={cancelling}
+                    disabled={cancelling}
+                    style={styles.secondaryActionButton}
+                  />
+                </View>
               ) : null}
             </View>
-            <Button
-              testID="attendance.checkInButton"
-              title={isCheckedIn ? "Présent" : "Scanner QR"}
-              onPress={openScanner}
-              disabled={checkingIn || isCheckedIn || !isActiveReservation}
-              style={{ marginRight: 8 }}
-            />
-            {isCheckedIn ? (
-              <Button
-                testID="attendance.checkOutButton"
-                title="Check-out"
-                variant="secondary"
-                onPress={handleCheckOut}
-                loading={checkingOut}
-                disabled={checkingOut}
-                style={{ marginRight: 8 }}
-              />
-            ) : null}
-            <Button
-              testID="desk.cancelReservationButton"
-              title="Libérer"
-              variant="danger-outline"
-              onPress={handleCancelReservation}
-              loading={cancelling}
-              disabled={cancelling || !isActiveReservation}
-            />
           </View>
         ) : (
           <View style={styles.statusRow}>

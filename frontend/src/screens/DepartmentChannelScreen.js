@@ -201,8 +201,16 @@ const FeedItem = React.memo(
   },
 );
 
-export default function DepartmentChannelScreen() {
+export default function DepartmentChannelScreen({ isActiveRoute = false }) {
   const { colors, spacing, borderRadius, typography } = useTheme();
+
+  // --- Temporary diagnostics (remove later) ---
+  const renderCountRef = useRef(0);
+  renderCountRef.current += 1;
+  logger.debug(
+    `[DepartmentChannelScreen] render #${renderCountRef.current} (ts=${Date.now()})`,
+  );
+
   const styles = useMemo(
     () => createStyles(colors, spacing, borderRadius, typography),
     [colors, spacing, borderRadius, typography],
@@ -211,11 +219,9 @@ export default function DepartmentChannelScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const flatListRef = useRef(null);
-
   const { user } = useAuth();
   const { canPublishDepartmentChannel, canVotePoll } = useRoles();
   const { refreshChannelInfo } = useDepartmentChannel();
-
   const departmentId = user?.departmentId ?? user?.DepartmentId ?? null;
 
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -245,45 +251,79 @@ export default function DepartmentChannelScreen() {
     };
   }, []);
 
-  const markAsRead = async () => {
+  const loadFeed = useCallback(async (asRefresh = false) => {
     try {
-      await departmentChannelService.markRead();
+      if (asRefresh) setRefreshing(true);
+      else setLoading(true);
+
+      const res = await departmentChannelService.getMyFeed();
+      setItems(Array.isArray(res) ? res : (res?.data ?? []));
     } catch (error) {
-      logger.debug("Failed to mark channel as read", error);
+      Alert.alert(
+        "Erreur",
+        error?.message || "Impossible de charger le canal.",
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-  };
-
-  const loadFeed = useCallback(
-    async (asRefresh = false) => {
-      try {
-        if (asRefresh) setRefreshing(true);
-        else setLoading(true);
-
-        const res = await departmentChannelService.getMyFeed();
-        setItems(Array.isArray(res) ? res : (res?.data ?? []));
-      } catch (error) {
-        Alert.alert(
-          "Erreur",
-          error?.message || "Impossible de charger le canal.",
-        );
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [],
-  );
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
+      const isActive = isActiveRoute === true;
+
+      logger.debug(
+        `[DepartmentChannelScreen] useFocusEffect fired (ts=${Date.now()}) isActive=${isActive}`,
+      );
+
+      if (!isActive) {
+        logger.debug(
+          `[DepartmentChannelScreen] skipping Canal init because route is not active (ts=${Date.now()})`,
+        );
+
+        return undefined;
+      }
+
+      let cancelled = false;
+
       const init = async () => {
         await loadFeed(false);
-        await markAsRead();
-        await refreshChannelInfo();
+
+        if (cancelled) return;
+
+        try {
+          logger.debug(
+            `[DepartmentChannelScreen] immediately before POST /DepartmentChannel/mark-read (ts=${Date.now()})`,
+          );
+
+          await departmentChannelService.markRead();
+
+          if (cancelled) return;
+
+          logger.debug(
+            `[DepartmentChannelScreen] after mark-read success (ts=${Date.now()})`,
+          );
+
+          await refreshChannelInfo();
+        } catch (error) {
+          logger.debug(
+            `[DepartmentChannelScreen] mark-read failed (ts=${Date.now()})`,
+            error,
+          );
+        }
       };
 
       init();
-    }, [loadFeed, refreshChannelInfo]),
+
+      return () => {
+        cancelled = true;
+
+        logger.debug(
+          `[DepartmentChannelScreen] useFocusEffect cleanup (ts=${Date.now()})`,
+        );
+      };
+    }, [isActiveRoute, loadFeed, refreshChannelInfo]),
   );
 
   const resetComposer = () => {
@@ -405,14 +445,20 @@ export default function DepartmentChannelScreen() {
   if (!user) return null;
 
   const composerBottomPadding = keyboardVisible
-    ? spacing.md
+    ? spacing.sm
     : spacing.lg + insets.bottom + FLOATING_TAB_SPACE;
+
+  const keyboardAvoidingBehavior =
+    Platform.OS === "ios" ? "padding" : "padding";
+
+  const keyboardVerticalOffset =
+    Platform.OS === "ios" ? headerHeight : FLOATING_TAB_SPACE;
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? headerHeight : 0}
+      behavior={keyboardAvoidingBehavior}
+      keyboardVerticalOffset={keyboardVerticalOffset}
     >
       <View style={styles.feedContainer}>
         {loading ? (

@@ -38,12 +38,6 @@ public class MappingProfile : Profile
     .ForMember(dest => dest.RoleId, opt => opt.MapFrom(src => src.RoleId))
     .ForMember(dest => dest.RoleName, opt => opt.MapFrom(src => src.Role != null ? src.Role.Name : string.Empty))
     .ForMember(dest => dest.LeaveBalance, opt => opt.MapFrom(src => src.LeaveBalance));
-        CreateMap<CreateUserDto, User>()
-            .ForMember(dest => dest.PasswordHash, opt => opt.Ignore())
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
-            .ForMember(dest => dest.Department, opt => opt.Ignore());
-
         CreateMap<UpdateUserDto, User>()
             .ForMember(dest => dest.Id, opt => opt.Ignore())
             .ForMember(dest => dest.Email, opt => opt.Ignore())
@@ -97,15 +91,6 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.UserId, opt => opt.Ignore())
             .ForMember(dest => dest.Status, opt => opt.MapFrom(src => ReservationStatus.Active))
             .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
-            .ForMember(dest => dest.Seat, opt => opt.Ignore())
-            .ForMember(dest => dest.User, opt => opt.Ignore());
-
-        CreateMap<UpdateSeatReservationDto, SeatReservation>()
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.SeatId, opt => opt.Ignore())
-            .ForMember(dest => dest.UserId, opt => opt.Ignore())
-            .ForMember(dest => dest.Date, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
             .ForMember(dest => dest.Seat, opt => opt.Ignore())
             .ForMember(dest => dest.User, opt => opt.Ignore());
 
@@ -165,15 +150,6 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.ReviewedById, opt => opt.Ignore())
             .ForMember(dest => dest.ReviewedBy, opt => opt.Ignore());
 
-        CreateMap<UpdateLeaveRequestDto, LeaveRequest>()
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.UserId, opt => opt.Ignore())
-            .ForMember(dest => dest.Status, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
-            .ForMember(dest => dest.User, opt => opt.Ignore())
-            .ForMember(dest => dest.ReviewedById, opt => opt.Ignore())
-            .ForMember(dest => dest.ReviewedBy, opt => opt.Ignore());
-
         // GeneralRequest mappings
         CreateMap<GeneralRequest, GeneralRequestDto>()
             .ForMember(dest => dest.UserName, opt => opt.MapFrom(src =>
@@ -223,36 +199,9 @@ public class MappingProfile : Profile
             .ForMember(dest => dest.EventTitle, opt => opt.MapFrom(src => src.Event.Title))
             .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.User.FullName));
 
-        CreateMap<CreateEventParticipantDto, EventParticipant>()
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.ResponseAt, opt => opt.Ignore())
-            .ForMember(dest => dest.Event, opt => opt.Ignore())
-            .ForMember(dest => dest.User, opt => opt.Ignore());
-
-        CreateMap<UpdateEventParticipantDto, EventParticipant>()
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.EventId, opt => opt.Ignore())
-            .ForMember(dest => dest.UserId, opt => opt.Ignore())
-            .ForMember(dest => dest.ResponseAt, opt => opt.MapFrom(src => DateTime.UtcNow))
-            .ForMember(dest => dest.Event, opt => opt.Ignore())
-            .ForMember(dest => dest.User, opt => opt.Ignore());
-
         // Notification mappings
         CreateMap<Notification, NotificationDto>();
 
-        CreateMap<CreateNotificationDto, Notification>()
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.IsRead, opt => opt.MapFrom(src => false))
-            .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
-            .ForMember(dest => dest.User, opt => opt.Ignore());
-
-        CreateMap<UpdateNotificationDto, Notification>()
-            .ForMember(dest => dest.Id, opt => opt.Ignore())
-            .ForMember(dest => dest.UserId, opt => opt.Ignore())
-            .ForMember(dest => dest.Title, opt => opt.Ignore())
-            .ForMember(dest => dest.Message, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
-            .ForMember(dest => dest.User, opt => opt.Ignore());
     }
 
     private static List<RecoverySlotDto>? DeserializeRecoverySlots(string? recoverySlotsJson)

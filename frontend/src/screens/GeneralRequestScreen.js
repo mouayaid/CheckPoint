@@ -27,6 +27,7 @@ import { useTheme } from "../context/ThemeContext";
 import { useAuth } from "../context/AuthContext";
 import FeedbackModal from "../components/FeedbackModal";
 import { useFeedback } from "../hooks/useFeedback";
+import { formatDate as formatDateOnlyLocal } from "../utils/helpers";
 
 const CATEGORIES = [
   { label: "Autorisation de sortie", value: 1, name: "ExitAuthorization", icon: "exit-outline" },
@@ -630,7 +631,7 @@ export default function GeneralRequestScreen() {
           title: "Autorisation de sortie",
           description: motif.trim(),
           category,
-          authorizedDate: authorizedDate.toISOString(),
+          authorizedDate: formatDateOnlyLocal(authorizedDate),
           startTime: formatTimePayload(startTime),
           endTime: formatTimePayload(endTime),
           totalMinutes,
@@ -646,13 +647,13 @@ export default function GeneralRequestScreen() {
           requiredRecoveryMinutes,
           ...(isRecoveryAuthorization
             ? {
-                authorizedDate: authorizedDate.toISOString(),
+                authorizedDate: formatDateOnlyLocal(authorizedDate),
                 startTime: formatTimePayload(startTime),
                 endTime: formatTimePayload(endTime),
               }
             : {
-                startDate: recoveryStartDate.toISOString(),
-                endDate: recoveryEndDate.toISOString(),
+                startDate: formatDateOnlyLocal(recoveryStartDate),
+                endDate: formatDateOnlyLocal(recoveryEndDate),
                 numberOfDays: recoveryDayCount,
                 recoveryNature,
               }),
@@ -660,7 +661,7 @@ export default function GeneralRequestScreen() {
           totalRecoveryMinutes: shouldPlanRecovery ? totalRecoveryMinutes : 0,
           recoverySlots: shouldPlanRecovery
             ? recoverySlots.map((slot) => ({
-                date: slot.date.toISOString(),
+                date: formatDateOnlyLocal(slot.date),
                 startTime: formatTimePayload(slot.startTime),
                 endTime: formatTimePayload(slot.endTime),
                 minutes: calculateDurationMinutes(slot.startTime, slot.endTime),

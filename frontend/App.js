@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useFonts,
   Inter_400Regular,
@@ -12,7 +12,6 @@ import {
   useFocusEffect,
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -55,7 +54,6 @@ import SplashScreen from "./src/screens/SplashScreen";
 import { DepartmentChannelProvider } from "./src/context/DepartmentChannelContext";
 import { useDepartmentChannel } from "./src/context/DepartmentChannelContext";
 import CustomBottomTabBar from "./src/components/CustomBottomTabBar";
-import AnimatedTabScreen from "./src/components/AnimatedTabScreen";
 import RoomManagementScreen from "./src/screens/admin/RoomManagementScreen";
 import AdminStatisticsScreen from "./src/screens/admin/AdminStatisticsScreen";
 import DepartmentManagementScreen from "./src/screens/admin/DepartmentManagementScreen";
@@ -66,7 +64,14 @@ import { isE2EMode } from "./src/utils/e2eMode";
 import { useRoles } from "./src/hooks/useRoles";
 
 const Stack = createNativeStackNavigator();
-const Tab = createBottomTabNavigator();
+
+const MAIN_ROUTE_TITLES = {
+  Home: "Accueil",
+  Channel: "Canal",
+  Announcements: "Annonces",
+  Approvals: "Approbations",
+  Statistics: "Statistiques",
+};
 
 function HeaderActions() {
   const navigation = useNavigation();
@@ -103,11 +108,13 @@ function HeaderActions() {
   );
 }
 
-function HomeTabs() {
+function HomeTabs({ navigation, route }) {
   const { colors } = useTheme();
   const { user } = useAuth();
   const { refreshChannelInfo } = useDepartmentChannel();
-  const { isAdmin, canReviewRequests } = useRoles(user);
+  const { isAdmin } = useRoles(user);
+  const [activeRouteName, setActiveRouteName] = useState("Home");
+  const [routeParamsByName, setRouteParamsByName] = useState({});
 
   useFocusEffect(
     useCallback(() => {
@@ -117,106 +124,133 @@ function HomeTabs() {
 
   const visibleSwipeRoutes = useMemo(() => {
     const base = ["Home"];
-    if (!isAdmin) base.push("Channel");
-    if (isAdmin) base.push("Announcements");
-    if (canReviewRequests) base.push("Approvals");
+
+    if (!isAdmin) {
+      base.push("Channel");
+    }
+
+    if (isAdmin) {
+      base.push("Announcements");
+    }
+
+    if (isAdmin) {
+      base.push("Statistics");
+    }
+
     return base;
-  }, [isAdmin, canReviewRequests]);
+  }, [isAdmin]);
+
+  const availableRouteNames = useMemo(() => {
+    return isAdmin ? [...visibleSwipeRoutes, "Approvals"] : visibleSwipeRoutes;
+  }, [isAdmin, visibleSwipeRoutes]);
+
+  const pagerRoutes = useMemo(() => {
+    if (visibleSwipeRoutes.includes(activeRouteName)) {
+      return visibleSwipeRoutes;
+    }
+
+    if (availableRouteNames.includes(activeRouteName)) {
+      return [...visibleSwipeRoutes, activeRouteName];
+    }
+
+    return visibleSwipeRoutes;
+  }, [activeRouteName, availableRouteNames, visibleSwipeRoutes]);
+
+  useEffect(() => {
+    if (availableRouteNames.includes(activeRouteName)) return;
+
+    setActiveRouteName(visibleSwipeRoutes[0] ?? "Home");
+  }, [activeRouteName, availableRouteNames, visibleSwipeRoutes]);
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerShown: true,
+      headerRight: () => <HeaderActions />,
+      headerStyle: {
+        backgroundColor: colors.surface,
+      },
+      headerTintColor: colors.textPrimary,
+      headerTitleStyle: {
+        fontWeight: typography.semibold,
+        fontSize: typography.lg,
+      },
+      headerShadowVisible: false,
+      title: MAIN_ROUTE_TITLES[activeRouteName] ?? MAIN_ROUTE_TITLES.Home,
+    });
+  }, [activeRouteName, colors.surface, colors.textPrimary, navigation]);
+
+  useEffect(() => {
+    const requestedRouteName = route.params?.screen;
+    const requestedParams = route.params?.params;
+
+    if (
+      !requestedRouteName ||
+      !availableRouteNames.includes(requestedRouteName)
+    ) {
+      return;
+    }
+
+    if (requestedParams) {
+      setRouteParamsByName((prev) => ({
+        ...prev,
+        [requestedRouteName]: requestedParams,
+      }));
+    }
+
+    setActiveRouteName(requestedRouteName);
+  }, [availableRouteNames, route.params?.params, route.params?.screen]);
+
+  const handleChangeRouteName = useCallback(
+    (nextRouteName) => {
+      if (!availableRouteNames.includes(nextRouteName)) return;
+
+      setActiveRouteName(nextRouteName);
+    },
+    [availableRouteNames],
+  );
+
+  const renderRoute = useCallback(
+    (routeName, isActiveRoute) => {
+      switch (routeName) {
+        case "Home":
+          return <DashboardScreen />;
+
+        case "Channel":
+          return <DepartmentChannelScreen isActiveRoute={isActiveRoute} />;
+
+        case "Announcements":
+          return <ManageAnnouncementsScreen />;
+
+        case "Statistics":
+          return <AdminStatisticsScreen />;
+
+        case "Approvals":
+          return <ApprovalsScreen pagerParams={routeParamsByName.Approvals} />;
+
+        default:
+          return <DashboardScreen />;
+      }
+    },
+    [routeParamsByName.Approvals],
+  );
 
   return (
-    <Tab.Navigator
-      tabBar={(props) => <CustomBottomTabBar {...props} />}
-      screenOptions={{
-        headerShown: true,
-        headerRight: () => <HeaderActions />,
-        headerStyle: {
-          backgroundColor: colors.surface,
-        },
-        headerTintColor: colors.textPrimary,
-        headerTitleStyle: {
-          fontWeight: typography.semibold,
-          fontSize: typography.lg,
-        },
-        headerShadowVisible: false,
-        sceneStyle: {
-          backgroundColor: colors.background,
-        },
-        sceneContainerStyle: {
-          backgroundColor: colors.background,
-        },
-        lazy: false,
-      }}
+    <View
+      style={[styles.mainTabsSurface, { backgroundColor: colors.background }]}
     >
-      <Tab.Screen name="Home" options={{ title: "Accueil" }}>
-        {({ navigation }) => (
-          <AnimatedTabScreen>
-            <SwipeTabsPager
-              routes={visibleSwipeRoutes}
-              activeRouteName={
-                navigation.getState().routes[navigation.getState().index].name
-              }
-              onChangeRouteName={(nextRouteName) =>
-                navigation.navigate(nextRouteName)
-              }
-              renderRoute={(routeName) => {
-                switch (routeName) {
-                  case "Home":
-                    return <DashboardScreen />;
-                  case "Channel":
-                    return <DepartmentChannelScreen />;
-                  case "Announcements":
-                    return <ManageAnnouncementsScreen />;
-                  case "Approvals":
-                    return <ApprovalsScreen />;
-                  default:
-                    return <DashboardScreen />;
-                }
-              }}
-            />
-          </AnimatedTabScreen>
-        )}
-      </Tab.Screen>
+      <SwipeTabsPager
+        routes={pagerRoutes}
+        activeRouteName={activeRouteName}
+        onChangeRouteName={handleChangeRouteName}
+        renderRoute={renderRoute}
+      />
 
-      {!isAdmin && (
-        <Tab.Screen name="Channel" options={{ title: "Canal" }}>
-          {() => (
-            <AnimatedTabScreen>
-              <DepartmentChannelScreen />
-            </AnimatedTabScreen>
-          )}
-        </Tab.Screen>
-      )}
-
-      {isAdmin && (
-        <Tab.Screen name="Announcements" options={{ title: "Annonces" }}>
-          {() => (
-            <AnimatedTabScreen>
-              <ManageAnnouncementsScreen />
-            </AnimatedTabScreen>
-          )}
-        </Tab.Screen>
-      )}
-
-      {canReviewRequests && (
-        <Tab.Screen name="Approvals" options={{ title: "Approbations" }}>
-          {() => (
-            <AnimatedTabScreen>
-              <ApprovalsScreen />
-            </AnimatedTabScreen>
-          )}
-        </Tab.Screen>
-      )}
-
-      {isAdmin && (
-        <Tab.Screen name="Statistics" options={{ title: "Statistiques" }}>
-          {() => (
-            <AnimatedTabScreen>
-              <AdminStatisticsScreen />
-            </AnimatedTabScreen>
-          )}
-        </Tab.Screen>
-      )}
-    </Tab.Navigator>
+      <CustomBottomTabBar
+        routes={visibleSwipeRoutes}
+        activeRouteName={activeRouteName}
+        onChangeRouteName={handleChangeRouteName}
+      />
+    </View>
   );
 }
 
@@ -230,7 +264,10 @@ function AppNavigator() {
     return (
       <View
         testID="bootstrap.loading"
-        style={[styles.loadingContainer, { backgroundColor: colors.background }]}
+        style={[
+          styles.loadingContainer,
+          { backgroundColor: colors.background },
+        ]}
       >
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
@@ -279,7 +316,7 @@ function AppNavigator() {
               <Stack.Screen
                 name="HomeTabs"
                 component={HomeTabs}
-                options={{ headerShown: false }}
+                options={{ headerShown: true, title: MAIN_ROUTE_TITLES.Home }}
               />
 
               <Stack.Screen
@@ -454,6 +491,9 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 12,
     fontSize: typography.sm,
+  },
+  mainTabsSurface: {
+    flex: 1,
   },
   headerActions: {
     flexDirection: "row",

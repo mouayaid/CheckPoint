@@ -252,11 +252,18 @@ function AnimatedTabItem({
   );
 }
 
-export default function CustomBottomTabBar({ state, navigation }) {
+export default function CustomBottomTabBar({
+  state,
+  navigation,
+  routes,
+  activeRouteName,
+  onChangeRouteName,
+}) {
   const { colors, typography, shadows, darkMode } = useTheme();
   const { channelUnreadCount } = useDepartmentChannel();
   const { isAdmin, canReviewRequests } = useRoles();
   const insets = useSafeAreaInsets();
+  const isControlled = Array.isArray(routes);
 
   const [barWidth, setBarWidth] = useState(0);
 
@@ -280,7 +287,20 @@ export default function CustomBottomTabBar({ state, navigation }) {
     };
   }, []);
 
+  const controlledRoutes = useMemo(() => {
+    return (routes ?? [])
+      .filter((routeName) => routeName !== "Approvals")
+      .map((routeName) => ({
+        key: routeName,
+        name: routeName,
+      }));
+  }, [routes]);
+
   const visibleRoutes = useMemo(() => {
+    if (isControlled) {
+      return controlledRoutes;
+    }
+
     return state.routes.filter((route) => {
       if (
         route.name === "Approvals" &&
@@ -291,13 +311,21 @@ export default function CustomBottomTabBar({ state, navigation }) {
 
       return true;
     });
-  }, [state.routes, isAdmin, canReviewRequests]);
+  }, [
+    controlledRoutes,
+    isAdmin,
+    isControlled,
+    canReviewRequests,
+    state?.routes,
+  ]);
 
   const currentVisibleIndex = Math.max(
     0,
-    visibleRoutes.findIndex(
-      (route) => route.key === state.routes[state.index]?.key,
-    ),
+    isControlled
+      ? visibleRoutes.findIndex((route) => route.name === activeRouteName)
+      : visibleRoutes.findIndex(
+          (route) => route.key === state.routes[state.index]?.key,
+        ),
   );
 
   const tabWidth =
@@ -439,13 +467,22 @@ export default function CustomBottomTabBar({ state, navigation }) {
 
           <View style={styles.row}>
             {visibleRoutes.map((route) => {
-              const focused =
-                state.index ===
-                state.routes.findIndex((r) => r.key === route.key);
+              const focused = isControlled
+                ? route.name === activeRouteName
+                : state.index ===
+                  state.routes.findIndex((r) => r.key === route.key);
 
               const { icon, label } = getTabConfig(route.name, focused);
 
               const onPress = () => {
+                if (isControlled) {
+                  if (!focused) {
+                    onChangeRouteName?.(route.name);
+                  }
+
+                  return;
+                }
+
                 const event = navigation.emit({
                   type: "tabPress",
                   target: route.key,
@@ -458,6 +495,8 @@ export default function CustomBottomTabBar({ state, navigation }) {
               };
 
               const onLongPress = () => {
+                if (isControlled) return;
+
                 navigation.emit({
                   type: "tabLongPress",
                   target: route.key,

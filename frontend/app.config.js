@@ -57,9 +57,10 @@ module.exports = {
     android: {
       package: "com.anonymous.pfemobileapp",
       permissions: ["READ_MEDIA_IMAGES", "WRITE_EXTERNAL_STORAGE"],
+      softwareKeyboardLayoutMode: "resize",
     },
     extra: {
-      apiHost: "172.30.20.128",
+      apiHost: "192.168.1.12",
       apiUrl: apiUrls[environment],
       e2eApiUrl: "http://10.0.2.2:5000/api",
       environment,

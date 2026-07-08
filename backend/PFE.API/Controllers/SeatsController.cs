@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using PFE.Application.Abstractions;
 using PFE.Application.Common;
 using PFE.Application.DTOs.Seat;
 using PFE.Application.Services;
@@ -12,10 +13,12 @@ namespace PFE.API.Controllers;
 public class SeatsController : ControllerBase
 {
     private readonly ISeatService _seatService;
+    private readonly IAppTimeProvider _timeProvider;
 
-    public SeatsController(ISeatService seatService)
+    public SeatsController(ISeatService seatService, IAppTimeProvider timeProvider)
     {
         _seatService = seatService;
+        _timeProvider = timeProvider;
     }
 
     /// <summary>
@@ -29,7 +32,7 @@ public class SeatsController : ControllerBase
         // If no date provided, use today
         if (date == default)
         {
-            date = DateTime.Today;
+            date = _timeProvider.TunisiaToday.ToDateTime(TimeOnly.MinValue);
         }
 
         var seatMap = await _seatService.GetSeatMapAsync(date);

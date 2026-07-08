@@ -865,18 +865,9 @@ namespace PFE.Infrastructure.Migrations
                     b.Property<int?>("EndedById")
                         .HasColumnType("int");
 
-                    b.Property<string>("ManagerComment")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<int?>("ManagerId")
-                        .HasColumnType("int");
-
                     b.Property<string>("Purpose")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime?>("ReviewedAt")
-                        .HasColumnType("datetime2");
 
                     b.Property<int>("RoomId")
                         .HasColumnType("int");
@@ -901,8 +892,6 @@ namespace PFE.Infrastructure.Migrations
                     b.HasIndex("CreatedById");
 
                     b.HasIndex("EndedById");
-
-                    b.HasIndex("ManagerId");
 
                     b.HasIndex("RoomId")
                         .HasDatabaseName("IX_RoomReservations_RoomId");
@@ -1346,11 +1335,6 @@ namespace PFE.Infrastructure.Migrations
                         .HasForeignKey("EndedById")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("PFE.Domain.Entities.User", "Manager")
-                        .WithMany()
-                        .HasForeignKey("ManagerId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("PFE.Domain.Entities.Room", "Room")
                         .WithMany("Reservations")
                         .HasForeignKey("RoomId")
@@ -1373,8 +1357,6 @@ namespace PFE.Infrastructure.Migrations
                     b.Navigation("CreatedBy");
 
                     b.Navigation("EndedBy");
-
-                    b.Navigation("Manager");
 
                     b.Navigation("Room");
 

@@ -9,18 +9,24 @@ public class AnnouncementService : IAnnouncementService
 {
     private readonly IApplicationDbContext _context;
     private readonly CloudinaryService _cloudinaryService;
+    private readonly IAppTimeProvider _timeProvider;
 
     public AnnouncementService(
         IApplicationDbContext context,
-        CloudinaryService cloudinaryService)
+        CloudinaryService cloudinaryService,
+        IAppTimeProvider timeProvider)
     {
         _context = context;
         _cloudinaryService = cloudinaryService;
+        _timeProvider = timeProvider;
     }
 
     public async Task<AnnouncementDto> CreateAsync(int userId, CreateAnnouncementDto dto)
     {
-        if (dto.PublishAt.HasValue && dto.ExpiresAt.HasValue && dto.ExpiresAt <= dto.PublishAt)
+        var publishAtUtc = NormalizeScheduledInputToUtc(dto.PublishAt);
+        var expiresAtUtc = NormalizeScheduledInputToUtc(dto.ExpiresAt);
+
+        if (publishAtUtc.HasValue && expiresAtUtc.HasValue && expiresAtUtc <= publishAtUtc)
         {
             throw new Exception("Expiry time must be after publish time.");
         }
@@ -31,11 +37,11 @@ public class AnnouncementService : IAnnouncementService
         {
             Title = dto.Title,
             Content = dto.Content,
-            PublishAt = dto.PublishAt,
-            ExpiresAt = dto.ExpiresAt,
+            PublishAt = publishAtUtc,
+            ExpiresAt = expiresAtUtc,
             ImageUrl = imageUrl,
             CreatedById = userId,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = _timeProvider.UtcNow,
             IsActive = true
         };
 
@@ -51,7 +57,7 @@ public class AnnouncementService : IAnnouncementService
 
     public async Task<List<AnnouncementDto>> GetVisibleAsync()
     {
-        var now = DateTime.UtcNow;
+        var now = _timeProvider.UtcNow;
 
         var announcements = await _context.Announcements
             .Include(a => a.CreatedBy)
@@ -77,7 +83,7 @@ public class AnnouncementService : IAnnouncementService
 
     public async Task<AnnouncementDto?> GetByIdAsync(int id)
     {
-        var now = DateTime.UtcNow;
+        var now = _timeProvider.UtcNow;
 
         var announcement = await _context.Announcements
             .Include(a => a.CreatedBy)
@@ -93,7 +99,10 @@ public class AnnouncementService : IAnnouncementService
 
     public async Task<AnnouncementDto?> UpdateAsync(int id, UpdateAnnouncementDto dto)
     {
-        if (dto.PublishAt.HasValue && dto.ExpiresAt.HasValue && dto.ExpiresAt <= dto.PublishAt)
+        var publishAtUtc = NormalizeScheduledInputToUtc(dto.PublishAt);
+        var expiresAtUtc = NormalizeScheduledInputToUtc(dto.ExpiresAt);
+
+        if (publishAtUtc.HasValue && expiresAtUtc.HasValue && expiresAtUtc <= publishAtUtc)
         {
             throw new Exception("Expiry time must be after publish time.");
         }
@@ -106,9 +115,9 @@ public class AnnouncementService : IAnnouncementService
 
         announcement.Title = dto.Title;
         announcement.Content = dto.Content;
-        announcement.PublishAt = dto.PublishAt;
-        announcement.ExpiresAt = dto.ExpiresAt;
-        announcement.UpdatedAt = DateTime.UtcNow;
+        announcement.PublishAt = publishAtUtc;
+        announcement.ExpiresAt = expiresAtUtc;
+        announcement.UpdatedAt = _timeProvider.UtcNow;
 
         await _context.SaveChangesAsync();
 
@@ -126,6 +135,22 @@ public class AnnouncementService : IAnnouncementService
         await _context.SaveChangesAsync();
 
         return true;
+    }
+
+    private DateTime? NormalizeScheduledInputToUtc(DateTime? dateTime)
+    {
+        if (!dateTime.HasValue)
+        {
+            return null;
+        }
+
+        if (dateTime.Value.Kind == DateTimeKind.Utc)
+        {
+            return dateTime.Value;
+        }
+
+        var tunisiaLocal = DateTime.SpecifyKind(dateTime.Value, DateTimeKind.Unspecified);
+        return _timeProvider.ConvertTunisiaToUtc(tunisiaLocal);
     }
 
     private static AnnouncementDto Map(Announcement a)

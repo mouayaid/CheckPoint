@@ -1,8 +1,10 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using PFE.Application.Common;
 using PFE.Application.Abstractions;
 using PFE.Application.Mapping;
 using PFE.Application.Services;
@@ -20,6 +22,10 @@ using PFE.API.Services;
 
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
 
 static string RequireConfigurationValue(
     IConfiguration configuration,
@@ -40,6 +46,20 @@ builder.Services.AddControllers()
     {
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    options.InvalidModelStateResponseFactory = context =>
+    {
+        var errors = context.ModelState
+            .Where(entry => entry.Value?.Errors.Count > 0)
+            .SelectMany(entry => entry.Value!.Errors.Select(error =>
+                $"{entry.Key}: {error.ErrorMessage}"))
+            .ToList();
+
+        return new BadRequestObjectResult(
+            ApiResponse<object>.ErrorResponse("Validation failed.", errors));
+    };
+});
 builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddSwaggerGen(c =>
@@ -199,6 +219,7 @@ builder.Services.AddAutoMapper(typeof(MappingProfile));
 
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 
+builder.Services.AddSingleton<IAppTimeProvider, AppTimeProvider>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ISeatService, SeatService>();
@@ -212,6 +233,7 @@ builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IAdminUserService, AdminUserService>();
 builder.Services.AddScoped<IAdminStatisticsService, AdminStatisticsService>();
+builder.Services.AddScoped<IAdminChatbotService, AdminChatbotService>();
 builder.Services.AddScoped<IDepartmentChannelService, DepartmentChannelService>();
 builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
 builder.Services.AddScoped<IOfficeTableService, OfficeTableService>();

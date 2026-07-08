@@ -19,13 +19,7 @@ public class ApprovalsController : ControllerBase
     {
         _leaveService = leaveService;
     }
-
-    /// <summary>
-    /// Approve or reject a leave request
-    /// </summary>
-    /// <param name="id">Leave request ID</param>
-    /// <param name="dto">Decision (approve/reject) and optional comment</param>
-    /// <returns>Success status</returns>
+    
     [HttpPut("leave/{id}")]
     public async Task<ActionResult<ApiResponse<bool>>> ApproveLeaveRequest(
         int id,

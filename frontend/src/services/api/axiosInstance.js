@@ -5,6 +5,7 @@ import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { STORAGE_KEYS } from "../../utils/constants";
 import { isE2EMode } from "../../utils/e2eMode";
+import logger from "../../utils/logger";
 
 const API_HOST = Constants.expoConfig?.extra?.apiHost || null;
 
@@ -46,6 +47,31 @@ const axiosInstance = axios.create({
 let isRefreshing = false;
 let refreshSubscribers = [];
 
+const setRequestHeader = (headers, name, value) => {
+  if (!headers) return;
+
+  if (typeof headers.set === "function") {
+    headers.set(name, value);
+    return;
+  }
+
+  headers[name] = value;
+};
+
+const getRequestHeader = (headers, name) => {
+  if (!headers) return undefined;
+
+  if (typeof headers.get === "function") {
+    return headers.get(name);
+  }
+
+  return headers[name] ?? headers[name.toLowerCase()];
+};
+
+const isEventUpdateRequest = (config = {}) =>
+  String(config.method ?? "").toLowerCase() === "put" &&
+  /^\/?Events\/[^/]+$/i.test(String(config.url ?? ""));
+
 const subscribeTokenRefresh = (callback) => {
   refreshSubscribers.push(callback);
 };
@@ -75,7 +101,23 @@ axiosInstance.interceptors.request.use(
     const token = await SecureStore.getItemAsync(STORAGE_KEYS.USER_TOKEN);
 
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      config.headers = config.headers || {};
+      setRequestHeader(config.headers, "Authorization", `Bearer ${token}`);
+    }
+
+    if (__DEV__ && isEventUpdateRequest(config)) {
+      const authHeader = getRequestHeader(config.headers, "Authorization");
+
+      logger.debug("EVENT UPDATE AUTH HEADER:", {
+        method: String(config.method ?? "").toUpperCase(),
+        url: `${config.baseURL ?? BASE_URL}${config.url ?? ""}`,
+        hasStoredToken: Boolean(token),
+        storedTokenLength: token?.length ?? 0,
+        hasAuthorizationHeader: Boolean(authHeader),
+        authorizationScheme: authHeader
+          ? String(authHeader).split(/\s+/)[0]
+          : null,
+      });
     }
 
     return config;
@@ -84,7 +126,17 @@ axiosInstance.interceptors.request.use(
 );
 
 axiosInstance.interceptors.response.use(
-  (response) => response.data,
+  (response) => {
+    if (response.data && typeof response.data === "object") {
+      Object.defineProperty(response.data, "__httpStatus", {
+        value: response.status,
+        enumerable: false,
+        configurable: true,
+      });
+    }
+
+    return response.data;
+  },
 
   async (error) => {
     const originalRequest = error.config;
@@ -106,7 +158,11 @@ axiosInstance.interceptors.response.use(
       try {
         const retryOriginalRequest = (newAccessToken) => {
           originalRequest.headers = originalRequest.headers || {};
-          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+          setRequestHeader(
+            originalRequest.headers,
+            "Authorization",
+            `Bearer ${newAccessToken}`,
+          );
           return axiosInstance(originalRequest);
         };
 

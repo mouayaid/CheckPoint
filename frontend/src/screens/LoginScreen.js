@@ -221,7 +221,6 @@ const LoginScreen = () => {
               </View>
 
               <Text style={styles.brandText}>by Triweb</Text>
-              <Text style={styles.subtitle}>Connectez-vous à votre compte</Text>
             </View>
 
             <View style={styles.card}>

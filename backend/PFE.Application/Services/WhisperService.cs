@@ -13,6 +13,8 @@ namespace PFE.Application.Services;
 public class WhisperService : IWhisperService
 {
     private const long MaxAudioFileSizeBytes = 25 * 1024 * 1024;
+    private static readonly TimeSpan PythonProcessTimeout = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan PythonTerminationTimeout = TimeSpan.FromSeconds(10);
 
     private static readonly HashSet<string> AllowedAudioExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -67,43 +69,72 @@ public class WhisperService : IWhisperService
         var fileName = $"{Guid.NewGuid():N}{extension}";
         var audioPath = Path.Combine(uploadsDir, fileName);
 
-        await using (var stream = new FileStream(audioPath, FileMode.Create))
-        {
-            await audioFile.CopyToAsync(stream);
-        }
-
-        Console.WriteLine($"Meeting transcription saved audio path: {audioPath}");
-
-        var transcript = MeetingTextCleaner.CleanText(await RunFasterWhisperAsync(audioPath));
-
-        var summary = GenerateSimpleSummary(transcript);
-        var tasks = ExtractSimpleTasks(transcript);
+        var operationSucceeded = false;
 
         try
         {
-            var insights = await _ollamaMeetingInsightService.GenerateAsync(transcript);
-            summary = insights.Summary;
-            tasks = insights.Tasks;
+            await using (var stream = new FileStream(audioPath, FileMode.Create))
+            {
+                await audioFile.CopyToAsync(stream);
+            }
+
+            var transcript = MeetingTextCleaner.CleanText(
+                await RunFasterWhisperAsync(audioPath, reservationId));
+
+            var summary = GenerateSimpleSummary(transcript);
+            var tasks = ExtractSimpleTasks(transcript);
+
+            try
+            {
+                var insights = await _ollamaMeetingInsightService.GenerateAsync(transcript);
+                summary = insights.Summary;
+                tasks = insights.Tasks;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Ollama insight generation failed for reservation {ReservationId}; using fallback insights.",
+                    reservationId);
+            }
+
+            var entity = new MeetingTranscription
+            {
+                RoomReservationId = reservationId,
+                AudioFilePath = audioPath,
+                TranscriptText = transcript,
+                Summary = summary,
+                Tasks = tasks,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.MeetingTranscriptions.Add(entity);
+            await _context.SaveChangesAsync();
+
+            operationSucceeded = true;
+            return ToDto(entity);
+        }
+        catch (TranscriptionProcessingException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Ollama fallback: {ErrorMessage}", ex.Message);
+            _logger.LogError(
+                ex,
+                "Meeting transcription failed for reservation {ReservationId}.",
+                reservationId);
+            throw new TranscriptionProcessingException(
+                "La transcription a échoué. Veuillez réessayer.",
+                ex);
         }
-
-        var entity = new MeetingTranscription
+        finally
         {
-            RoomReservationId = reservationId,
-            AudioFilePath = audioPath,
-            TranscriptText = transcript,
-            Summary = summary,
-            Tasks = tasks,
-            CreatedAt = DateTime.UtcNow
-        };
-
-        _context.MeetingTranscriptions.Add(entity);
-        await _context.SaveChangesAsync();
-
-        return ToDto(entity);
+            if (!operationSucceeded)
+            {
+                TryDeleteFailedAudio(audioPath, reservationId);
+            }
+        }
     }
 
     public async Task<List<MeetingTranscriptionDto>> GetByReservationAsync(int reservationId)
@@ -115,15 +146,15 @@ public class WhisperService : IWhisperService
             .ToListAsync();
     }
 
-    private static async Task<string> RunFasterWhisperAsync(string audioPath)
+    private async Task<string> RunFasterWhisperAsync(string audioPath, int reservationId)
     {
         var scriptPath = ResolveTranscribeScriptPath();
-        Console.WriteLine($"Resolved faster-whisper script path: {scriptPath}");
 
         if (!File.Exists(scriptPath))
-            throw new Exception($"Whisper script not found: {scriptPath}");
+            throw new TranscriptionProcessingException(
+                "Le service de transcription est temporairement indisponible.");
 
-        var process = new Process
+        using var process = new Process
         {
             StartInfo = new ProcessStartInfo
             {
@@ -140,44 +171,163 @@ public class WhisperService : IWhisperService
         process.StartInfo.ArgumentList.Add(scriptPath);
         process.StartInfo.ArgumentList.Add(audioPath);
 
-        process.Start();
+        try
+        {
+            process.Start();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to start Faster-Whisper for reservation {ReservationId}.",
+                reservationId);
+            throw new TranscriptionProcessingException(
+                "Le service de transcription est temporairement indisponible.",
+                ex);
+        }
 
         var outputTask = process.StandardOutput.ReadToEndAsync();
         var errorTask = process.StandardError.ReadToEndAsync();
 
-        await process.WaitForExitAsync();
+        using var timeoutCancellation = new CancellationTokenSource(PythonProcessTimeout);
+        try
+        {
+            await process.WaitForExitAsync(timeoutCancellation.Token);
+        }
+        catch (OperationCanceledException) when (timeoutCancellation.IsCancellationRequested)
+        {
+            _logger.LogError(
+                "Faster-Whisper timed out after {TimeoutMinutes} minutes for reservation {ReservationId}.",
+                PythonProcessTimeout.TotalMinutes,
+                reservationId);
+
+            await TerminateProcessAsync(process, reservationId);
+            await DrainProcessStreamsAsync(outputTask, errorTask, reservationId);
+            throw new TranscriptionProcessingException(
+                "La transcription a pris trop de temps. Veuillez réessayer avec un enregistrement plus court.");
+        }
 
         var output = await outputTask;
-        var error = await errorTask;
-
-        Console.WriteLine($"faster-whisper process exit code: {process.ExitCode}");
+        await errorTask;
 
         if (process.ExitCode != 0)
         {
-            throw new Exception(
-                $"faster-whisper failed with exit code {process.ExitCode}. stderr: {error}. stdout: {output}");
+            _logger.LogError(
+                "Faster-Whisper exited with code {ExitCode} for reservation {ReservationId}.",
+                process.ExitCode,
+                reservationId);
+            throw new TranscriptionProcessingException(
+                "La transcription audio a échoué. Veuillez vérifier le fichier et réessayer.");
         }
 
         var jsonLine = ExtractFinalJsonLine(output);
 
         if (string.IsNullOrWhiteSpace(jsonLine))
-            throw new Exception($"faster-whisper returned no JSON output. stderr: {error}. stdout: {output}");
+        {
+            _logger.LogError(
+                "Faster-Whisper returned malformed output for reservation {ReservationId}.",
+                reservationId);
+            throw new TranscriptionProcessingException(
+                "La réponse du service de transcription était invalide. Veuillez réessayer.");
+        }
 
-        var result = JsonSerializer.Deserialize<WhisperPythonResult>(
-            jsonLine,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
-        );
+        WhisperPythonResult? result;
+        try
+        {
+            result = JsonSerializer.Deserialize<WhisperPythonResult>(
+                jsonLine,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+            );
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to parse Faster-Whisper output for reservation {ReservationId}.",
+                reservationId);
+            throw new TranscriptionProcessingException(
+                "La réponse du service de transcription était invalide. Veuillez réessayer.",
+                ex);
+        }
 
         if (result == null)
-            throw new Exception($"Could not parse faster-whisper result. stdout: {output}");
+            throw new TranscriptionProcessingException(
+                "La réponse du service de transcription était invalide. Veuillez réessayer.");
 
         if (!result.Success)
         {
-            throw new Exception(
-                $"faster-whisper failed: {result.Error ?? "Unknown error"}. stderr: {error}. stdout: {output}");
+            _logger.LogError(
+                "Faster-Whisper reported a processing failure for reservation {ReservationId}.",
+                reservationId);
+            throw new TranscriptionProcessingException(
+                "La transcription audio a échoué. Veuillez vérifier le fichier et réessayer.");
         }
 
         return MeetingTextCleaner.CleanText(result.Text);
+    }
+
+    private async Task TerminateProcessAsync(Process process, int reservationId)
+    {
+        try
+        {
+            if (process.HasExited)
+                return;
+
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (NotSupportedException)
+            {
+                process.Kill();
+            }
+
+            using var terminationCancellation = new CancellationTokenSource(PythonTerminationTimeout);
+            await process.WaitForExitAsync(terminationCancellation.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(
+                ex,
+                "Failed to terminate timed-out Faster-Whisper process for reservation {ReservationId}.",
+                reservationId);
+        }
+    }
+
+    private async Task DrainProcessStreamsAsync(
+        Task<string> outputTask,
+        Task<string> errorTask,
+        int reservationId)
+    {
+        try
+        {
+            await Task.WhenAll(outputTask, errorTask).WaitAsync(PythonTerminationTimeout);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to finish draining Faster-Whisper output after timeout for reservation {ReservationId}.",
+                reservationId);
+        }
+    }
+
+    private void TryDeleteFailedAudio(string audioPath, int reservationId)
+    {
+        try
+        {
+            if (File.Exists(audioPath))
+            {
+                File.Delete(audioPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to delete audio from unsuccessful transcription for reservation {ReservationId}.",
+                reservationId);
+        }
     }
 
     private static string ResolveTranscribeScriptPath()
@@ -274,5 +424,18 @@ public class WhisperService : IWhisperService
         public string? Language { get; set; }
         public double Language_Probability { get; set; }
         public string? Text { get; set; }
+    }
+}
+
+public sealed class TranscriptionProcessingException : Exception
+{
+    public TranscriptionProcessingException(string message)
+        : base(message)
+    {
+    }
+
+    public TranscriptionProcessingException(string message, Exception innerException)
+        : base(message, innerException)
+    {
     }
 }

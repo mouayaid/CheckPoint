@@ -33,6 +33,56 @@ const emptyForm = {
   imageFile: null,
 };
 
+const TUNISIA_TIME_ZONE = "Africa/Tunis";
+const TUNISIA_UTC_OFFSET_MINUTES = 60;
+
+const getTunisiaParts = (date) => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TUNISIA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  return Object.fromEntries(
+    parts
+      .filter(({ type }) => type !== "literal")
+      .map(({ type, value }) => [type, Number(value)]),
+  );
+};
+
+const parseApiInstant = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const hasOffset = /(?:z|[+-]\d{2}:?\d{2})$/i.test(value);
+    return new Date(hasOffset ? value : `${value}Z`);
+  }
+  return new Date(value);
+};
+
+const makeTunisiaInstant = (dateValue, timeValue) => {
+  if (!dateValue || !timeValue) return null;
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const [hour, minute] = timeValue.split(":").map(Number);
+
+  if ([year, month, day, hour, minute].some((part) => Number.isNaN(part))) {
+    return null;
+  }
+
+  return new Date(
+    Date.UTC(year, month - 1, day, hour, minute, 0, 0) -
+      TUNISIA_UTC_OFFSET_MINUTES * 60000,
+  );
+};
+
+const formatTunisiaLocalDateTimePayload = (dateValue, timeValue) =>
+  dateValue && timeValue ? `${dateValue}T${timeValue}:00` : null;
+
 const ManageAnnouncementsScreen = () => {
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
 
@@ -49,6 +99,8 @@ const ManageAnnouncementsScreen = () => {
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [successFeedback, setSuccessFeedback] = useState(null);
 
   const [schedulePublish, setSchedulePublish] = useState(false);
   const [autoExpire, setAutoExpire] = useState(false);
@@ -107,8 +159,8 @@ const ManageAnnouncementsScreen = () => {
     announcements.forEach((item) => {
       const publishAt = item.publishAt ?? item.PublishAt ?? null;
       const expiresAt = item.expiresAt ?? item.ExpiresAt ?? null;
-      const publishDate = publishAt ? new Date(publishAt) : null;
-      const expiryDate = expiresAt ? new Date(expiresAt) : null;
+      const publishDate = publishAt ? parseApiInstant(publishAt) : null;
+      const expiryDate = expiresAt ? parseApiInstant(expiresAt) : null;
 
       if (expiryDate && expiryDate <= now) expired.push(item);
       else if (publishDate && publishDate > now) scheduled.push(item);
@@ -239,17 +291,17 @@ const ManageAnnouncementsScreen = () => {
     }
 
     const publishAtValue = schedulePublish
-      ? combineDateTime(form.publishDate, form.publishTime)
+      ? makeTunisiaInstant(form.publishDate, form.publishTime)
       : null;
 
     const expiresAtValue = autoExpire
-      ? combineDateTime(form.expiryDate, form.expiryTime)
+      ? makeTunisiaInstant(form.expiryDate, form.expiryTime)
       : null;
 
     if (publishAtValue && expiresAtValue && expiresAtValue <= publishAtValue) {
       Alert.alert(
         "Validation",
-        "L'heure d'expiration doit être après l'heure de publication.",
+        "L'heure d'expiration doit Ãªtre aprÃ¨s l'heure de publication.",
       );
       return false;
     }
@@ -268,17 +320,27 @@ const ManageAnnouncementsScreen = () => {
         content: form.content.trim(),
         publishAt:
           schedulePublish && form.publishDate && form.publishTime
-            ? toIsoFromParts(form.publishDate, form.publishTime)
+            ? formatTunisiaLocalDateTimePayload(
+                form.publishDate,
+                form.publishTime,
+              )
             : null,
         expiresAt:
           autoExpire && form.expiryDate && form.expiryTime
-            ? toIsoFromParts(form.expiryDate, form.expiryTime)
+            ? formatTunisiaLocalDateTimePayload(
+                form.expiryDate,
+                form.expiryTime,
+              )
             : null,
       };
 
       if (editingId) {
         await announcementService.updateAnnouncement(editingId, payload);
-        Alert.alert("Succès", "Annonce mise à jour avec succès.");
+        setSuccessFeedback({
+          title: "Annonce modifi\u00e9e",
+          message:
+            "Les modifications de l\u2019annonce ont \u00e9t\u00e9 enregistr\u00e9es avec succ\u00e8s.",
+        });
       } else {
         const formData = new FormData();
 
@@ -302,7 +364,10 @@ const ManageAnnouncementsScreen = () => {
         }
 
         await announcementService.createAnnouncement(formData);
-        Alert.alert("Succès", "Annonce créée avec succès.");
+        setSuccessFeedback({
+          title: "Annonce publi\u00e9e",
+          message: "L\u2019annonce a \u00e9t\u00e9 publi\u00e9e avec succ\u00e8s.",
+        });
       }
 
       resetForm();
@@ -321,20 +386,7 @@ const ManageAnnouncementsScreen = () => {
   };
 
   const confirmDelete = (item) => {
-    const id = item.id ?? item.Id;
-
-    Alert.alert(
-      "Supprimer l'annonce",
-      "Êtes-vous sûr de vouloir supprimer cette annonce ?",
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Supprimer",
-          style: "destructive",
-          onPress: () => deleteAnnouncement(id),
-        },
-      ],
-    );
+    setDeleteTarget(item);
   };
 
   const deleteAnnouncement = async (id) => {
@@ -345,6 +397,7 @@ const ManageAnnouncementsScreen = () => {
       setAnnouncements((prev) =>
         prev.filter((item) => (item.id ?? item.Id) !== id),
       );
+      setDeleteTarget(null);
     } catch {
       Alert.alert("Erreur", "Impossible de supprimer l'annonce.");
     } finally {
@@ -354,8 +407,8 @@ const ManageAnnouncementsScreen = () => {
 
   const getStatus = (publishAt, expiresAt) => {
     const now = new Date();
-    const publishDate = publishAt ? new Date(publishAt) : null;
-    const expiryDate = expiresAt ? new Date(expiresAt) : null;
+    const publishDate = publishAt ? parseApiInstant(publishAt) : null;
+    const expiryDate = expiresAt ? parseApiInstant(expiresAt) : null;
 
     if (expiryDate && expiryDate <= now) return "expired";
     if (publishDate && publishDate > now) return "scheduled";
@@ -372,13 +425,13 @@ const ManageAnnouncementsScreen = () => {
         showDot: true,
       },
       scheduled: {
-        label: "Planifié",
+        label: "Planifiée",
         containerStyle: styles.badgeScheduled,
         textStyle: styles.badgeScheduledText,
         icon: "time-outline",
       },
       expired: {
-        label: "Expiré",
+        label: "Expirée",
         containerStyle: styles.badgeExpired,
         textStyle: styles.badgeExpiredText,
         icon: "close-circle-outline",
@@ -439,7 +492,7 @@ const ManageAnnouncementsScreen = () => {
             />
             <Text style={styles.metaText}>
               {publishAt
-                ? `Publié le ${formatDisplayDate(publishAt)}`
+                ? `Publiée le ${formatDisplayDate(publishAt)}`
                 : "Publication : immédiatement"}
             </Text>
           </View>
@@ -535,13 +588,13 @@ const ManageAnnouncementsScreen = () => {
           <View testID="announcements.stats.scheduled" style={styles.statCard}>
             <View style={[styles.statDot, { backgroundColor: "#1D4ED8" }]} />
             <Text style={styles.statValue}>{scheduledItems.length}</Text>
-            <Text style={styles.statLabel}>Planifié</Text>
+            <Text style={styles.statLabel}>Planifiée</Text>
           </View>
 
           <View testID="announcements.stats.expired" style={styles.statCard}>
             <View style={[styles.statDot, { backgroundColor: "#6B7280" }]} />
             <Text style={styles.statValue}>{expiredItems.length}</Text>
-            <Text style={styles.statLabel}>Expiré</Text>
+            <Text style={styles.statLabel}>Expirée</Text>
           </View>
         </View>
 
@@ -567,7 +620,7 @@ const ManageAnnouncementsScreen = () => {
             <Text style={styles.emptyTitle}>Aucune annonce active</Text>
 
             <Text style={styles.emptySubtitle}>
-              Créez votre première annonce pour informer l'équipe.
+              Créez votre première annonce pour informer l' équipe.
             </Text>
           </View>
         )}
@@ -589,12 +642,12 @@ const ManageAnnouncementsScreen = () => {
       <Modal
         testID="announcements.formModal"
         visible={showForm}
-        animationType="slide"
-        presentationStyle="formSheet"
-        onRequestClose={resetForm}
+        animationType="fade"
+        transparent
+        onRequestClose={saving ? () => {} : resetForm}
       >
         <KeyboardAvoidingView
-          style={{ flex: 1 }}
+          style={styles.sheetKeyboard}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
           <View style={styles.sheetContainer}>
@@ -603,7 +656,7 @@ const ManageAnnouncementsScreen = () => {
             <View style={styles.sheetHeader}>
               <View style={styles.sheetHeaderText}>
                 <Text style={styles.sheetTitle}>
-                  {editingId ? "Modifier l'annonce" : "Nouvelle annonce"}
+                  {editingId ? "Modifier l\u2019annonce" : "Cr\u00e9er une annonce"}
                 </Text>
 
                 <Text style={styles.sheetSubtitle}>
@@ -615,6 +668,7 @@ const ManageAnnouncementsScreen = () => {
                 testID="announcements.closeFormButton"
                 style={styles.closeBtn}
                 onPress={resetForm}
+                disabled={saving}
                 activeOpacity={0.7}
               >
                 <Ionicons
@@ -793,7 +847,7 @@ const ManageAnnouncementsScreen = () => {
                     <View style={styles.previewChip}>
                       <Ionicons name="time-outline" size={13} color="#1D4ED8" />
                       <Text style={styles.previewChipText}>
-                        Publication le {formatPrettyDate(form.publishDate)} à{" "}
+                        Publication le {formatPrettyDate(form.publishDate)} Ã {" "}
                         {formatPrettyTime(form.publishTime)}
                       </Text>
                     </View>
@@ -812,7 +866,7 @@ const ManageAnnouncementsScreen = () => {
                     Suppression automatique
                   </Text>
                   <Text style={styles.toggleSubtitle}>
-                    Masquer après une date
+                    Masquer aprÃ¨s une date
                   </Text>
                 </View>
 
@@ -890,42 +944,42 @@ const ManageAnnouncementsScreen = () => {
                       <Text
                         style={[styles.previewChipText, { color: "#B91C1C" }]}
                       >
-                        Expiration le {formatPrettyDate(form.expiryDate)} à{" "}
+                        Expiration le {formatPrettyDate(form.expiryDate)} Ã {" "}
                         {formatPrettyTime(form.expiryTime)}
                       </Text>
                     </View>
                   ) : null}
                 </View>
               )}
-
-              <View style={styles.formActions}>
-                <TouchableOpacity
-                  testID="announcements.submitButton"
-                  style={[styles.btnPrimary, saving && styles.btnDisabled]}
-                  onPress={saveAnnouncement}
-                  disabled={saving}
-                  activeOpacity={0.85}
-                >
-                  {saving ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={styles.btnPrimaryText}>
-                      {editingId ? "Mettre à jour" : "Publier l'annonce"}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  testID="announcements.cancelButton"
-                  style={styles.btnSecondary}
-                  onPress={resetForm}
-                  disabled={saving}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.btnSecondaryText}>Annuler</Text>
-                </TouchableOpacity>
-              </View>
             </ScrollView>
+
+            <View style={styles.formActions}>
+              <TouchableOpacity
+                testID="announcements.cancelButton"
+                style={styles.btnSecondary}
+                onPress={resetForm}
+                disabled={saving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.btnSecondaryText}>Annuler</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                testID="announcements.submitButton"
+                style={[styles.btnPrimary, saving && styles.btnDisabled]}
+                onPress={saveAnnouncement}
+                disabled={saving}
+                activeOpacity={0.85}
+              >
+                {saving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.btnPrimaryText}>
+                    {editingId ? "Enregistrer" : "Publier"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
 
             {showDatePicker && (
               <DateTimePicker
@@ -959,6 +1013,92 @@ const ManageAnnouncementsScreen = () => {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal
+        testID="announcements.successModal"
+        visible={!!successFeedback}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSuccessFeedback(null)}
+      >
+        <View style={styles.successOverlay}>
+          <View style={styles.successCard}>
+            <View style={styles.successIconWrap}>
+              <Ionicons
+                name="checkmark-circle"
+                size={42}
+                color={colors.primary}
+              />
+            </View>
+
+            <Text style={styles.successTitle}>{successFeedback?.title}</Text>
+            <Text style={styles.successMessage}>{successFeedback?.message}</Text>
+
+            <TouchableOpacity
+              testID="announcements.successDoneButton"
+              style={styles.successButton}
+              onPress={() => setSuccessFeedback(null)}
+              activeOpacity={0.9}
+            >
+              <Text style={styles.successButtonText}>Terminer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        testID="announcements.deleteModal"
+        visible={!!deleteTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!deletingId) setDeleteTarget(null);
+        }}
+      >
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmIconWrap}>
+              <Ionicons name="warning" size={34} color={colors.error} />
+            </View>
+
+            <Text style={styles.confirmTitle}>{"Supprimer l\u2019annonce"}</Text>
+            <Text style={styles.confirmMessage}>
+              {"Voulez-vous vraiment supprimer cette annonce ? Cette action est irr\u00e9versible."}
+            </Text>
+
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                testID="announcements.deleteCancelButton"
+                style={styles.confirmSecondaryButton}
+                onPress={() => setDeleteTarget(null)}
+                disabled={!!deletingId}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.confirmSecondaryText}>Annuler</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                testID="announcements.deleteConfirmButton"
+                style={[
+                  styles.confirmDangerButton,
+                  deletingId && styles.btnDisabled,
+                ]}
+                onPress={() =>
+                  deleteAnnouncement(deleteTarget?.id ?? deleteTarget?.Id)
+                }
+                disabled={!!deletingId}
+                activeOpacity={0.85}
+              >
+                {deletingId ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.confirmDangerText}>Supprimer</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -986,14 +1126,7 @@ function getPickerValue(form, field) {
 }
 
 function combineDateTime(dateValue, timeValue) {
-  if (!dateValue || !timeValue) return null;
-  const parsed = new Date(`${dateValue}T${timeValue}`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function toIsoFromParts(dateValue, timeValue) {
-  const parsed = combineDateTime(dateValue, timeValue);
-  return parsed ? parsed.toISOString() : null;
+  return makeTunisiaInstant(dateValue, timeValue);
 }
 
 function formatDateFromDate(date) {
@@ -1010,23 +1143,26 @@ function formatTimeFromDate(date) {
 }
 
 function formatDisplayDate(value) {
-  const d = new Date(value);
+  const d = parseApiInstant(value);
   if (Number.isNaN(d.getTime())) return String(value);
 
-  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], {
+  return `${d.toLocaleDateString("fr-FR", {
+    timeZone: TUNISIA_TIME_ZONE,
+  })} ${d.toLocaleTimeString("fr-FR", {
+    timeZone: TUNISIA_TIME_ZONE,
     hour: "2-digit",
     minute: "2-digit",
   })}`;
 }
 
 function formatPrettyDate(dateValue) {
-  if (!dateValue) return "—";
+  if (!dateValue) return "â€”";
 
   const d = new Date(`${dateValue}T12:00:00`);
 
   if (Number.isNaN(d.getTime())) {
     const [year, month, day] = dateValue.split("-");
-    return year && month && day ? `${day}/${month}/${year}` : "—";
+    return year && month && day ? `${day}/${month}/${year}` : "â€”";
   }
 
   return d.toLocaleDateString([], {
@@ -1037,11 +1173,11 @@ function formatPrettyDate(dateValue) {
 }
 
 function formatPrettyTime(timeValue) {
-  if (!timeValue) return "—";
+  if (!timeValue) return "â€”";
 
   const [hours, minutes] = timeValue.split(":");
 
-  if (!hours || !minutes) return "—";
+  if (!hours || !minutes) return "â€”";
 
   const d = new Date();
   d.setHours(Number(hours), Number(minutes), 0, 0);
@@ -1053,21 +1189,23 @@ function formatPrettyTime(timeValue) {
 }
 
 function formatDatePart(value) {
-  const d = new Date(value);
+  const d = parseApiInstant(value);
   if (Number.isNaN(d.getTime())) return "";
 
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+  const parts = getTunisiaParts(d);
+  return `${parts.year}-${String(parts.month).padStart(
     2,
     "0",
-  )}-${String(d.getDate()).padStart(2, "0")}`;
+  )}-${String(parts.day).padStart(2, "0")}`;
 }
 
 function formatTimePart(value) {
-  const d = new Date(value);
+  const d = parseApiInstant(value);
   if (Number.isNaN(d.getTime())) return "";
 
-  return `${String(d.getHours()).padStart(2, "0")}:${String(
-    d.getMinutes(),
+  const parts = getTunisiaParts(d);
+  return `${String(parts.hour).padStart(2, "0")}:${String(
+    parts.minute,
   ).padStart(2, "0")}`;
 }
 
@@ -1401,9 +1539,24 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       color: colors.textSecondary,
     },
 
+    sheetKeyboard: {
+      flex: 1,
+      justifyContent: "center",
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.xl,
+      backgroundColor: "rgba(0, 0, 0, 0.45)",
+    },
+
     sheetContainer: {
       flex: 1,
-      backgroundColor: colors.background,
+      width: "100%",
+      maxHeight: "92%",
+      overflow: "hidden",
+      backgroundColor: colors.surfaceElevated ?? colors.surface,
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      ...shadows.lg,
     },
 
     sheetHandle: {
@@ -1412,15 +1565,16 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       backgroundColor: colors.border,
       borderRadius: 999,
       alignSelf: "center",
-      marginTop: 12,
+      marginTop: spacing.md,
     },
 
     sheetHeader: {
       flexDirection: "row",
       alignItems: "flex-start",
       justifyContent: "space-between",
-      paddingHorizontal: 20,
-      paddingVertical: 18,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.md,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
@@ -1430,22 +1584,22 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     },
 
     sheetTitle: {
-      fontSize: 20,
+      fontSize: typography.xl,
       fontWeight: "900",
       color: colors.textPrimary ?? colors.text,
     },
 
     sheetSubtitle: {
-      fontSize: 13,
+      fontSize: typography.sm,
       color: colors.textSecondary,
-      marginTop: 3,
+      marginTop: 4,
     },
 
     closeBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: colors.surface,
+      width: 38,
+      height: 38,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.surfaceMuted,
       alignItems: "center",
       justifyContent: "center",
       borderWidth: 1,
@@ -1454,11 +1608,14 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     sheetScroll: {
       flex: 1,
+      minHeight: 0,
     },
 
     sheetScrollContent: {
-      padding: 20,
-      paddingBottom: 50,
+      flexGrow: 1,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.xxxl,
     },
 
     fieldLabel: {
@@ -1466,36 +1623,38 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       fontWeight: "800",
       color: colors.textPrimary ?? colors.text,
       marginBottom: 8,
-      marginTop: 16,
+      marginTop: spacing.lg,
     },
 
     fieldInput: {
-      backgroundColor: colors.surface,
+      minHeight: 50,
+      backgroundColor: colors.inputBackground ?? colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 16,
-      paddingHorizontal: 14,
-      paddingVertical: 13,
-      fontSize: 14,
+      borderRadius: borderRadius.lg,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+      fontSize: typography.sm,
       color: colors.textPrimary ?? colors.text,
     },
 
     fieldTextarea: {
-      minHeight: 110,
-      paddingTop: 13,
+      minHeight: 150,
+      lineHeight: 21,
+      paddingTop: spacing.md,
     },
 
     imagePickerButton: {
-      marginTop: 8,
-      backgroundColor: colors.surface,
+      marginTop: spacing.xs,
+      backgroundColor: colors.surfaceMuted,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 16,
-      paddingVertical: 14,
-      paddingHorizontal: 14,
+      borderRadius: borderRadius.lg,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "center",
+      justifyContent: "flex-start",
       gap: 8,
     },
 
@@ -1508,13 +1667,17 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     previewImageWrap: {
       marginTop: 12,
       position: "relative",
+      borderRadius: borderRadius.xl,
+      overflow: "hidden",
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
     },
 
     previewImage: {
       width: "100%",
-      height: 200,
-      borderRadius: 18,
-      backgroundColor: colors.surface,
+      height: 190,
+      backgroundColor: colors.surfaceMuted,
     },
 
     removeImageButton: {
@@ -1532,10 +1695,10 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     editImageNotice: {
       flexDirection: "row",
       gap: 8,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.surfaceMuted,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 14,
+      borderRadius: borderRadius.lg,
       padding: 12,
       marginTop: 16,
     },
@@ -1552,11 +1715,11 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       alignItems: "center",
       justifyContent: "space-between",
       gap: spacing.md,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.surfaceMuted,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 18,
-      padding: 14,
+      borderRadius: borderRadius.lg,
+      padding: spacing.md,
       marginTop: 16,
     },
 
@@ -1578,9 +1741,9 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     dateSection: {
       marginTop: 10,
-      backgroundColor: colors.surface,
-      borderRadius: 18,
-      padding: 12,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: borderRadius.lg,
+      padding: spacing.md,
       borderWidth: 1,
       borderColor: colors.border,
     },
@@ -1602,11 +1765,11 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     },
 
     pickerInput: {
-      minHeight: 46,
-      backgroundColor: colors.background,
+      minHeight: 48,
+      backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 14,
+      borderRadius: borderRadius.md,
       paddingHorizontal: 12,
       flexDirection: "row",
       alignItems: "center",
@@ -1650,16 +1813,24 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     },
 
     formActions: {
-      gap: 10,
-      marginTop: spacing.xl,
+      flexDirection: "row",
+      gap: spacing.sm,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.lg,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      backgroundColor: colors.surfaceElevated ?? colors.surface,
     },
 
     btnPrimary: {
+      flex: 1,
       backgroundColor: colors.primary,
-      borderRadius: 16,
+      borderRadius: borderRadius.lg,
       paddingVertical: 15,
       alignItems: "center",
       justifyContent: "center",
+      ...shadows.sm,
     },
 
     btnPrimaryText: {
@@ -1669,12 +1840,14 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     },
 
     btnSecondary: {
-      backgroundColor: colors.surface,
+      flex: 1,
+      backgroundColor: colors.surfaceMuted,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: 16,
+      borderRadius: borderRadius.lg,
       paddingVertical: 15,
       alignItems: "center",
+      justifyContent: "center",
     },
 
     btnSecondaryText: {
@@ -1685,6 +1858,160 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     btnDisabled: {
       opacity: 0.55,
+    },
+
+    successOverlay: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.xl,
+      backgroundColor: "rgba(0, 0, 0, 0.45)",
+    },
+
+    successCard: {
+      width: "100%",
+      maxWidth: 360,
+      alignItems: "center",
+      backgroundColor: colors.surfaceElevated ?? colors.surface,
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.xl,
+      paddingBottom: spacing.lg,
+      ...shadows.lg,
+    },
+
+    successIconWrap: {
+      width: 72,
+      height: 72,
+      borderRadius: borderRadius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.primary + "18",
+      marginBottom: spacing.lg,
+    },
+
+    successTitle: {
+      fontSize: typography.xl,
+      fontWeight: "900",
+      color: colors.textPrimary ?? colors.text,
+      textAlign: "center",
+      marginBottom: spacing.sm,
+    },
+
+    successMessage: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+      textAlign: "center",
+      lineHeight: 21,
+      marginBottom: spacing.xl,
+    },
+
+    successButton: {
+      width: "100%",
+      minHeight: 48,
+      borderRadius: borderRadius.md,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.primary,
+      paddingHorizontal: spacing.md,
+      ...shadows.sm,
+    },
+
+    successButtonText: {
+      fontSize: typography.base,
+      fontWeight: "900",
+      color: colors.textOnPrimary,
+    },
+
+    confirmOverlay: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.xl,
+      backgroundColor: "rgba(0, 0, 0, 0.5)",
+    },
+
+    confirmCard: {
+      width: "100%",
+      maxWidth: 380,
+      alignItems: "center",
+      backgroundColor: colors.surfaceElevated ?? colors.surface,
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.xl,
+      paddingBottom: spacing.lg,
+      ...shadows.lg,
+    },
+
+    confirmIconWrap: {
+      width: 68,
+      height: 68,
+      borderRadius: borderRadius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.errorLight,
+      marginBottom: spacing.lg,
+    },
+
+    confirmTitle: {
+      fontSize: typography.xl,
+      fontWeight: "900",
+      color: colors.textPrimary ?? colors.text,
+      textAlign: "center",
+      marginBottom: spacing.sm,
+    },
+
+    confirmMessage: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+      textAlign: "center",
+      lineHeight: 21,
+      marginBottom: spacing.xl,
+    },
+
+    confirmActions: {
+      flexDirection: "row",
+      width: "100%",
+      gap: spacing.sm,
+    },
+
+    confirmSecondaryButton: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: borderRadius.md,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceMuted,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: spacing.md,
+    },
+
+    confirmDangerButton: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: borderRadius.md,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.error,
+      paddingHorizontal: spacing.md,
+      ...shadows.sm,
+    },
+
+    confirmSecondaryText: {
+      fontSize: typography.base,
+      fontWeight: "800",
+      color: colors.textPrimary ?? colors.text,
+    },
+
+    confirmDangerText: {
+      fontSize: typography.base,
+      fontWeight: "900",
+      color: colors.textOnPrimary,
     },
   });
 

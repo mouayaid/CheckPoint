@@ -82,12 +82,6 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
 .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<RoomReservation>()
-            .HasOne(r => r.Manager)
-            .WithMany()
-            .HasForeignKey(r => r.ManagerId)
-            .OnDelete(DeleteBehavior.Restrict);
-
-        modelBuilder.Entity<RoomReservation>()
             .HasOne(r => r.CreatedBy)
             .WithMany()
             .HasForeignKey(r => r.CreatedById)

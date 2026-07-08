@@ -19,38 +19,32 @@ const MY_RESERVATION_FILTER_LABELS_FR = {
   Past: "Passées",
 };
 
-function normalizeStatusKey(status) {
-  if (typeof status === "number" && Number.isFinite(status)) {
-    const map = {
-      0: "pending",
-      1: "active",
-      2: "cancelled",
-      3: "completed",
-      4: "rejected",
-      5: "inprogress",
-    };
-    return map[status] ?? String(status);
+const parseApiInstant = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const hasOffset = /(?:z|[+-]\d{2}:?\d{2})$/i.test(value);
+    return new Date(hasOffset ? value : `${value}Z`);
   }
+  return new Date(value);
+};
+
+function normalizeStatusKey(status) {
   return String(status ?? "").toLowerCase();
 }
+
+const isCancelledReservation = (reservation) => {
+  const status = reservation?.status ?? reservation?.Status;
+  if (status === 2) return true;
+  const key = normalizeStatusKey(status);
+  return key === "cancelled" || key === "canceled";
+};
 
 function StatusBadge({ status, colors }) {
   const key = normalizeStatusKey(status);
 
   const configs = {
-    pending: {
-      label: "En attente",
-      bg: colors.warningLight,
-      fg: colors.warning,
-      dot: colors.warning,
-    },
     active: {
-      label: "Confirmée",
-      bg: colors.successLight,
-      fg: colors.success,
-      dot: colors.success,
-    },
-    approved: {
       label: "Confirmée",
       bg: colors.successLight,
       fg: colors.success,
@@ -67,12 +61,6 @@ function StatusBadge({ status, colors }) {
       bg: colors.surfaceMuted,
       fg: colors.textSecondary,
       dot: colors.textTertiary,
-    },
-    rejected: {
-      label: "Rejetée",
-      bg: colors.errorLight,
-      fg: colors.error,
-      dot: colors.error,
     },
     cancelled: {
       label: "Annulée",
@@ -120,18 +108,21 @@ export default function MyReservations({
 
   const filteredMyReservations = useMemo(() => {
     const now = new Date();
-    const sorted = [...myReservations].sort(
+    const visibleReservations = myReservations.filter(
+      (reservation) => !isCancelledReservation(reservation),
+    );
+    const sorted = [...visibleReservations].sort(
       (a, b) =>
-        new Date(b.startDateTime || b.startDate || b.start) -
-        new Date(a.startDateTime || a.startDate || a.start),
+        parseApiInstant(b.startDateTime || b.startDate || b.start) -
+        parseApiInstant(a.startDateTime || a.startDate || a.start),
     );
     if (reservationFilter === "Upcoming")
       return sorted.filter(
-        (r) => new Date(r.endDateTime || r.endDate || r.end) >= now,
+        (r) => parseApiInstant(r.endDateTime || r.endDate || r.end) >= now,
       );
     if (reservationFilter === "Past")
       return sorted.filter(
-        (r) => new Date(r.endDateTime || r.endDate || r.end) < now,
+        (r) => parseApiInstant(r.endDateTime || r.endDate || r.end) < now,
       );
     return sorted;
   }, [myReservations, reservationFilter]);
@@ -188,8 +179,7 @@ export default function MyReservations({
           const { key, canStart, canFinish } =
             getRoomResActionState(reservation);
 
-          const canCancel =
-            key === "pending" || key === "active";
+          const canCancel = key === "active";
           const canOpen =
             canManageRooms && (key === "active" || key === "inprogress");
 
@@ -198,11 +188,7 @@ export default function MyReservations({
               ? colors.success
               : key === "inprogress"
                 ? colors.info
-                : key === "pending"
-                  ? colors.warning
-                  : key === "rejected"
-                    ? colors.error
-                    : colors.border;
+                : colors.border;
 
           return (
             <TouchableOpacity
@@ -247,18 +233,6 @@ export default function MyReservations({
                     />
                     <Text style={styles.purposeText} numberOfLines={2}>
                       {reservation.purpose}
-                    </Text>
-                  </View>
-                )}
-                {!!reservation.managerComment && (
-                  <View style={styles.commentRow}>
-                    <Ionicons
-                      name="information-circle-outline"
-                      size={14}
-                      color={colors.warning}
-                    />
-                    <Text style={styles.commentText}>
-                      {reservation.managerComment}
                     </Text>
                   </View>
                 )}
@@ -451,23 +425,6 @@ const createStyles = (colors, spacing, borderRadius, typography, shadows) =>
     purposeText: {
       fontSize: typography.xs,
       color: colors.textSecondary,
-      flex: 1,
-      lineHeight: 17,
-    },
-    commentRow: {
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: spacing.xs + 2,
-      backgroundColor: colors.warningLight,
-      padding: spacing.sm + 2,
-      borderRadius: borderRadius.sm,
-      borderWidth: 1,
-      borderColor: colors.warning,
-      marginTop: spacing.sm,
-    },
-    commentText: {
-      fontSize: typography.xs,
-      color: colors.text,
       flex: 1,
       lineHeight: 17,
     },

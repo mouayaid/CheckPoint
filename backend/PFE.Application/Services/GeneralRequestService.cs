@@ -35,17 +35,20 @@ public class GeneralRequestService : IGeneralRequestService
     private readonly IMapper _mapper;
     private readonly INotificationService _notificationService;
     private readonly ILogger<GeneralRequestService> _logger;
+    private readonly IAppTimeProvider _timeProvider;
 
     public GeneralRequestService(
         IApplicationDbContext context,
         IMapper mapper,
         INotificationService notificationService,
-        ILogger<GeneralRequestService> logger)
+        ILogger<GeneralRequestService> logger,
+        IAppTimeProvider timeProvider)
     {
         _context = context;
         _mapper = mapper;
         _notificationService = notificationService;
         _logger = logger;
+        _timeProvider = timeProvider;
     }
 
     public async Task<GeneralRequestDto?> CreateRequestAsync(int userId, CreateGeneralRequestDto dto)
@@ -59,7 +62,7 @@ public class GeneralRequestService : IGeneralRequestService
 
         if (dto.Category == RequestCategory.ExitAuthorization)
         {
-            if (!ValidateExitAuthorization(dto))
+            if (!ValidateExitAuthorization(dto, _timeProvider.TunisiaToday))
             {
                 return null;
             }
@@ -80,7 +83,7 @@ public class GeneralRequestService : IGeneralRequestService
         }
         else if (dto.Category == RequestCategory.Recovery)
         {
-            normalizedRecoverySlots = ValidateAndNormalizeRecovery(dto);
+            normalizedRecoverySlots = ValidateAndNormalizeRecovery(dto, _timeProvider.TunisiaToday);
         }
         else if (string.IsNullOrWhiteSpace(dto.Title) ||
             string.IsNullOrWhiteSpace(dto.Description))
@@ -394,9 +397,9 @@ public class GeneralRequestService : IGeneralRequestService
         return _mapper.Map<GeneralRequestDto>(savedRequest);
     }
 
-    private static bool ValidateExitAuthorization(CreateGeneralRequestDto dto)
+    private static bool ValidateExitAuthorization(CreateGeneralRequestDto dto, DateOnly tunisiaToday)
     {
-        if (dto.AuthorizedDate == null || dto.AuthorizedDate.Value.Date < DateTime.UtcNow.Date)
+        if (dto.AuthorizedDate == null || DateOnly.FromDateTime(dto.AuthorizedDate.Value.Date) < tunisiaToday)
         {
             return false;
         }
@@ -463,7 +466,7 @@ public class GeneralRequestService : IGeneralRequestService
             requestText.Length >= 10;
     }
 
-    private static List<RecoverySlotDto> ValidateAndNormalizeRecovery(CreateGeneralRequestDto dto)
+    private static List<RecoverySlotDto> ValidateAndNormalizeRecovery(CreateGeneralRequestDto dto, DateOnly tunisiaToday)
     {
         var motif = dto.Motif?.Trim();
         var recoveryPermutationType = dto.RecoveryPermutationType?.Trim();
@@ -499,7 +502,7 @@ public class GeneralRequestService : IGeneralRequestService
 
             var slotDate = slot.Date.Value.Date;
 
-            if (slotDate < DateTime.UtcNow.Date)
+            if (DateOnly.FromDateTime(slotDate) < tunisiaToday)
                 throw new BadRequestException("Recovery slot date cannot be in the past.");
 
             if (!slot.StartTime.HasValue || !slot.EndTime.HasValue)

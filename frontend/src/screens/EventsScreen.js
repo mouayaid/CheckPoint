@@ -25,6 +25,54 @@ const EVENT_TYPE_LABEL_FR = {
   7: "Autre",
 };
 
+const TUNISIA_TIME_ZONE = "Africa/Tunis";
+
+const getTunisiaParts = (date) => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TUNISIA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  return Object.fromEntries(
+    parts
+      .filter(({ type }) => type !== "literal")
+      .map(({ type, value }) => [type, Number(value)]),
+  );
+};
+
+const parseApiInstant = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const hasOffset = /(?:z|[+-]\d{2}:?\d{2})$/i.test(value);
+    return new Date(hasOffset ? value : `${value}Z`);
+  }
+  return new Date(value);
+};
+
+const formatTunisiaDateKey = (date) => {
+  const parts = getTunisiaParts(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(
+    parts.day,
+  ).padStart(2, "0")}`;
+};
+
+const addDaysToDateKey = (dateKey, days) => {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const value = new Date(year, month - 1, day);
+  value.setDate(value.getDate() + days);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(
+    2,
+    "0",
+  )}-${String(value.getDate()).padStart(2, "0")}`;
+};
+
 const normalizeEvent = (item) => {
   const id = item?.id ?? item?.Id;
   const title = item?.title ?? item?.Title ?? "Événement";
@@ -63,23 +111,17 @@ const EventsScreen = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const formatDateForApi = (date) => date.toISOString().split("T")[0];
-
   const loadEvents = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const todayKey = formatTunisiaDateKey(new Date());
 
       const daysToLoad = 30;
       const results = [];
 
       for (let i = 0; i < daysToLoad; i++) {
-        const d = new Date(today);
-        d.setDate(today.getDate() + i);
-
-        const dateStr = formatDateForApi(d);
+        const dateStr = addDaysToDateKey(todayKey, i);
         const res = await eventService.getEventsByDate(dateStr);
         const list = res?.data || [];
         if (Array.isArray(list) && list.length > 0) results.push(...list);
@@ -90,8 +132,8 @@ const EventsScreen = () => {
         .filter((e) => e.id != null)
         .sort(
           (a, b) =>
-            new Date(a.startDateTime).getTime() -
-            new Date(b.startDateTime).getTime(),
+            parseApiInstant(a.startDateTime).getTime() -
+            parseApiInstant(b.startDateTime).getTime(),
         );
 
       const uniq = [];
@@ -132,9 +174,10 @@ const EventsScreen = () => {
   };
 
   const formatEventDate = (dateValue) => {
-    const date = new Date(dateValue);
+    const date = parseApiInstant(dateValue);
 
     return date.toLocaleDateString("fr-FR", {
+      timeZone: TUNISIA_TIME_ZONE,
       weekday: "short",
       day: "2-digit",
       month: "short",
@@ -143,9 +186,10 @@ const EventsScreen = () => {
   };
 
   const formatEventTime = (dateValue) => {
-    const date = new Date(dateValue);
+    const date = parseApiInstant(dateValue);
 
     return date.toLocaleTimeString("fr-FR", {
+      timeZone: TUNISIA_TIME_ZONE,
       hour: "2-digit",
       minute: "2-digit",
     });
@@ -156,10 +200,11 @@ const EventsScreen = () => {
       <View style={styles.cardTopRow}>
         <View style={styles.dateBadge}>
           <Text style={styles.dateBadgeDay}>
-            {new Date(item.startDateTime).getDate()}
+            {String(getTunisiaParts(parseApiInstant(item.startDateTime)).day)}
           </Text>
           <Text style={styles.dateBadgeMonth}>
-            {new Date(item.startDateTime).toLocaleDateString("fr-FR", {
+            {parseApiInstant(item.startDateTime).toLocaleDateString("fr-FR", {
+              timeZone: TUNISIA_TIME_ZONE,
               month: "short",
             })}
           </Text>

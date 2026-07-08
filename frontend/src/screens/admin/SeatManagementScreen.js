@@ -1,5 +1,5 @@
 import logger from "../../utils/logger";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -570,6 +570,7 @@ const SeatManagementScreen = () => {
 
   const [tables, setTables] = useState([]);
   const [seatsByTableId, setSeatsByTableId] = useState({});
+  const [selectedTableId, setSelectedTableId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -628,6 +629,28 @@ const SeatManagementScreen = () => {
     }, [loadData]),
   );
 
+  useEffect(() => {
+    if (tables.length === 0) {
+      if (selectedTableId !== null) {
+        setSelectedTableId(null);
+      }
+      return;
+    }
+
+    const selectedExists = tables.some((table) => (table.id ?? table.Id) === selectedTableId);
+    if (!selectedExists) {
+      setSelectedTableId(tables[0].id ?? tables[0].Id);
+    }
+  }, [tables, selectedTableId]);
+
+  const selectedTable = useMemo(
+    () =>
+      tables.find((table) => (table.id ?? table.Id) === selectedTableId) ??
+      tables[0] ??
+      null,
+    [tables, selectedTableId],
+  );
+
   const handleSaveTable = async (id, dto, seatCount) => {
     if (id) {
       const res = await adminOfficeTableService.updateOfficeTable(id, dto);
@@ -638,14 +661,15 @@ const SeatManagementScreen = () => {
     } else {
       const res = await adminOfficeTableService.createOfficeTable(dto);
       const created = adminOfficeTableService.extractData(res);
+      const tableId = created.id ?? created.Id;
       setTables((prev) => [...prev, created]);
+      setSelectedTableId(tableId);
       setSeatsByTableId((prev) => ({
         ...prev,
-        [created.id ?? created.Id]: [],
+        [tableId]: [],
       }));
 
       if (seatCount && seatCount > 0) {
-        const tableId = created.id ?? created.Id;
         const newSeats = [];
         for (let i = 1; i <= seatCount; i++) {
           const seatDto = {
@@ -690,6 +714,9 @@ const SeatManagementScreen = () => {
                 delete next[id];
                 return next;
               });
+              if (selectedTableId === id) {
+                setSelectedTableId(null);
+              }
             } catch {
               Alert.alert("Erreur", "Impossible de supprimer la table.");
             } finally {
@@ -913,6 +940,67 @@ const SeatManagementScreen = () => {
     </View>
   );
 
+  const renderTableSelector = () => (
+    <View style={styles.tableSelector}>
+      <View style={styles.tableSelectorHeader}>
+        <Text style={styles.tableSelectorTitle}>Tables</Text>
+        <Text style={styles.tableSelectorCount}>{tables.length} disponibles</Text>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tableSelectorContent}
+      >
+        {tables.map((table) => {
+          const id = table.id ?? table.Id;
+          const name = table.name ?? table.Name ?? "Table";
+          const seats = seatsByTableId[id] ?? [];
+          const activeSeats = seats.filter(
+            (seat) => seat.isActive ?? seat.IsActive ?? true,
+          ).length;
+          const isSelected = id === (selectedTable?.id ?? selectedTable?.Id);
+
+          return (
+            <TouchableOpacity
+              key={`table-chip-${id}`}
+              style={[
+                styles.tableChip,
+                isSelected && styles.tableChipSelected,
+              ]}
+              onPress={() => setSelectedTableId(id)}
+              activeOpacity={0.85}
+            >
+              <View style={styles.tableChipHeader}>
+                <Ionicons
+                  name="grid-outline"
+                  size={15}
+                  color={isSelected ? colors.textOnPrimary : colors.primary}
+                />
+                <Text
+                  style={[
+                    styles.tableChipName,
+                    isSelected && styles.tableChipNameSelected,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {name}
+                </Text>
+              </View>
+              <Text
+                style={[
+                  styles.tableChipMeta,
+                  isSelected && styles.tableChipMetaSelected,
+                ]}
+              >
+                {activeSeats}/{seats.length} actifs
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+
   const renderTableCard = (table) => {
     const id = table.id ?? table.Id;
     const name = table.name ?? table.Name ?? "—";
@@ -1019,9 +1107,6 @@ const SeatManagementScreen = () => {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Gestion de l'espace</Text>
-          <Text style={styles.headerSubtitle}>
-            Édition des tables et sièges
-          </Text>
         </View>
         <View style={{ flexDirection: "row", gap: 8 }}>
           <TouchableOpacity
@@ -1092,7 +1177,8 @@ const SeatManagementScreen = () => {
                 typography={typography}
               />
             )}
-            {tables.map(renderTableCard)}
+            {renderTableSelector()}
+            {selectedTable ? renderTableCard(selectedTable) : null}
           </>
         )}
       </ScrollView>
@@ -1341,6 +1427,74 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     list: { flex: 1 },
     listContent: { padding: spacing.lg, gap: 12, paddingBottom: 120 },
+
+    tableSelector: {
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+      marginBottom: spacing.lg,
+      ...shadows.sm,
+    },
+    tableSelectorHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: spacing.sm,
+      gap: spacing.sm,
+    },
+    tableSelectorTitle: {
+      fontSize: typography.sm,
+      fontWeight: typography.bold,
+      color: colors.text,
+    },
+    tableSelectorCount: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+    },
+    tableSelectorContent: {
+      gap: spacing.sm,
+      paddingRight: spacing.sm,
+    },
+    tableChip: {
+      minWidth: 124,
+      maxWidth: 170,
+      borderRadius: borderRadius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    tableChipSelected: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primary,
+      ...shadows.sm,
+    },
+    tableChipHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      marginBottom: 4,
+    },
+    tableChipName: {
+      flex: 1,
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+      color: colors.text,
+    },
+    tableChipNameSelected: {
+      color: colors.textOnPrimary,
+    },
+    tableChipMeta: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+    },
+    tableChipMetaSelected: {
+      color: colors.textOnPrimary,
+      opacity: 0.9,
+    },
 
     tableCard: {
       padding: spacing.lg,

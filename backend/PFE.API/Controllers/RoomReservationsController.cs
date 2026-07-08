@@ -14,10 +14,14 @@ namespace PFE.API.Controllers;
 public class RoomReservationsController : ControllerBase
 {
     private readonly IRoomReservationService _roomReservationService;
+    private readonly IAppTimeProvider _timeProvider;
 
-    public RoomReservationsController(IRoomReservationService roomReservationService)
+    public RoomReservationsController(
+        IRoomReservationService roomReservationService,
+        IAppTimeProvider timeProvider)
     {
         _roomReservationService = roomReservationService;
+        _timeProvider = timeProvider;
     }
 
     [HttpGet("for-day")]
@@ -35,7 +39,8 @@ public class RoomReservationsController : ControllerBase
                 );
             }
 
-            var requestedDate = (date ?? DateTime.Today).Date;
+            var requestedDate = date?.Date ??
+                _timeProvider.TunisiaToday.ToDateTime(TimeOnly.MinValue);
 
             var reservations = await _roomReservationService.GetReservationsForDayAsync(
                 roomId,

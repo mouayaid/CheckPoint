@@ -15,9 +15,6 @@ public class RoomReservationDto
     public DateTime EndDateTime { get; set; }
     public ReservationStatus Status { get; set; }
 
-    public string? ManagerComment { get; set; }
-    public DateTime? ReviewedAt { get; set; }
-
     public DateTime CreatedAt { get; set; }
 }
 

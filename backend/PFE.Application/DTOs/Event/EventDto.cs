@@ -18,4 +18,8 @@ public class EventDto
     public bool RSVPEnabled { get; set; }
     public DateTime CreatedAt { get; set; }
     public int ParticipantCount { get; set; }
+    public string? CurrentUserRsvpStatus { get; set; }
+    public int GoingCount { get; set; }
+    public int NotGoingCount { get; set; }
+    public int MaybeCount { get; set; }
 }

@@ -70,7 +70,7 @@ const normalizeDepartments = (items) =>
 
 const normalizeRole = (r, roles) => {
   if (typeof r === "number") {
-    return roles.some((role) => role.value === r) ? r : (roles[0]?.value ?? 1);
+    return roles.some((role) => role.value === r) ? r : null;
   }
 
   if (typeof r === "string") {
@@ -115,7 +115,11 @@ const getRoleValueFromUser = (user, roles) =>
 
 const isAdminRoleValue = (roleValue, roles) => {
   const role = roles.find((item) => item.value === roleValue);
-  return String(role?.label ?? "").trim().toLowerCase() === "admin";
+  return (
+    String(role?.label ?? "")
+      .trim()
+      .toLowerCase() === "admin"
+  );
 };
 
 const getDepartmentDisplayName = (user, roleValue, roles) =>
@@ -192,7 +196,10 @@ const EditModal = ({
       setSelectedDepartment(
         isAdminRoleValue(roleValue, roles)
           ? null
-          : (user.departmentId ?? user.DepartmentId ?? departments[0]?.value ?? 1),
+          : (user.departmentId ??
+              user.DepartmentId ??
+              departments[0]?.value ??
+              1),
       );
     }
   }, [user, roles, departments]);
@@ -449,37 +456,36 @@ const EditModal = ({
 
             {!isAdminRoleValue(selectedRole, roles) && (
               <>
-            <SectionHeader
-              label="Département"
-              colors={colors}
-              spacing={spacing}
-              typography={typography}
-            />
+                <SectionHeader
+                  label="Département"
+                  colors={colors}
+                  spacing={spacing}
+                  typography={typography}
+                />
 
-            <View style={s.chipGrid}>
-              {departments.map((dep) => {
-                const sel = selectedDepartment === dep.value;
+                <View style={s.chipGrid}>
+                  {departments.map((dep) => {
+                    const sel = selectedDepartment === dep.value;
 
-                return (
-                  <TouchableOpacity
-                    key={dep.value}
-                    style={[s.chip, sel && s.chipSel]}
-                    onPress={() => setSelectedDepartment(dep.value)}
-                    disabled={saving}
-                  >
-                    <Ionicons
-                      name="business-outline"
-                      size={13}
-                      color={sel ? colors.primary : colors.textSecondary}
-                    />
-                    <Text style={[s.chipTxt, sel && s.chipTxtSel]}>
-                      {dep.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
+                    return (
+                      <TouchableOpacity
+                        key={dep.value}
+                        style={[s.chip, sel && s.chipSel]}
+                        onPress={() => setSelectedDepartment(dep.value)}
+                        disabled={saving}
+                      >
+                        <Ionicons
+                          name="business-outline"
+                          size={13}
+                          color={sel ? colors.primary : colors.textSecondary}
+                        />
+                        <Text style={[s.chipTxt, sel && s.chipTxtSel]}>
+                          {dep.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </>
             )}
 

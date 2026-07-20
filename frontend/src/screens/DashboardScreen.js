@@ -492,6 +492,9 @@ const buildAttendanceSummary = (monthCheckIns, currentYear, currentMonth) => {
         recentDays.unshift({
           key: dateStr,
           label: String(cursor.getDate()),
+          weekday: cursor.toLocaleDateString("fr-FR", {
+            weekday: "short",
+          }),
           type,
         });
       }
@@ -1279,8 +1282,10 @@ const DashboardScreen = () => {
                     />
                   ) : (
                     <Text style={styles.attendanceMeta}>
-                      {attendanceSummary.checkedInCount}✓ ·{" "}
-                      {attendanceSummary.missedCount}✗
+                      {attendanceSummary.checkedInCount} /{" "}
+                      {attendanceSummary.checkedInCount +
+                        attendanceSummary.missedCount}{" "}
+                      jours
                     </Text>
                   )}
                 </View>
@@ -1316,35 +1321,45 @@ const DashboardScreen = () => {
                               item.type === "today" && styles.attDayToday,
                             ]}
                           >
-                            {item.type === "checked" ? (
-                              <Ionicons
-                                name="checkmark"
-                                size={14}
-                                color="#4ade80"
-                              />
-                            ) : item.type === "missed" ? (
-                              <Ionicons
-                                name="close"
-                                size={14}
-                                color="#fb923c"
-                              />
-                            ) : (
-                              <Text
-                                style={[
-                                  styles.attDayLabel,
-                                  item.type === "empty" && { opacity: 0 },
-                                ]}
-                              >
+                            <View style={styles.attDayContent}>
+                              <Text style={styles.attWeekday}>
+                                {item.weekday.replace(".", "")}
+                              </Text>
+
+                              <Text style={styles.attDayLabel}>
                                 {item.label}
                               </Text>
-                            )}
+
+                              <View style={styles.attStatusWrap}>
+                                {item.type === "checked" ? (
+                                  <Ionicons
+                                    name="checkmark-circle"
+                                    size={13}
+                                    color="#4ade80"
+                                  />
+                                ) : item.type === "missed" ? (
+                                  <Ionicons
+                                    name="ellipse"
+                                    size={7}
+                                    color="#fb923c"
+                                  />
+                                ) : (
+                                  <Ionicons
+                                    name="ellipse-outline"
+                                    size={9}
+                                    color={colors.textOnPrimary}
+                                  />
+                                )}
+                              </View>
+                            </View>
                           </View>
                         );
                       })}
                     </View>
 
                     <Text style={styles.attLegend}>
-                      Vert = validé · orange = manqué · blanc = aujourd&apos;hui
+                      Vert = présent · orange = absent · blanc =
+                      aujourd&apos;hui
                     </Text>
                   </>
                 )}
@@ -2079,9 +2094,35 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
 
     attDay: {
       flex: 1,
-      height: 34,
+      height: 56,
       borderRadius: 8,
       borderWidth: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    attDayContent: {
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    attWeekday: {
+      fontSize: 9,
+      color: colors.textOnPrimary,
+      opacity: 0.72,
+      fontFamily: typography.fontFamily?.semibold,
+      textTransform: "capitalize",
+    },
+
+    attDayLabel: {
+      marginTop: 1,
+      fontSize: 12,
+      fontFamily: typography.fontFamily?.semibold,
+      color: colors.textOnPrimary,
+    },
+
+    attStatusWrap: {
+      height: 14,
+      marginTop: 2,
       alignItems: "center",
       justifyContent: "center",
     },
@@ -2193,7 +2234,12 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       color: colors.warning,
       marginBottom: spacing.xs,
     },
-
+    attWeekday: {
+      fontSize: 9,
+      color: colors.textOnPrimary,
+      opacity: 0.7,
+      fontWeight: "600",
+    },
     eventSectionHeader: {
       flexDirection: "row",
       alignItems: "center",

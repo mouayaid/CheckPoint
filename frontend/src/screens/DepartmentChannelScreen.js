@@ -11,6 +11,8 @@ import {
   Text,
   StyleSheet,
   FlatList,
+  Modal,
+  Pressable,
   TouchableOpacity,
   TextInput,
   Alert,
@@ -59,11 +61,9 @@ const PollItem = React.memo(
     canVotePoll,
     canViewPollVoters,
     votingId,
-    votersData,
-    loadingVoters,
-    expandedVoterOptions,
+    loadingVotersOptionId,
     onVote,
-    onToggleVoters,
+    onOpenVoters,
   }) => {
   const { colors, spacing, borderRadius, typography } = useTheme();
 
@@ -94,12 +94,7 @@ const PollItem = React.memo(
         const isSelected = poll.selectedOptionId === opt.id;
         const percent =
           totalVotes > 0 ? Math.round((opt.voteCount / totalVotes) * 100) : 0;
-        const optionKey = `${poll.id}:${opt.id}`;
-        const isVotersExpanded = expandedVoterOptions[optionKey] === true;
-        const optionVoters =
-          votersData?.options?.find((option) => option.optionId === opt.id)
-            ?.voters ?? [];
-
+        const isLoadingVotersOption = loadingVotersOptionId === opt.id;
         return (
           <TouchableOpacity
             key={opt.id}
@@ -133,38 +128,21 @@ const PollItem = React.memo(
               <View style={styles.pollVotersBlock}>
                 <TouchableOpacity
                   activeOpacity={0.75}
-                  onPress={() => onToggleVoters(poll.id, opt.id)}
+                  onPress={(event) => {
+                    event?.stopPropagation?.();
+                    onOpenVoters(poll.id, opt.id, opt.text);
+                  }}
                   style={styles.pollVotersToggle}
-                  disabled={loadingVoters}
+                  disabled={isLoadingVotersOption}
                 >
-                  <Text style={styles.pollVotersToggleText}>
-                    Voir les participants {isVotersExpanded ? "▲" : "▼"}
-                  </Text>
+                  {isLoadingVotersOption ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Text style={styles.pollVotersToggleText}>
+                      Voir les participants
+                    </Text>
+                  )}
                 </TouchableOpacity>
-
-                {isVotersExpanded && loadingVoters && !votersData ? (
-                  <ActivityIndicator
-                    size="small"
-                    color={colors.primary}
-                    style={styles.pollVotersLoader}
-                  />
-                ) : null}
-
-                {isVotersExpanded && votersData ? (
-                  <View style={styles.pollVotersList}>
-                    {optionVoters.length > 0 ? (
-                      optionVoters.map((voter) => (
-                        <Text key={voter.userId} style={styles.pollVoterName}>
-                          👤 {voter.userName}
-                        </Text>
-                      ))
-                    ) : (
-                      <Text style={styles.pollVotersEmpty}>
-                        Aucun participant
-                      </Text>
-                    )}
-                  </View>
-                ) : null}
               </View>
             )}
           </TouchableOpacity>
@@ -198,11 +176,9 @@ const FeedItem = React.memo(
     canVotePoll,
     canViewPollVoters,
     votingId,
-    votersData,
-    loadingVoters,
-    expandedVoterOptions,
+    loadingVotersOptionId,
     onVote,
-    onToggleVoters,
+    onOpenVoters,
     styles,
     colors,
   }) => {
@@ -260,11 +236,9 @@ const FeedItem = React.memo(
             canVotePoll={canVotePoll}
             canViewPollVoters={canViewPollVoters}
             votingId={votingId}
-            votersData={votersData}
-            loadingVoters={loadingVoters}
-            expandedVoterOptions={expandedVoterOptions}
+            loadingVotersOptionId={loadingVotersOptionId}
             onVote={onVote}
-            onToggleVoters={onToggleVoters}
+            onOpenVoters={onOpenVoters}
           />
         ) : (
           <Text style={styles.messageContent}>{item.content}</Text>
@@ -291,7 +265,6 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
 
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
-  const flatListRef = useRef(null);
   const { user } = useAuth();
   const { canPublishDepartmentChannel, canVotePoll, isManager } = useRoles();
   const { refreshChannelInfo } = useDepartmentChannel();
@@ -309,7 +282,7 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
   const [submitting, setSubmitting] = useState(false);
   const [votingId, setVotingId] = useState(null);
   const [pollVotersByPollId, setPollVotersByPollId] = useState({});
-  const [expandedVoterOptions, setExpandedVoterOptions] = useState({});
+  const [selectedVotersOption, setSelectedVotersOption] = useState(null);
   const [loadingVotersPollId, setLoadingVotersPollId] = useState(null);
 
   const canViewPollVoters = isManager === true;
@@ -504,25 +477,11 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
     [loadFeed, refreshChannelInfo],
   );
 
-  const handleToggleVoters = useCallback(
-    async (pollId, optionId) => {
+  const handleOpenVoters = useCallback(
+    async (pollId, optionId, optionText) => {
       if (!canViewPollVoters) return;
 
-      const optionKey = `${pollId}:${optionId}`;
-      const isExpanded = expandedVoterOptions[optionKey] === true;
-
-      if (isExpanded) {
-        setExpandedVoterOptions((prev) => ({
-          ...prev,
-          [optionKey]: false,
-        }));
-        return;
-      }
-
-      setExpandedVoterOptions((prev) => ({
-        ...prev,
-        [optionKey]: true,
-      }));
+      setSelectedVotersOption({ pollId, optionId, optionText });
 
       if (pollVotersByPollId[pollId] || loadingVotersPollId === pollId) {
         return;
@@ -539,10 +498,7 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
           [pollId]: votersData,
         }));
       } catch (error) {
-        setExpandedVoterOptions((prev) => ({
-          ...prev,
-          [optionKey]: false,
-        }));
+        setSelectedVotersOption(null);
         Alert.alert(
           "Erreur",
           error?.message || "Impossible de charger les participants.",
@@ -553,11 +509,14 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
     },
     [
       canViewPollVoters,
-      expandedVoterOptions,
       loadingVotersPollId,
       pollVotersByPollId,
     ],
   );
+
+  const handleCloseVoters = useCallback(() => {
+    setSelectedVotersOption(null);
+  }, []);
 
   const renderItem = useCallback(
     ({ item }) => (
@@ -566,11 +525,13 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
         canVotePoll={canVotePoll}
         canViewPollVoters={canViewPollVoters}
         votingId={votingId}
-        votersData={pollVotersByPollId[item.poll?.id]}
-        loadingVoters={loadingVotersPollId === item.poll?.id}
-        expandedVoterOptions={expandedVoterOptions}
+        loadingVotersOptionId={
+          loadingVotersPollId === item.poll?.id
+            ? selectedVotersOption?.optionId
+            : null
+        }
         onVote={handleVote}
-        onToggleVoters={handleToggleVoters}
+        onOpenVoters={handleOpenVoters}
         styles={styles}
         colors={colors}
       />
@@ -579,17 +540,61 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
       canVotePoll,
       canViewPollVoters,
       votingId,
-      pollVotersByPollId,
       loadingVotersPollId,
-      expandedVoterOptions,
+      selectedVotersOption,
       handleVote,
-      handleToggleVoters,
+      handleOpenVoters,
       styles,
       colors,
     ],
   );
 
   const keyExtractor = useCallback((item) => String(item.id), []);
+  const voterKeyExtractor = useCallback(
+    (item, index) => String(item?.userId ?? item?.UserId ?? index),
+    [],
+  );
+
+  const selectedVotersData = selectedVotersOption
+    ? pollVotersByPollId[selectedVotersOption.pollId]
+    : null;
+
+  const selectedOptionVoters =
+    selectedVotersData?.options?.find(
+      (option) => option.optionId === selectedVotersOption?.optionId,
+    )?.voters ?? [];
+
+  const isSelectedVotersLoading =
+    selectedVotersOption &&
+    loadingVotersPollId === selectedVotersOption.pollId &&
+    !selectedVotersData;
+
+  const renderVoter = useCallback(
+    ({ item }) => {
+      const userId = item?.userId ?? item?.UserId;
+      const userName =
+        item?.userName ?? item?.UserName ?? item?.name ?? item?.Name;
+
+      return (
+        <View style={styles.voterRow}>
+          <Ionicons
+            name="person-circle-outline"
+            size={22}
+            color={colors.primary}
+          />
+          <View style={styles.voterInfo}>
+            <Text style={styles.voterName}>
+              {userName || "Participant inconnu"}
+            </Text>
+            {userId ? (
+              <Text style={styles.voterMeta}>ID utilisateur: {userId}</Text>
+            ) : null}
+          </View>
+        </View>
+      );
+    },
+    [colors.primary, styles],
+  );
 
   if (!user) return null;
 
@@ -616,7 +621,6 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
           </View>
         ) : (
           <FlatList
-            ref={flatListRef}
             data={items}
             keyExtractor={keyExtractor}
             renderItem={renderItem}
@@ -634,9 +638,6 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
             }
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
-            onContentSizeChange={() =>
-              flatListRef.current?.scrollToEnd({ animated: false })
-            }
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -665,6 +666,71 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
           />
         )}
       </View>
+
+      <Modal
+        visible={Boolean(selectedVotersOption)}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCloseVoters}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={handleCloseVoters}>
+          <Pressable
+            style={styles.votersModal}
+            onPress={(event) => event?.stopPropagation?.()}
+          >
+            <View style={styles.votersModalHeader}>
+              <View style={styles.votersModalTitleBlock}>
+                <Text style={styles.votersModalTitle}>
+                  Participants ayant voté
+                </Text>
+                {selectedVotersOption?.optionText ? (
+                  <Text style={styles.votersModalSubtitle} numberOfLines={2}>
+                    {selectedVotersOption.optionText}
+                  </Text>
+                ) : null}
+              </View>
+
+              <TouchableOpacity
+                onPress={handleCloseVoters}
+                activeOpacity={0.75}
+                style={styles.votersModalClose}
+                accessibilityRole="button"
+                accessibilityLabel="Fermer"
+              >
+                <Ionicons
+                  name="close"
+                  size={20}
+                  color={colors.textSecondary}
+                />
+              </TouchableOpacity>
+            </View>
+
+            {isSelectedVotersLoading ? (
+              <View style={styles.votersModalState}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : (
+              <FlatList
+                data={selectedOptionVoters}
+                keyExtractor={voterKeyExtractor}
+                renderItem={renderVoter}
+                style={styles.votersList}
+                contentContainerStyle={
+                  selectedOptionVoters.length === 0
+                    ? styles.votersListEmptyContent
+                    : styles.votersListContent
+                }
+                ListEmptyComponent={
+                  <Text style={styles.pollVotersEmpty}>
+                    Aucun participant
+                  </Text>
+                }
+                keyboardShouldPersistTaps="handled"
+              />
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {canPublishDepartmentChannel && (
         <Animated.View
@@ -1027,26 +1093,116 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
       fontWeight: typography.semibold,
     },
 
-    pollVotersLoader: {
-      alignSelf: "flex-start",
-      marginTop: spacing.xs,
-    },
-
-    pollVotersList: {
-      marginTop: spacing.xs,
-      gap: 3,
-    },
-
-    pollVoterName: {
-      fontSize: typography.xs,
-      color: colors.text,
-      lineHeight: 18,
-    },
-
     pollVotersEmpty: {
       fontSize: typography.xs,
       color: colors.textSecondary,
       fontStyle: "italic",
+      textAlign: "center",
+      paddingVertical: spacing.lg,
+    },
+
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(15, 23, 42, 0.45)",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.lg,
+    },
+
+    votersModal: {
+      width: "100%",
+      maxWidth: 420,
+      maxHeight: "72%",
+      borderRadius: borderRadius.lg,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: "hidden",
+    },
+
+    votersModalHeader: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+
+    votersModalTitleBlock: {
+      flex: 1,
+      paddingRight: spacing.md,
+    },
+
+    votersModalTitle: {
+      fontSize: typography.base,
+      fontWeight: typography.semibold,
+      color: colors.text,
+    },
+
+    votersModalSubtitle: {
+      marginTop: 3,
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      lineHeight: 17,
+    },
+
+    votersModalClose: {
+      width: 32,
+      height: 32,
+      borderRadius: borderRadius.full,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceMuted,
+    },
+
+    votersModalState: {
+      minHeight: 140,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.lg,
+    },
+
+    votersList: {
+      maxHeight: 360,
+    },
+
+    votersListContent: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+    },
+
+    votersListEmptyContent: {
+      minHeight: 140,
+      justifyContent: "center",
+      paddingHorizontal: spacing.lg,
+    },
+
+    voterRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+
+    voterInfo: {
+      flex: 1,
+      marginLeft: spacing.sm,
+    },
+
+    voterName: {
+      fontSize: typography.sm,
+      fontWeight: typography.medium,
+      color: colors.text,
+    },
+
+    voterMeta: {
+      marginTop: 2,
+      fontSize: typography.xs,
+      color: colors.textSecondary,
     },
 
     pollFooterRow: {

@@ -611,7 +611,7 @@ const RoomManagementScreen = () => {
   <body style="text-align:center; padding-top:50px; font-family:sans-serif;">
     <h2 style="margin-bottom:20px;">${selectedQrRoom?.name}</h2>
     <img src="${base64}" style="width:220px;height:220px;" />
-    <p style="margin-top:20px;">Scan to access room</p>
+    <p style="margin-top:20px;">Scannez pour accéder à la salle</p>
     <p style="font-size:12px; color:gray;">ID: ${selectedQrRoom?.id}</p>
   </body>
 </html>

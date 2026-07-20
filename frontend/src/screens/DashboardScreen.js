@@ -2131,11 +2131,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       transform: [{ scale: 1.05 }],
     },
 
-    attDayLabel: {
-      fontSize: 11,
-      fontWeight: "600",
-      color: colors.textOnPrimary,
-    },
 
     attLegend: {
       marginTop: 8,
@@ -2233,12 +2228,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       fontFamily: typography.fontFamily?.medium,
       color: colors.warning,
       marginBottom: spacing.xs,
-    },
-    attWeekday: {
-      fontSize: 9,
-      color: colors.textOnPrimary,
-      opacity: 0.7,
-      fontWeight: "600",
     },
     eventSectionHeader: {
       flexDirection: "row",

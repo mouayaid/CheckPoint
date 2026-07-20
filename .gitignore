@@ -1,3 +1,5 @@
 
 # Temporary generated exports
 tmp/
+artifacts/
+*.log

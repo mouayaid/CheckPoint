@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PFE.Application.Abstractions;
+using PFE.Application.Common.Exceptions;
 using PFE.Application.DTOs.ChannelMessage;
 using PFE.Domain.Entities;
 using PFE.Domain.Enums;
@@ -26,24 +27,24 @@ public class DepartmentChannelService : IDepartmentChannelService
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
-            throw new Exception("User not found.");
+            throw new NotFoundException("User not found.");
 
         if (user.Role.Name != "Manager")
-            throw new Exception("Only managers can send department messages.");
+            throw new ForbiddenException("Only managers can send department messages.");
 
         var userDepartmentId = RequireDepartmentId(user);
 
         if (userDepartmentId != dto.DepartmentId)
-            throw new Exception("You can only post in your own department.");
+            throw new ForbiddenException("You can only post in your own department.");
 
         if (string.IsNullOrWhiteSpace(dto.Content))
-            throw new Exception("Message content is required.");
+            throw new BadRequestException("Message content is required.");
 
         var departmentExists = await _context.Departments
             .AnyAsync(d => d.Id == dto.DepartmentId);
 
         if (!departmentExists)
-            throw new Exception("Department not found.");
+            throw new NotFoundException("Department not found.");
 
         var message = new DepartmentChannelMessage
         {
@@ -60,6 +61,13 @@ public class DepartmentChannelService : IDepartmentChannelService
 
         // Mark as read for sender (manager)
         await MarkDepartmentChannelAsReadAsync(userId);
+        await NotifyDepartmentRecipientsAsync(
+            dto.DepartmentId,
+            userId,
+            "Nouveau message canal",
+            $"{user.FullName}: {message.Content}",
+            "ChannelMessage",
+            message.Id);
 
         return new DepartmentChannelMessageDto
         {
@@ -82,27 +90,27 @@ public class DepartmentChannelService : IDepartmentChannelService
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
-            throw new Exception("User not found.");
+            throw new NotFoundException("User not found.");
 
         if (user.Role.Name != "Manager")
-            throw new Exception("Only managers can create polls.");
+            throw new ForbiddenException("Only managers can create polls.");
 
         var userDepartmentId = RequireDepartmentId(user);
 
         if (userDepartmentId != dto.DepartmentId)
-            throw new Exception("You can only create polls in your own department.");
+            throw new ForbiddenException("You can only create polls in your own department.");
 
         if (string.IsNullOrWhiteSpace(dto.Question))
-            throw new Exception("Poll question is required.");
+            throw new BadRequestException("Poll question is required.");
 
         if (dto.Options == null || dto.Options.Count < 2)
-            throw new Exception("Poll must contain at least two options.");
+            throw new BadRequestException("Poll must contain at least two options.");
 
         var departmentExists = await _context.Departments
             .AnyAsync(d => d.Id == dto.DepartmentId);
 
         if (!departmentExists)
-            throw new Exception("Department not found.");
+            throw new NotFoundException("Department not found.");
 
         var cleanedOptions = dto.Options
             .Where(o => !string.IsNullOrWhiteSpace(o))
@@ -111,10 +119,10 @@ public class DepartmentChannelService : IDepartmentChannelService
             .ToList();
 
         if (cleanedOptions.Count < 2)
-            throw new Exception("Poll must contain at least two valid options.");
+            throw new BadRequestException("Poll must contain at least two valid options.");
 
         if (dto.ExpiresAt.HasValue && dto.ExpiresAt.Value <= DateTime.UtcNow)
-            throw new Exception("Poll expiration date must be in the future.");
+            throw new BadRequestException("Poll expiration date must be in the future.");
 
         var message = new DepartmentChannelMessage
         {
@@ -148,6 +156,13 @@ public class DepartmentChannelService : IDepartmentChannelService
 
         // Mark as read for sender (manager)
         await MarkDepartmentChannelAsReadAsync(userId);
+        await NotifyDepartmentRecipientsAsync(
+            dto.DepartmentId,
+            userId,
+            "Nouveau sondage canal",
+            $"{user.FullName}: {message.Content}",
+            "ChannelMessage",
+            message.Id);
 
         return await GetMessageByIdAsync(message.Id, userId);
     }
@@ -159,12 +174,12 @@ public class DepartmentChannelService : IDepartmentChannelService
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
-            throw new Exception("User not found.");
+            throw new NotFoundException("User not found.");
 
         var userDepartmentId = RequireDepartmentId(user);
 
         if (userDepartmentId != departmentId)
-            throw new Exception("You can only access your own department feed.");
+            throw new ForbiddenException("You can only access your own department feed.");
 
         var messages = await _context.DepartmentChannelMessages
             .Include(m => m.Sender)
@@ -229,9 +244,58 @@ public class DepartmentChannelService : IDepartmentChannelService
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
-            throw new Exception("User not found.");
+            throw new NotFoundException("User not found.");
 
         return await GetDepartmentFeedAsync(userId, RequireDepartmentId(user));
+    }
+
+    public async Task<DepartmentPollVotersDto> GetPollVotersAsync(int userId, int pollId)
+    {
+        var user = await _context.Users
+            .Include(u => u.Role)
+            .FirstOrDefaultAsync(u => u.Id == userId);
+
+        if (user == null)
+            throw new NotFoundException("User not found.");
+
+        if (user.Role.Name != "Manager")
+            throw new ForbiddenException("Only managers can view poll voters.");
+
+        var userDepartmentId = RequireDepartmentId(user);
+
+        var poll = await _context.DepartmentPolls
+            .Include(p => p.Message)
+            .Include(p => p.Options)
+                .ThenInclude(o => o.Votes)
+                    .ThenInclude(v => v.User)
+            .FirstOrDefaultAsync(p => p.Id == pollId);
+
+        if (poll == null)
+            throw new NotFoundException("Poll not found.");
+
+        if (poll.Message.DepartmentId != userDepartmentId)
+            throw new ForbiddenException("You can only view voters for polls from your department.");
+
+        return new DepartmentPollVotersDto
+        {
+            PollId = poll.Id,
+            Options = poll.Options
+                .OrderBy(o => o.Id)
+                .Select(o => new DepartmentPollOptionVotersDto
+                {
+                    OptionId = o.Id,
+                    OptionText = o.Text,
+                    Voters = o.Votes
+                        .OrderBy(v => v.User.FullName)
+                        .Select(v => new DepartmentPollVoterDto
+                        {
+                            UserId = v.UserId,
+                            UserName = v.User.FullName
+                        })
+                        .ToList()
+                })
+                .ToList()
+        };
     }
 
     public async Task MarkDepartmentChannelAsReadAsync(int userId)
@@ -239,7 +303,7 @@ public class DepartmentChannelService : IDepartmentChannelService
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
-            throw new Exception("User not found.");
+            throw new NotFoundException("User not found.");
 
         var userDepartmentId = RequireDepartmentId(user);
 
@@ -271,7 +335,7 @@ public class DepartmentChannelService : IDepartmentChannelService
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
-            throw new Exception("User not found.");
+            throw new NotFoundException("User not found.");
 
         var userDepartmentId = RequireDepartmentId(user);
 
@@ -313,10 +377,10 @@ public class DepartmentChannelService : IDepartmentChannelService
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
-            throw new Exception("User not found.");
+            throw new NotFoundException("User not found.");
 
         if (user.Role.Name != "Employee")
-            throw new Exception("Only employees can vote.");
+            throw new ForbiddenException("Only employees can vote.");
 
         var userDepartmentId = RequireDepartmentId(user);
 
@@ -329,31 +393,31 @@ public class DepartmentChannelService : IDepartmentChannelService
             .FirstOrDefaultAsync(p => p.Id == pollId);
 
         if (poll == null)
-            throw new Exception("Poll not found.");
+            throw new NotFoundException("Poll not found.");
 
         if (userDepartmentId != poll.Message.DepartmentId)
-            throw new Exception("You can only vote in polls from your department.");
+            throw new ForbiddenException("You can only vote in polls from your department.");
 
         if (poll.Message.Sender.DepartmentId != userDepartmentId ||
             poll.Message.Sender.Role.Name != "Manager")
-            throw new Exception("You can only vote in polls from your department manager.");
+            throw new ForbiddenException("You can only vote in polls from your department manager.");
 
         if (poll.IsClosed)
-            throw new Exception("This poll is closed.");
+            throw new BadRequestException("This poll is closed.");
 
         if (poll.ExpiresAt.HasValue && poll.ExpiresAt.Value <= DateTime.UtcNow)
-            throw new Exception("This poll has expired.");
+            throw new BadRequestException("This poll has expired.");
 
         var optionExists = poll.Options.Any(o => o.Id == dto.OptionId);
         if (!optionExists)
-            throw new Exception("Invalid poll option.");
+            throw new BadRequestException("Invalid poll option.");
 
         var alreadyVoted = poll.Votes.Any(v => v.UserId == userId);
         if (alreadyVoted)
-            throw new Exception("You have already voted in this poll.");
+            throw new ConflictException("You have already voted in this poll.");
 
         if (poll.AllowMultipleChoices)
-            throw new Exception("This endpoint currently supports single-choice voting only.");
+            throw new BadRequestException("This endpoint currently supports single-choice voting only.");
 
         var vote = new DepartmentPollVote
         {
@@ -364,7 +428,15 @@ public class DepartmentChannelService : IDepartmentChannelService
         };
 
         _context.DepartmentPollVotes.Add(vote);
-        await _context.SaveChangesAsync();
+
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            throw new ConflictException("You have already voted in this poll.");
+        }
     }
 
     private async Task<DepartmentChannelMessageDto> GetMessageByIdAsync(int messageId, int userId)
@@ -378,7 +450,7 @@ public class DepartmentChannelService : IDepartmentChannelService
             .FirstOrDefaultAsync(m => m.Id == messageId);
 
         if (message == null)
-            throw new Exception("Message not found.");
+            throw new NotFoundException("Message not found.");
 
         DepartmentPollDto? pollDto = null;
 
@@ -421,8 +493,39 @@ public class DepartmentChannelService : IDepartmentChannelService
     private static int RequireDepartmentId(User user)
     {
         if (!user.DepartmentId.HasValue)
-            throw new Exception("User is not assigned to a department.");
+            throw new BadRequestException("User is not assigned to a department.");
 
         return user.DepartmentId.Value;
+    }
+
+    private async Task NotifyDepartmentRecipientsAsync(
+        int departmentId,
+        int senderId,
+        string title,
+        string message,
+        string relatedEntityType,
+        int relatedEntityId)
+    {
+        var recipientIds = await _context.Users
+            .Where(u =>
+                u.DepartmentId == departmentId &&
+                u.Id != senderId &&
+                u.Role.Name == "Employee" &&
+                u.IsActive &&
+                u.ApprovedAt != null &&
+                u.RejectedAt == null)
+            .Select(u => u.Id)
+            .ToListAsync();
+
+        foreach (var recipientId in recipientIds)
+        {
+            await _notificationService.CreateNotificationAsync(
+                recipientId,
+                title,
+                message,
+                "Info",
+                relatedEntityType,
+                relatedEntityId);
+        }
     }
 }

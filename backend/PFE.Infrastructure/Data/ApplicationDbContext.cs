@@ -237,7 +237,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            entity.HasIndex(e => new { e.PollId, e.UserId, e.PollOptionId })
+            entity.HasIndex(e => new { e.PollId, e.UserId })
                 .IsUnique()
                 .HasDatabaseName("IX_PollVotes_UniqueVote");
         });
@@ -281,6 +281,15 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
 
             entity.Property(e => e.PhoneNumber)
                 .HasMaxLength(20);
+
+            entity.Property(e => e.ProfileImageUrl)
+                .HasMaxLength(500);
+
+            entity.Property(e => e.ProfileImagePublicId)
+                .HasMaxLength(255);
+
+            entity.Property(e => e.ExpoPushToken)
+                .HasMaxLength(255);
 
             entity.Property(e => e.PasswordHash)
                 .IsRequired()
@@ -411,16 +420,16 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
         {
             entity.HasKey(e => e.Id);
 
-            // Unique constraint: Only one reservation per seat per date (Active only)
+            // Unique constraint: Only one blocking reservation per seat per date
             entity.HasIndex(e => new { e.SeatId, e.Date })
                 .IsUnique()
-                .HasFilter("[Status] = 1")
+                .HasFilter("[Status] IN (1, 2)")
                 .HasDatabaseName("IX_SeatReservations_Seat_Date_Unique");
 
-            // Unique constraint: Only one seat per user per date (Active only)
+            // Unique constraint: Only one blocking reservation per user per date
             entity.HasIndex(e => new { e.UserId, e.Date })
                 .IsUnique()
-                .HasFilter("[Status] = 1")
+                .HasFilter("[Status] IN (1, 2)")
                 .HasDatabaseName("IX_SeatReservations_User_Date_Unique");
 
             entity.HasIndex(e => e.UserId)

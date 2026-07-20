@@ -10,7 +10,6 @@ import React, {
 import { notificationService } from "../services/api";
 import { useSignalRNotifications } from "../hooks/useSignalRNotifications";
 import { useAuth } from "./AuthContext";
-import { useE2eMode } from "./E2eModeContext";
 
 const NotificationsContext = createContext(null);
 
@@ -30,6 +29,18 @@ const normalizeNotification = (item) => ({
   message: item?.message ?? item?.Message ?? item?.content ?? item?.Content ?? "",
   type: item?.type ?? item?.Type ?? "Info",
   isRead: item?.isRead ?? item?.IsRead ?? item?.read ?? item?.Read ?? false,
+  relatedEntityType:
+    item?.relatedEntityType ??
+    item?.RelatedEntityType ??
+    item?.entityType ??
+    item?.EntityType ??
+    null,
+  relatedEntityId:
+    item?.relatedEntityId ??
+    item?.RelatedEntityId ??
+    item?.entityId ??
+    item?.EntityId ??
+    null,
   createdAt:
     item?.createdAt ??
     item?.CreatedAt ??
@@ -67,7 +78,6 @@ const extractNotificationList = (response) => {
 
 export function NotificationsProvider({ children }) {
   const { isAuthenticated } = useAuth();
-  const isE2e = useE2eMode();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -191,14 +201,14 @@ export function NotificationsProvider({ children }) {
   }, [notifications, refreshNotifications]);
 
   useEffect(() => {
-    if (!isAuthenticated || isE2e) {
+    if (!isAuthenticated) {
       setNotifications([]);
       setError(null);
       return;
     }
 
     refreshNotifications().catch(() => {});
-  }, [isAuthenticated, isE2e, refreshNotifications]);
+  }, [isAuthenticated, refreshNotifications]);
 
   const handleSignalRNotification = useCallback((notification) => {
     const normalized = normalizeNotification(notification);
@@ -220,7 +230,7 @@ export function NotificationsProvider({ children }) {
     });
   }, []);
 
-  useSignalRNotifications(handleSignalRNotification, isAuthenticated && !isE2e);
+  useSignalRNotifications(handleSignalRNotification, isAuthenticated);
 
   const value = useMemo(
     () => ({

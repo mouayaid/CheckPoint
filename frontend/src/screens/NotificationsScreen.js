@@ -154,16 +154,14 @@ const NotificationsScreen = () => {
   };
 
   const handleNotificationPress = async (item) => {
-    if (item.isRead) return;
-
     try {
       setError(null);
-      await markAsRead(item.id);
+
+      if (!item.isRead) {
+        await markAsRead(item.id);
+      }
     } catch (err) {
-      console.log(
-        "Notification mark-read error:",
-        err?.response?.data || err.message
-      );
+      console.log("Notification press error:", err?.message);
       setError("Impossible de marquer cette notification comme lue.");
     }
   };

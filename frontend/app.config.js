@@ -1,6 +1,7 @@
-const apiUrls = {
-  development: "http://10.0.2.2:5000/api",
+const apiHost = process.env.EXPO_PUBLIC_API_HOST || null;
 
+const apiUrls = {
+  development: apiHost ? `http://${apiHost}:5000/api` : null,
   staging: process.env.EXPO_PUBLIC_STAGING_API_URL,
 
   production: process.env.EXPO_PUBLIC_PRODUCTION_API_URL,
@@ -32,12 +33,15 @@ module.exports = {
     orientation: "portrait",
     userInterfaceStyle: "light",
     assetBundlePatterns: ["**/*"],
+
     ios: {
       supportsTablet: true,
     },
+
     web: {
       favicon: "./assets/favicon.png",
     },
+
     plugins: [
       "expo-font",
       "@react-native-community/datetimepicker",
@@ -51,19 +55,29 @@ module.exports = {
           isAccessMediaLocationEnabled: false,
         },
       ],
+      "expo-notifications",
       "expo-audio",
       "expo-asset",
     ],
+
     android: {
       package: "com.anonymous.pfemobileapp",
-      permissions: ["READ_MEDIA_IMAGES", "WRITE_EXTERNAL_STORAGE"],
+      googleServicesFile: "./google-services.json",
+      permissions: [
+        "READ_MEDIA_IMAGES",
+        "WRITE_EXTERNAL_STORAGE",
+        "POST_NOTIFICATIONS",
+      ],
       softwareKeyboardLayoutMode: "resize",
     },
+
     extra: {
-      apiHost: "192.168.1.12",
+      apiHost,
       apiUrl: apiUrls[environment],
-      e2eApiUrl: "http://10.0.2.2:5000/api",
       environment,
+      eas: {
+        projectId: "54c65ff2-cd14-4902-8a88-1209ffff4d82",
+      },
     },
   },
 };

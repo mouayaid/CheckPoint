@@ -20,14 +20,20 @@ public class NotificationsController : ControllerBase
     }
 
     /// <summary>
-    /// Get all notifications for the logged in user (newest first)
+    /// Get notifications for the logged in user (newest first)
     /// </summary>
     /// <returns>List of notifications</returns>
     [HttpGet]
-    public async Task<ActionResult<ApiResponse<List<NotificationDto>>>> GetNotifications()
+    public async Task<ActionResult<ApiResponse<List<NotificationDto>>>> GetNotifications(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        var notifications = await _notificationService.GetUserNotificationsAsync(userId);
+        var notifications = await _notificationService.GetUserNotificationsAsync(
+            userId,
+            page,
+            pageSize);
+
         return Ok(ApiResponse<List<NotificationDto>>.SuccessResponse(notifications));
     }
 
@@ -55,6 +61,30 @@ public class NotificationsController : ControllerBase
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         await _notificationService.MarkAllAsReadAsync(userId);
         return Ok(ApiResponse<bool>.SuccessResponse(true, "All notifications marked as read"));
+    }
+
+    [HttpPut("expo-token")]
+    public async Task<ActionResult<ApiResponse<bool>>> RegisterExpoPushToken(
+        [FromBody] RegisterExpoPushTokenDto dto)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var expoPushToken = dto?.ExpoPushToken?.Trim();
+
+        if (string.IsNullOrWhiteSpace(expoPushToken))
+        {
+            return BadRequest(ApiResponse<bool>.ErrorResponse("Expo push token is required."));
+        }
+
+        await _notificationService.RegisterExpoPushTokenAsync(userId, expoPushToken);
+        return Ok(ApiResponse<bool>.SuccessResponse(true, "Expo push token registered"));
+    }
+
+    [HttpDelete("expo-token")]
+    public async Task<ActionResult<ApiResponse<bool>>> ClearExpoPushToken()
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        await _notificationService.ClearExpoPushTokenAsync(userId);
+        return Ok(ApiResponse<bool>.SuccessResponse(true, "Expo push token cleared"));
     }
 }
 

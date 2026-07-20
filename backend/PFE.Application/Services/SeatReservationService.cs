@@ -14,10 +14,23 @@ public class SeatReservationService : ISeatReservationService
     private readonly IApplicationDbContext _context;
     private readonly IMapper _mapper;
     private readonly INotificationService _notificationService;
+    private readonly IAppTimeProvider _timeProvider;
+
+    private static readonly SeatReservationStatus[] BlockingStatuses =
+    [
+        SeatReservationStatus.Active,
+        SeatReservationStatus.CheckedIn
+    ];
+
+    private static readonly TimeOnly EndOfDeskDay = new(17, 0);
+
+    public static bool IsBlockingStatus(SeatReservationStatus status) =>
+        BlockingStatuses.Contains(status);
 
     public async Task<bool> CancelMyTodayReservationAsync(int userId)
     {
-        var today = GetTunisiaNow().Date;
+        await NormalizeDueReservationsAsync();
+        var today = GetTunisiaToday();
 
         var reservation = await _context.SeatReservations
             .FirstOrDefaultAsync(r =>
@@ -36,18 +49,21 @@ public class SeatReservationService : ISeatReservationService
     public SeatReservationService(
         IApplicationDbContext context,
         IMapper mapper,
-        INotificationService notificationService)
+        INotificationService notificationService,
+        IAppTimeProvider timeProvider)
     {
         _context = context;
         _mapper = mapper;
         _notificationService = notificationService;
+        _timeProvider = timeProvider;
     }
 
     public async Task<SeatReservationDto?> CreateReservationAsync(int userId, SeatReservationCreateDto dto)
     {
+        await NormalizeDueReservationsAsync();
         var dateOnly = dto.Date.Date;
 
-        var tunisToday = GetTunisiaNow().Date;
+        var tunisToday = GetTunisiaToday();
 
         // Allow ONLY today's date (Tunisia)
         if (dateOnly != tunisToday)
@@ -56,6 +72,15 @@ public class SeatReservationService : ISeatReservationService
                 400,
                 $"Desk reservation is allowed for today only (Tunisia): {tunisToday:yyyy-MM-dd}.",
                 new[] { "NOT_TODAY" }
+            );
+        }
+
+        if (_timeProvider.TunisiaCurrentTime >= EndOfDeskDay)
+        {
+            throw new FrontendValidationException(
+                400,
+                "Desk reservation is closed after 17:00 Tunisia time.",
+                new[] { "DESK_DAY_ENDED" }
             );
         }
 
@@ -77,7 +102,7 @@ public class SeatReservationService : ISeatReservationService
         var existingSeatReservation = await _context.SeatReservations
             .AnyAsync(r => r.SeatId == dto.SeatId &&
                            r.Date.Date == dateOnly &&
-                           r.Status == SeatReservationStatus.Active);
+                           BlockingStatuses.Contains(r.Status));
 
         if (existingSeatReservation)
         {
@@ -92,7 +117,7 @@ public class SeatReservationService : ISeatReservationService
         var existingUserReservation = await _context.SeatReservations
             .AnyAsync(r => r.UserId == userId &&
                            r.Date.Date == dateOnly &&
-                           r.Status == SeatReservationStatus.Active);
+                           BlockingStatuses.Contains(r.Status));
 
         if (existingUserReservation)
         {
@@ -114,7 +139,18 @@ public class SeatReservationService : ISeatReservationService
         };
 
         _context.SeatReservations.Add(reservation);
-        await _context.SaveChangesAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            throw new FrontendValidationException(
+                409,
+                "Selected seat is already reserved or you already have a seat reservation for today.",
+                new[] { "SEAT_RESERVATION_CONFLICT" }
+            );
+        }
 
         // Reload with includes for mapping
         var savedReservation = await _context.SeatReservations
@@ -132,7 +168,8 @@ public class SeatReservationService : ISeatReservationService
 
     public async Task<SeatReservationDto?> GetMyTodayReservationAsync(int userId)
     {
-        var tunisToday = GetTunisiaNow().Date;
+        await NormalizeDueReservationsAsync();
+        var tunisToday = GetTunisiaToday();
 
         var reservation = await _context.SeatReservations
             .AsNoTracking()
@@ -152,6 +189,7 @@ public class SeatReservationService : ISeatReservationService
 
     public async Task<bool> CancelReservationAsync(int reservationId, int userId, string userRole)
     {
+        await NormalizeDueReservationsAsync();
         var reservation = await _context.SeatReservations
             .Include(r => r.Seat)
             .Include(r => r.User)
@@ -176,61 +214,24 @@ public class SeatReservationService : ISeatReservationService
         reservation.Status = SeatReservationStatus.Cancelled;
         await _context.SaveChangesAsync();
 
-        // Create notification for the user
-        await _notificationService.CreateNotificationAsync(
-            reservation.UserId,
-            "Seat Reservation Cancelled",
-            $"Your seat reservation for {reservation.Seat.Label} on {reservation.Date:yyyy-MM-dd} has been cancelled.",
-            "Info",
-            "SeatReservation",
-            reservation.Id);
+        if (reservation.UserId != userId)
+        {
+            await _notificationService.CreateNotificationAsync(
+                reservation.UserId,
+                "Seat Reservation Cancelled",
+                $"Your seat reservation for {reservation.Seat.Label} on {reservation.Date:yyyy-MM-dd} has been cancelled.",
+                "Info",
+                "SeatReservation",
+                reservation.Id);
+        }
 
         return true;
     }
 
-    private static DateTime GetTunisiaNow()
-    {
-        TimeZoneInfo tz;
-
-        if (TryFindTimeZone("Africa/Tunis", out tz))
-        {
-            return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-        }
-        var windowsCandidates = new[]
-        {
-            "Tunisia Standard Time",
-            "W. Central Africa Standard Time"
-        };
-
-        foreach (var id in windowsCandidates)
-        {
-            if (TryFindTimeZone(id, out tz))
-            {
-                return TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
-            }
-        }
-
-        // Last resort fallback
-        return DateTime.Now;
-    }
-
-    private static bool TryFindTimeZone(string id, out TimeZoneInfo tz)
-    {
-        try
-        {
-            tz = TimeZoneInfo.FindSystemTimeZoneById(id);
-            return true;
-        }
-        catch
-        {
-            tz = null!;
-            return false;
-        }
-    }
-
     public async Task<SeatReservationDto> CheckInAsync(int userId, SeatCheckInDto dto)
     {
-        var today = GetTunisiaNow().Date;
+        await NormalizeDueReservationsAsync();
+        var today = GetTunisiaToday();
 
         var qrValue = dto.QrCodeValue?.Trim() ?? string.Empty;
         const string seatQrPrefix = "SEAT:";
@@ -259,11 +260,12 @@ public class SeatReservationService : ISeatReservationService
 
         var reservation = await _context.SeatReservations
             .Include(r => r.Seat)
+                .ThenInclude(s => s.OfficeTable)
+            .Include(r => r.User)
             .FirstOrDefaultAsync(r =>
                 r.UserId == userId &&
                 r.SeatId == seat.Id &&
-                r.Date.Date == today &&
-                r.Status == SeatReservationStatus.Active);
+                r.Date.Date == today);
 
         if (reservation == null)
             throw new FrontendValidationException(
@@ -273,40 +275,18 @@ public class SeatReservationService : ISeatReservationService
             );
 
         if (reservation.Status == SeatReservationStatus.CheckedIn)
+            return _mapper.Map<SeatReservationDto>(reservation);
+
+        if (reservation.Status != SeatReservationStatus.Active)
             throw new FrontendValidationException(
-                400,
-                "Already checked in.",
-                new[] { "ALREADY_CHECKED_IN" }
+                409,
+                "This reservation can no longer be checked in.",
+                new[] { "CHECK_IN_NOT_ALLOWED" }
             );
+
         reservation.Status = SeatReservationStatus.CheckedIn;
-        reservation.CheckedInAt = GetTunisiaNow();
+        reservation.CheckedInAt = _timeProvider.TunisiaNow;
 
-        await _context.SaveChangesAsync();
-
-        return _mapper.Map<SeatReservationDto>(reservation);
-    }
-
-    public async Task<SeatReservationDto> CheckOutAsync(int userId)
-    {
-        var today = GetTunisiaNow().Date;
-
-        var reservation = await _context.SeatReservations
-            .Include(r => r.Seat)
-                .ThenInclude(s => s.OfficeTable)
-            .Include(r => r.User)
-            .FirstOrDefaultAsync(r =>
-                r.UserId == userId &&
-                r.Date.Date == today &&
-                r.Status == SeatReservationStatus.CheckedIn);
-
-        if (reservation == null)
-            throw new FrontendValidationException(
-                404,
-                "No checked-in reservation found for today.",
-                new[] { "NO_CHECKED_IN" }
-            );
-
-        reservation.Status = SeatReservationStatus.Completed;
         await _context.SaveChangesAsync();
 
         return _mapper.Map<SeatReservationDto>(reservation);
@@ -314,6 +294,7 @@ public class SeatReservationService : ISeatReservationService
 
     public async Task<List<MonthCheckInDto>> GetMyMonthReservationsAsync(int userId, int year, int month)
     {
+        await NormalizeDueReservationsAsync();
         var startDate = new DateTime(year, month, 1);
         var daysInMonth = DateTime.DaysInMonth(year, month);
         var endDate = startDate.AddDays(daysInMonth - 1).Date.AddDays(1).AddTicks(-1); // end of month
@@ -334,4 +315,35 @@ public class SeatReservationService : ISeatReservationService
 
         return reservations;
     }
+
+    public async Task NormalizeDueReservationsAsync()
+    {
+        var tunisiaToday = GetTunisiaToday();
+        var isPastEndOfToday = _timeProvider.TunisiaCurrentTime >= EndOfDeskDay;
+        var latestDueDate = isPastEndOfToday ? tunisiaToday : tunisiaToday.AddDays(-1);
+
+        var dueReservations = await _context.SeatReservations
+            .Where(r =>
+                r.Date.Date <= latestDueDate &&
+                (r.Status == SeatReservationStatus.Active ||
+                 r.Status == SeatReservationStatus.CheckedIn))
+            .ToListAsync();
+
+        if (dueReservations.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var reservation in dueReservations)
+        {
+            reservation.Status = reservation.Status == SeatReservationStatus.CheckedIn
+                ? SeatReservationStatus.Completed
+                : SeatReservationStatus.NoShow;
+        }
+
+        await _context.SaveChangesAsync();
+    }
+
+    private DateTime GetTunisiaToday() =>
+        _timeProvider.TunisiaToday.ToDateTime(TimeOnly.MinValue);
 }

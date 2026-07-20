@@ -24,7 +24,6 @@ android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
-    testBuildType "release"
 
     namespace 'com.anonymous.pfemobileapp'
 
@@ -37,7 +36,6 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
-        buildConfigField "boolean", "IS_DETOX_BUILD", (findProperty("detoxBuild") ?: "false").toString()
     }
 
     signingConfigs {
@@ -69,13 +67,6 @@ android {
         jniLibs {
             def enableLegacyPackaging = findProperty('expo.useLegacyPackaging') ?: 'false'
             useLegacyPackaging enableLegacyPackaging.toBoolean()
-
-            pickFirsts += [
-                "lib/arm64-v8a/libfbjni.so",
-                "lib/armeabi-v7a/libfbjni.so",
-                "lib/x86/libfbjni.so",
-                "lib/x86_64/libfbjni.so"
-            ]
         }
     }
 
@@ -103,7 +94,6 @@ android {
 
 dependencies {
     implementation("com.facebook.react:react-android")
-    androidTestImplementation("com.wix:detox:20.51.3")
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true"
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true"

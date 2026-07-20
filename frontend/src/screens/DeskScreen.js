@@ -18,14 +18,13 @@ import {
   Dimensions,
   RefreshControl,
   Platform,
-  TextInput,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { seatService } from "../services/api";
-import { formatDate } from "../utils/helpers";
+import { formatDate, getTunisiaNow } from "../utils/helpers";
 import { Button, Card } from "../components";
 import { useTheme } from "../context/ThemeContext";
-import { useE2eMode } from "../context/E2eModeContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Haptics from "expo-haptics";
@@ -114,10 +113,16 @@ const createStyles = (
       backgroundColor: colors.surface,
       flexGrow: 0,
       flexShrink: 0,
+      width: undefined,
+      alignSelf: "stretch",
     },
     statusCardBooked: {
       backgroundColor: colors.successLight,
       borderColor: colors.success,
+    },
+    statusCardError: {
+      backgroundColor: colors.errorLight ?? colors.surface,
+      borderColor: colors.error,
     },
     statusRow: {
       flexDirection: "row",
@@ -160,23 +165,83 @@ const createStyles = (
       color: colors.textOnPrimary,
     },
     activeReservationActions: {
+      marginTop: spacing.xs,
       gap: spacing.sm,
     },
-    secondaryActionRow: {
+
+    scanActionButton: {
+      flex: 1,
+      minHeight: 48,
+      borderRadius: borderRadius.md,
+      backgroundColor: colors.primary,
       flexDirection: "row",
-      flexWrap: "wrap",
-      gap: spacing.sm,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      paddingHorizontal: spacing.md,
     },
-    primaryActionButton: {
-      width: "100%",
-      marginTop: 0,
+
+    scanActionButtonDisabled: {
+      opacity: 0.55,
     },
-    secondaryActionButton: {
-      alignSelf: "flex-start",
-      marginTop: 0,
-      minHeight: 42,
-      height: 44,
+
+    scanActionText: {
+      color: colors.textOnPrimary,
+      fontSize: typography.sm,
+      fontWeight: typography.bold,
     },
+
+    separator: {
+      height: 1,
+      backgroundColor: colors.border,
+      opacity: 0.5,
+      marginTop: spacing.md,
+      marginBottom: spacing.sm,
+    },
+
+    releaseTextButton: {
+      alignSelf: "center",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingVertical: spacing.sm,
+    },
+
+    releaseText: {
+      color: colors.error,
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+    },
+
+    releaseTextDisabled: {
+      opacity: 0.5,
+    },
+
+    releaseActionButton: {
+      minHeight: 48,
+      minWidth: 112,
+      borderRadius: borderRadius.md,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      backgroundColor: colors.surface,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingHorizontal: spacing.md,
+    },
+
+    releaseActionButtonDisabled: {
+      opacity: 0.55,
+    },
+
+    releaseActionText: {
+      color: colors.primary,
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+    },
+
     statusIconWrap: {
       width: 38,
       height: 38,
@@ -184,6 +249,14 @@ const createStyles = (
       backgroundColor: colors.surfaceMuted,
       alignItems: "center",
       justifyContent: "center",
+    },
+    // FIX: was referenced in JSX but never defined, so the checkmark icon
+    // silently kept the default muted background instead of a success tint.
+    statusIconSuccess: {
+      backgroundColor: colors.successLight ?? colors.surfaceMuted,
+    },
+    statusIconError: {
+      backgroundColor: colors.errorLight ?? colors.surfaceMuted,
     },
     statusTextWrap: {
       flex: 1,
@@ -205,9 +278,9 @@ const createStyles = (
       fontSize: typography.xs,
       color: colors.textSecondary,
     },
-    e2eHiddenMarker: {
-      width: 0,
-      height: 0,
+    statusRetryBtn: {
+      marginTop: spacing.sm,
+      alignSelf: "flex-start",
     },
     cancelBtn: {
       marginTop: spacing.sm,
@@ -244,6 +317,10 @@ const createStyles = (
       color: colors.textMuted,
       textAlign: "center",
       paddingHorizontal: spacing.xl,
+    },
+    emptyRetryButton: {
+      marginTop: spacing.sm,
+      minWidth: 160,
     },
 
     tableCard: {
@@ -377,6 +454,52 @@ const createStyles = (
       alignItems: "center",
       padding: spacing.xl,
     },
+    cameraPermissionCard: {
+      width: Math.min(width * 0.92, 380),
+      padding: spacing.xl,
+      backgroundColor: colors.surface,
+      borderRadius: borderRadius.xl,
+      alignItems: "center",
+      ...shadows.lg,
+    },
+
+    cameraPermissionIcon: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: spacing.lg,
+    },
+
+    cameraPermissionTitle: {
+      fontSize: typography.lg,
+      fontWeight: typography.bold,
+      color: colors.text,
+      textAlign: "center",
+      marginBottom: spacing.sm,
+    },
+    cameraPermissionText: {
+      fontSize: typography.sm,
+      lineHeight: 21,
+      color: colors.textSecondary,
+      textAlign: "center",
+      marginBottom: spacing.lg,
+    },
+
+    cameraPermissionActions: {
+      width: "100%",
+      gap: spacing.sm,
+    },
+
+    cameraPermissionPrimaryButton: {
+      width: "100%",
+    },
+
+    cameraPermissionSecondaryButton: {
+      width: "100%",
+    },
     infoModalContent: {
       width: Math.min(width * 0.88, 340),
       padding: spacing.xl,
@@ -494,43 +617,6 @@ const createStyles = (
       color: "#fff",
       fontWeight: typography.bold,
     },
-    e2eQrPanel: {
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.md,
-      padding: spacing.lg,
-      borderRadius: borderRadius.lg,
-      borderWidth: 1,
-      borderColor: colors.info,
-      backgroundColor: colors.infoLight,
-    },
-    e2eQrTitle: {
-      fontSize: typography.sm,
-      fontWeight: typography.bold,
-      color: colors.info,
-      marginBottom: spacing.sm,
-    },
-    e2eQrPresetButton: {
-      paddingVertical: spacing.sm,
-      marginBottom: spacing.sm,
-    },
-    e2eQrPresetText: {
-      fontSize: typography.sm,
-      color: colors.text,
-      fontWeight: typography.semibold,
-    },
-    e2eQrInput: {
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: borderRadius.md,
-      padding: spacing.md,
-      backgroundColor: colors.surface,
-      color: colors.text,
-      marginBottom: spacing.sm,
-    },
-    e2eQrActions: {
-      marginTop: spacing.xs,
-    },
-
     // ── Table selector ──────────────────────────────────────────────
     tableSelectorContainer: {
       marginHorizontal: spacing.lg,
@@ -612,7 +698,6 @@ const createStyles = (
 
 const DeskScreen = () => {
   const [refreshing, setRefreshing] = useState(false);
-  const isE2e = useE2eMode();
   const { colors, spacing, borderRadius, typography, shadows } = useTheme();
   const insets = useSafeAreaInsets();
   const { feedback, showFeedback, hideFeedback } = useFeedback();
@@ -623,11 +708,18 @@ const DeskScreen = () => {
     [colors, spacing, borderRadius, typography, shadows, insets],
   );
 
-  const selectedDate = useMemo(() => formatDate(new Date()), []);
+  const selectedDate = useMemo(() => formatDate(getTunisiaNow()), []);
 
   const [seats, setSeats] = useState([]);
   const [loading, setLoading] = useState(false);
+  // FIX: track load failures separately from "loaded but genuinely empty"
+  const [seatMapError, setSeatMapError] = useState(null);
+
   const [loadingMyReservation, setLoadingMyReservation] = useState(true);
+  // FIX: same idea for the "my reservation" fetch — a failed lookup should
+  // not be silently treated the same as "you have nothing booked today".
+  const [myReservationError, setMyReservationError] = useState(null);
+
   const [reservingSeatId, setReservingSeatId] = useState(null);
   const [cancelling, setCancelling] = useState(false);
 
@@ -640,13 +732,26 @@ const DeskScreen = () => {
   const [scannerVisible, setScannerVisible] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
+  const [permissionModalVisible, setPermissionModalVisible] = useState(false);
+  const [requestingCameraPermission, setRequestingCameraPermission] =
+    useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
-  const [checkingOut, setCheckingOut] = useState(false);
-  const [e2eQrValue, setE2eQrValue] = useState("");
-  const [e2eQrPanelVisible, setE2eQrPanelVisible] = useState(false);
 
   const [selectedTableId, setSelectedTableId] = useState(null);
   const tableSelectorRef = useRef(null);
+
+  // FIX: keep a handle on the "reset scanned flag" timeout so it can be
+  // cleared if the scanner modal closes or the component unmounts before
+  // it fires (previously it always fired 1.5s later regardless).
+  const resetScanTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetScanTimeoutRef.current) {
+        clearTimeout(resetScanTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // ─────────────────────────────────────────────────────────────────
   // Feedback helper
@@ -668,7 +773,6 @@ const DeskScreen = () => {
       const isSuccess =
         normalizedLowerTitle.includes("réussi") ||
         normalizedLowerTitle.includes("check-in") ||
-        normalizedLowerTitle.includes("check-out") ||
         normalizedLowerTitle.includes("réserv") ||
         normalizedLowerTitle.includes("reserve") ||
         normalizedLowerTitle.includes("reserv");
@@ -749,95 +853,94 @@ const DeskScreen = () => {
   // ─────────────────────────────────────────────────────────────────
   // Scanner
   // ─────────────────────────────────────────────────────────────────
-  const openScanner = async () => {
-    if (isE2e) {
-      const qrPreset =
-        myReservation?.seatQrCodeValue ??
-        myReservation?.SeatQrCodeValue ??
-        (mySeatId ? `SEAT:${mySeatId}` : "");
-      setE2eQrValue(String(qrPreset).trim());
-      setE2eQrPanelVisible(true);
-      return;
-    }
-
-    if (!permission?.granted) {
-      const result = await requestPermission();
-      if (!result.granted) {
-        showFeedbackAlert(
-          "Permission refusée",
-          "La caméra est nécessaire pour scanner le QR code.",
-        );
-        return;
-      }
-    }
-
+  const startScanner = () => {
     setScanned(false);
     setScannerVisible(true);
   };
 
-  const submitE2eQr = async () => {
-    const value = String(e2eQrValue || "").trim();
-    if (!value) {
-      showFeedbackAlert("QR requis", "Saisissez la valeur QR du poste.");
-      return;
-    }
-
-    const expectedQr = String(
-      myReservation?.seatQrCodeValue ??
-        myReservation?.SeatQrCodeValue ??
-        (mySeatId ? `SEAT:${mySeatId}` : ""),
-    )
-      .trim()
-      .toUpperCase();
-    const reservedSeat = String(mySeatLabel || "")
-      .trim()
-      .toUpperCase();
-    const normalizedValue = value.toUpperCase();
-
-    if (
-      isE2e &&
-      normalizedValue !== expectedQr &&
-      normalizedValue !== reservedSeat
-    ) {
+  const openScanner = () => {
+    if (!permission) {
       showFeedbackAlert(
-        "QR incorrect",
-        `Ce QR code ne correspond pas à votre poste réservé (${mySeatLabel}).`,
+        "Caméra indisponible",
+        "Impossible de vérifier l'autorisation de la caméra. Veuillez réessayer.",
       );
       return;
     }
 
-    await handleQrScanned({ data: value });
-    setE2eQrPanelVisible(false);
+    if (permission.granted) {
+      startScanner();
+      return;
+    }
+
+    setPermissionModalVisible(true);
   };
 
-  const handleCheckOut = async () => {
-    setCheckingOut(true);
-    try {
-      const response = await seatService.checkOutReservation();
-      const result = response?.data ?? response;
+  const handleCameraPermissionRequest = async () => {
+    if (requestingCameraPermission) return;
 
-      if (result?.success) {
-        await Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Success,
-        );
-        showFeedbackAlert(
-          "Check-out réussi",
-          "Votre journée de présence est terminée.",
-        );
-        await Promise.all([fetchSeatMap(), fetchMyReservation()]);
-      } else {
-        showFeedbackAlert(
-          "Check-out refusé",
-          result?.message || "Impossible de terminer le check-out.",
-        );
+    if (!permission?.canAskAgain) {
+      setPermissionModalVisible(false);
+
+      showFeedbackAlert(
+        "Autorisation requise",
+        "L'accès à la caméra est désactivé. Activez-le dans les paramètres de votre téléphone.",
+        [
+          { text: "Annuler", style: "cancel" },
+          {
+            text: "Ouvrir les paramètres",
+            onPress: async () => {
+              try {
+                await Linking.openSettings();
+              } catch {
+                showFeedbackAlert(
+                  "Impossible d'ouvrir les paramètres",
+                  "Ouvrez les paramètres de votre téléphone et autorisez manuellement l'accès à la caméra.",
+                );
+              }
+            },
+          },
+        ],
+      );
+
+      return;
+    }
+
+    setRequestingCameraPermission(true);
+
+    try {
+      const result = await requestPermission();
+
+      setPermissionModalVisible(false);
+
+      if (result.granted) {
+        startScanner();
+        return;
       }
+
+      showFeedbackAlert(
+        "Caméra non autorisée",
+        result.canAskAgain
+          ? "L'accès à la caméra est nécessaire pour scanner le QR code de votre poste."
+          : "L'accès à la caméra est désactivé. Vous pouvez l'activer depuis les paramètres de votre téléphone.",
+        !result.canAskAgain
+          ? [
+              { text: "Annuler", style: "cancel" },
+              {
+                text: "Ouvrir les paramètres",
+                onPress: () => Linking.openSettings(),
+              },
+            ]
+          : null,
+      );
     } catch (error) {
+      setPermissionModalVisible(false);
+
       showFeedbackAlert(
         "Erreur",
-        getErrorMessage(error, "Impossible de faire le check-out."),
+        getErrorMessage(error, "Impossible de demander l'accès à la caméra."),
       );
     } finally {
-      setCheckingOut(false);
+      setRequestingCameraPermission(false);
     }
   };
 
@@ -847,13 +950,24 @@ const DeskScreen = () => {
     setScanned(true);
     console.log("DESK QR DATA:", data);
 
-    const resetScan = () => setTimeout(() => setScanned(false), 1500);
+    // FIX: keep a ref to the timeout so it can be cancelled if the modal
+    // closes or the component unmounts before it fires.
+    const resetScan = () => {
+      if (resetScanTimeoutRef.current) {
+        clearTimeout(resetScanTimeoutRef.current);
+      }
+      resetScanTimeoutRef.current = setTimeout(() => {
+        setScanned(false);
+        resetScanTimeoutRef.current = null;
+      }, 1500);
+    };
 
     const scannedValue = String(data).trim();
     const match = /^SEAT:(\d+)$/i.exec(scannedValue);
     const scannedSeatId = match ? Number(match[1]) : null;
 
     if (!match || !Number.isSafeInteger(scannedSeatId) || scannedSeatId <= 0) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       showFeedbackAlert(
         "QR incorrect",
         "Le QR du poste doit avoir le format SEAT:{id}.",
@@ -863,6 +977,7 @@ const DeskScreen = () => {
     }
 
     if (Number(mySeatId) !== scannedSeatId) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       showFeedbackAlert(
         "QR incorrect",
         `Ce QR code ne correspond pas à votre poste réservé (${mySeatLabel}).`,
@@ -890,8 +1005,11 @@ const DeskScreen = () => {
             "Votre présence a été confirmée.",
           );
         }, 200);
-        await fetchMyReservation();
+        await Promise.all([fetchSeatMap(), fetchMyReservation()]);
       } else {
+        await Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Error,
+        );
         showFeedbackAlert(
           "Check-in refusé",
           result?.message || "Impossible de confirmer le check-in.",
@@ -899,6 +1017,7 @@ const DeskScreen = () => {
         );
       }
     } catch (error) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       showFeedbackAlert(
         "Erreur",
         getErrorMessage(error, "Impossible de faire le check-in."),
@@ -927,12 +1046,27 @@ const DeskScreen = () => {
 
   const fetchMyReservation = async () => {
     setLoadingMyReservation(true);
+    // FIX: clear any previous error at the start of a new attempt so a
+    // stale error banner doesn't linger after a successful retry.
+    setMyReservationError(null);
     try {
       const response = await seatService.getMyTodayReservation();
       const raw = response?.data ?? null;
-      setMyReservation(response?.success && raw ? raw : null);
-    } catch {
+      if (response?.success) {
+        setMyReservation(raw ?? null);
+      } else {
+        // Request completed but server reported failure — distinct from
+        // "you simply have no reservation today".
+        setMyReservation(null);
+        setMyReservationError(
+          response?.message || "Impossible de vérifier votre réservation.",
+        );
+      }
+    } catch (error) {
       setMyReservation(null);
+      setMyReservationError(
+        getErrorMessage(error, "Impossible de vérifier votre réservation."),
+      );
     } finally {
       setLoadingMyReservation(false);
     }
@@ -940,6 +1074,8 @@ const DeskScreen = () => {
 
   const fetchSeatMap = async () => {
     setLoading(true);
+    // FIX: clear stale error state before a fresh attempt.
+    setSeatMapError(null);
     try {
       const response = await seatService.getSeatMap(selectedDate);
       if (response.success) {
@@ -952,19 +1088,20 @@ const DeskScreen = () => {
         }));
         setSeats(normalizedSeats);
       } else {
-        showFeedbackAlert(
-          "Impossible de charger le plan",
-          response.message || "Faites glisser vers le bas pour réessayer.",
-        );
+        const message =
+          response.message || "Faites glisser vers le bas pour réessayer.";
+        setSeats([]);
+        setSeatMapError(message);
+        showFeedbackAlert("Impossible de charger le plan", message);
       }
     } catch (error) {
-      showFeedbackAlert(
-        "Impossible de charger le plan",
-        getErrorMessage(
-          error,
-          "Vérifiez votre connexion et faites glisser pour actualiser.",
-        ),
+      const message = getErrorMessage(
+        error,
+        "Vérifiez votre connexion et faites glisser pour actualiser.",
       );
+      setSeats([]);
+      setSeatMapError(message);
+      showFeedbackAlert("Impossible de charger le plan", message);
     } finally {
       setLoading(false);
     }
@@ -973,12 +1110,6 @@ const DeskScreen = () => {
   const handleRefresh = useCallback(async () => {
     await Promise.all([fetchSeatMap(), fetchMyReservation()]);
   }, [selectedDate]);
-
-  useEffect(() => {
-    if (isE2e && mySeatId && !e2eQrValue) {
-      setE2eQrValue(`SEAT:${mySeatId}`);
-    }
-  }, [isE2e, mySeatId, e2eQrValue]);
 
   // ─────────────────────────────────────────────────────────────────
   // Seat / table derived data
@@ -1107,10 +1238,6 @@ const DeskScreen = () => {
       if (response.success) {
         await Promise.all([fetchSeatMap(), fetchMyReservation()]);
         setSelectedAvailableSeat(null);
-        showFeedbackAlert(
-          "Réservation confirmée",
-          `Votre poste ${selectedAvailableSeat.label} a été réservé avec succès pour aujourd'hui.`,
-        );
       } else {
         showFeedbackAlert(
           "Impossible de réserver",
@@ -1133,7 +1260,7 @@ const DeskScreen = () => {
       showFeedbackAlert(
         "Réservation non annulable",
         isCheckedIn
-          ? "Vous avez déjà effectué le check-in. Utilisez le check-out pour terminer votre présence."
+          ? "Vous avez déjà confirmé votre arrivée. Ce poste reste assigné jusqu'à 17:00."
           : "Cette réservation ne peut plus être annulée.",
       );
       return;
@@ -1270,12 +1397,7 @@ const DeskScreen = () => {
             {renderSeatColumn(layout.leftSeats)}
 
             <View style={styles.tableCenter}>
-              <View
-                style={[
-                  styles.tableVisual,
-                  { minHeight: tableMinHeight },
-                ]}
-              >
+              <View style={[styles.tableVisual, { minHeight: tableMinHeight }]}>
                 <View style={styles.tableInnerLine} />
                 <Text style={styles.tableVisualText}>{table.tableName}</Text>
               </View>
@@ -1427,6 +1549,12 @@ const DeskScreen = () => {
           hasActiveDeskReservation &&
             !loadingMyReservation &&
             styles.statusCardBooked,
+          // FIX: distinct visual state when the "my reservation" lookup failed,
+          // instead of silently rendering the same look as "nothing booked".
+          !loadingMyReservation &&
+            !hasActiveDeskReservation &&
+            myReservationError &&
+            styles.statusCardError,
         ]}
       >
         {loadingMyReservation ? (
@@ -1434,6 +1562,7 @@ const DeskScreen = () => {
             <View style={styles.statusIconWrap}>
               <ActivityIndicator size="small" color={colors.primary} />
             </View>
+
             <Text style={styles.statusHint}>
               Vérification de votre réservation…
             </Text>
@@ -1472,48 +1601,121 @@ const DeskScreen = () => {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}`
-                    : " · confirmé"}
-                </Text>
-
-                <Text testID="attendance.status" style={styles.e2eHiddenMarker}>
-                  {isCheckedIn ? "checked-in" : "reserved"}
+                    : " · en attente du QR"}
                 </Text>
               </View>
             </View>
 
             <View style={styles.activeReservationActions}>
               {isCheckedIn ? (
-                <Button
-                  testID="attendance.checkOutButton"
-                  title="Check-out"
-                  onPress={handleCheckOut}
-                  loading={checkingOut}
-                  disabled={checkingOut}
-                  style={styles.primaryActionButton}
-                />
+                <Text style={styles.statusHint}>
+                  Arrivée confirmée. Votre poste reste assigné jusqu'à 17:00.
+                </Text>
               ) : (
-                <Button
-                  testID="attendance.checkInButton"
-                  title="Scanner QR"
-                  onPress={openScanner}
-                  disabled={checkingIn || !isActiveReservation}
-                  style={styles.primaryActionButton}
-                />
-              )}
+                <>
+                  <TouchableOpacity
+                    testID="attendance.checkInButton"
+                    style={[
+                      styles.scanActionButton,
+                      (checkingIn || !isActiveReservation) &&
+                        styles.scanActionButtonDisabled,
+                    ]}
+                    onPress={openScanner}
+                    disabled={checkingIn || !isActiveReservation}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel="Scanner le QR code du poste"
+                  >
+                    {checkingIn ? (
+                      <ActivityIndicator
+                        size="small"
+                        color={colors.textOnPrimary}
+                      />
+                    ) : (
+                      <>
+                        <Ionicons
+                          name="qr-code-outline"
+                          size={19}
+                          color={colors.textOnPrimary}
+                        />
 
-              {!isCheckedIn && isActiveReservation ? (
-                <View style={styles.secondaryActionRow}>
-                  <Button
-                    testID="desk.cancelReservationButton"
-                    title="Libérer"
-                    variant="secondary"
-                    onPress={handleCancelReservation}
-                    loading={cancelling}
-                    disabled={cancelling}
-                    style={styles.secondaryActionButton}
-                  />
-                </View>
-              ) : null}
+                        <Text style={styles.scanActionText}>
+                          Scanner le QR code
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  {isActiveReservation ? (
+                    <>
+                      <View style={styles.separator} />
+
+                      <TouchableOpacity
+                        testID="desk.cancelReservationButton"
+                        style={[
+                          styles.releaseTextButton,
+                          cancelling && styles.releaseTextDisabled,
+                        ]}
+                        onPress={handleCancelReservation}
+                        disabled={cancelling}
+                        activeOpacity={0.7}
+                        accessibilityRole="button"
+                        accessibilityLabel="Annuler la réservation"
+                      >
+                        {cancelling ? (
+                          <ActivityIndicator
+                            size="small"
+                            color={colors.error}
+                          />
+                        ) : (
+                          <>
+                            <Ionicons
+                              name="trash-outline"
+                              size={18}
+                              color={colors.error}
+                            />
+
+                            <Text style={styles.releaseText}>
+                              Annuler la réservation
+                            </Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </>
+                  ) : null}
+                </>
+              )}
+            </View>
+          </View>
+        ) : myReservationError ? (
+          // FIX: dedicated error state — previously indistinguishable from
+          // "you have no reservation today".
+          <View style={styles.statusRow}>
+            <View style={[styles.statusIconWrap, styles.statusIconError]}>
+              <Ionicons
+                name="alert-circle-outline"
+                size={18}
+                color={colors.error}
+              />
+            </View>
+
+            <View style={styles.statusTextWrap}>
+              <Text style={styles.statusTitle}>
+                Impossible de vérifier votre réservation
+              </Text>
+              <Text style={styles.statusHint}>{myReservationError}</Text>
+              <TouchableOpacity
+                style={styles.statusRetryBtn}
+                onPress={fetchMyReservation}
+                accessibilityRole="button"
+                accessibilityLabel="Réessayer de vérifier votre réservation"
+              >
+                <Text
+                  style={[styles.releaseText, { color: colors.primary }]}
+                >
+                  Réessayer
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         ) : (
@@ -1525,8 +1727,10 @@ const DeskScreen = () => {
                 color={colors.primary}
               />
             </View>
+
             <View style={styles.statusTextWrap}>
               <Text style={styles.statusTitle}>Aucun poste réservé</Text>
+
               <Text style={styles.statusHint}>
                 Appuyez sur un poste vert pour réserver
               </Text>
@@ -1536,7 +1740,13 @@ const DeskScreen = () => {
       </Card>
 
       {/* Seat map */}
-      {loading ? (
+      {loading && !refreshing ? (
+        // FIX: only show the full-screen spinner on the *initial* load.
+        // If a pull-to-refresh is already in progress, keep the seat map
+        // mounted and let RefreshControl's own spinner communicate the
+        // loading state — previously the whole map would disappear and
+        // be replaced by a second, redundant spinner during every
+        // pull-to-refresh.
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
@@ -1557,18 +1767,39 @@ const DeskScreen = () => {
 
           {selectedTable ? renderTable(selectedTable) : null}
 
-          {seats.length === 0 && (
+          {seats.length === 0 && seatMapError ? (
+            // FIX: distinct "failed to load" state vs. genuine empty state.
             <View style={styles.emptyContainer}>
               <Ionicons
-                name="grid-outline"
+                name="cloud-offline-outline"
                 size={40}
                 color={colors.textMuted}
               />
-              <Text style={styles.emptyText}>Aucun poste disponible</Text>
-              <Text style={styles.emptyHint}>
-                Faites glisser pour actualiser ou réessayez plus tard.
+              <Text style={styles.emptyText}>
+                Impossible de charger le plan
               </Text>
+              <Text style={styles.emptyHint}>{seatMapError}</Text>
+              <Button
+                title="Réessayer"
+                variant="secondary"
+                onPress={fetchSeatMap}
+                style={styles.emptyRetryButton}
+              />
             </View>
+          ) : (
+            seats.length === 0 && (
+              <View style={styles.emptyContainer}>
+                <Ionicons
+                  name="grid-outline"
+                  size={40}
+                  color={colors.textMuted}
+                />
+                <Text style={styles.emptyText}>Aucun poste disponible</Text>
+                <Text style={styles.emptyHint}>
+                  Faites glisser pour actualiser ou réessayez plus tard.
+                </Text>
+              </View>
+            )
           )}
         </ScrollView>
       )}
@@ -1648,51 +1879,74 @@ const DeskScreen = () => {
           />
         </View>
       )}
+      {/* Camera permission modal */}
+      <Modal
+        visible={permissionModalVisible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!requestingCameraPermission) {
+            setPermissionModalVisible(false);
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <Card style={styles.cameraPermissionCard}>
+            <View style={styles.cameraPermissionIcon}>
+              <Ionicons
+                name="qr-code-outline"
+                size={34}
+                color={colors.primary}
+              />
+            </View>
 
-      {/* E2E QR panel */}
-      {isE2e && e2eQrPanelVisible && (
-        <View style={styles.e2eQrPanel}>
-          <Text style={styles.e2eQrTitle}>Mode E2E — QR simulé</Text>
-          <TouchableOpacity
-            testID="e2eFakeQrButton"
-            style={styles.e2eQrPresetButton}
-            onPress={() => setE2eQrValue(mySeatId ? `SEAT:${mySeatId}` : "")}
-          >
-            <Text style={styles.e2eQrPresetText}>
-              Utiliser le QR du poste ({mySeatLabel || "—"})
+            <Text style={styles.cameraPermissionTitle}>
+              Scanner votre poste
             </Text>
-          </TouchableOpacity>
-          <TextInput
-            testID="e2eFakeQrInput"
-            style={styles.e2eQrInput}
-            value={e2eQrValue}
-            onChangeText={setE2eQrValue}
-            placeholder="Valeur QR"
-            autoCapitalize="characters"
-          />
-          <View style={styles.e2eQrActions}>
-            <Button
-              testID="e2eSubmitQrButton"
-              title="Valider le QR"
-              onPress={submitE2eQr}
-              loading={checkingIn}
-              disabled={checkingIn}
-            />
-            <Button
-              title="Fermer"
-              variant="secondary"
-              onPress={() => setE2eQrPanelVisible(false)}
-              style={{ marginTop: spacing.sm }}
-            />
-          </View>
-        </View>
-      )}
 
+            <Text style={styles.cameraPermissionText}>
+              Pour confirmer votre présence, scannez le QR code affiché sur
+              votre poste de travail.
+            </Text>
+
+            <View style={styles.cameraPermissionActions}>
+              <Button
+                title={
+                  permission?.canAskAgain === false
+                    ? "Ouvrir les paramètres"
+                    : "Autoriser l'accès à la caméra"
+                }
+                onPress={handleCameraPermissionRequest}
+                loading={requestingCameraPermission}
+                disabled={requestingCameraPermission}
+                style={styles.cameraPermissionPrimaryButton}
+              />
+
+              <Button
+                title="Annuler"
+                variant="secondary"
+                onPress={() => setPermissionModalVisible(false)}
+                disabled={requestingCameraPermission}
+                style={styles.cameraPermissionSecondaryButton}
+              />
+            </View>
+          </Card>
+        </View>
+      </Modal>
       {/* QR scanner modal */}
       <Modal
-        visible={scannerVisible && !isE2e}
+        visible={scannerVisible}
         animationType="slide"
-        onRequestClose={() => setScannerVisible(false)}
+        onRequestClose={() => {
+          setScannerVisible(false);
+          // FIX: cancel any pending "reset scanned flag" timeout when the
+          // scanner is closed so it doesn't fire against a hidden modal.
+          if (resetScanTimeoutRef.current) {
+            clearTimeout(resetScanTimeoutRef.current);
+            resetScanTimeoutRef.current = null;
+          }
+        }}
       >
         <View style={styles.scannerContainer}>
           <CameraView
@@ -1716,7 +1970,13 @@ const DeskScreen = () => {
             )}
             <TouchableOpacity
               style={styles.closeScannerBtn}
-              onPress={() => setScannerVisible(false)}
+              onPress={() => {
+                setScannerVisible(false);
+                if (resetScanTimeoutRef.current) {
+                  clearTimeout(resetScanTimeoutRef.current);
+                  resetScanTimeoutRef.current = null;
+                }
+              }}
             >
               <Ionicons name="close" size={22} color="#fff" />
               <Text style={styles.closeScannerText}>Fermer</Text>

@@ -1,6 +1,7 @@
 using AutoMapper;
 using Microsoft.EntityFrameworkCore;
 using PFE.Application.Abstractions;
+using PFE.Application.Common.Exceptions;
 using PFE.Application.DTOs.User;
 using PFE.Domain.Enums;
 
@@ -109,6 +110,14 @@ public class AdminUserService : IAdminUserService
 
     public async Task<UserDto?> ApproveUserAsync(int userId, int reviewerId, ApproveUserDto dto)
     {
+        var reviewerIsAdmin = await _context.Users
+            .AnyAsync(u => u.Id == reviewerId && u.Role.Name == "Admin");
+
+        if (!reviewerIsAdmin)
+        {
+            throw new ForbiddenException("Only admins can approve pending users.");
+        }
+
         var user = await _context.Users
             .Include(u => u.Department)
             .Include(u => u.Role)
@@ -119,16 +128,37 @@ public class AdminUserService : IAdminUserService
             return null;
         }
 
-        user.IsActive = true;
-        user.LeaveBalance = dto.LeaveBalance;
-        user.YearlySalary = dto.YearlySalary;
-        user.ApprovedAt = DateTime.UtcNow;
-        user.ApprovedByUserId = reviewerId;
+        if (user.IsActive || user.ApprovedAt != null || user.RejectedAt != null)
+        {
+            throw new BadRequestException("Only pending users can be approved.");
+        }
 
         var roleId = dto.RoleId ?? user.RoleId;
         EnsureAllowedRole(roleId);
+
+        if (roleId != AdminRoleId)
+        {
+            if (!dto.DepartmentId.HasValue || dto.DepartmentId.Value <= 0)
+            {
+                throw new BadRequestException("Department is required before approving the user.");
+            }
+
+            var departmentExists = await _context.Departments
+                .AnyAsync(d => d.Id == dto.DepartmentId.Value);
+
+            if (!departmentExists)
+            {
+                throw new NotFoundException("Department not found.");
+            }
+        }
+
+        user.IsActive = true;
+        user.LeaveBalance = NormalizeLeaveBalance(roleId, dto.LeaveBalance);
+        user.YearlySalary = dto.YearlySalary;
+        user.ApprovedAt = DateTime.UtcNow;
+        user.ApprovedByUserId = reviewerId;
         user.RoleId = roleId;
-        user.DepartmentId = NormalizeDepartmentId(roleId, dto.DepartmentId);
+        user.DepartmentId = roleId == AdminRoleId ? null : dto.DepartmentId!.Value;
 
         await _context.SaveChangesAsync();
 
@@ -157,6 +187,7 @@ public class AdminUserService : IAdminUserService
         if (dto.RoleId == AdminRoleId)
         {
             user.DepartmentId = null;
+            user.LeaveBalance = null;
         }
         else if (!user.DepartmentId.HasValue || user.DepartmentId.Value <= 0)
         {
@@ -217,7 +248,7 @@ public class AdminUserService : IAdminUserService
         EnsureAllowedRole(dto.RoleId);
         user.RoleId = dto.RoleId;
         user.DepartmentId = NormalizeDepartmentId(dto.RoleId, dto.DepartmentId);
-        user.LeaveBalance = dto.LeaveBalance;
+        user.LeaveBalance = NormalizeLeaveBalance(dto.RoleId, dto.LeaveBalance);
 
         await _context.SaveChangesAsync();
 
@@ -309,5 +340,12 @@ public class AdminUserService : IAdminUserService
 
         EnsureAllowedRole(roleId);
         return departmentId;
+    }
+
+    private static decimal? NormalizeLeaveBalance(int roleId, decimal leaveBalance)
+    {
+        EnsureAllowedRole(roleId);
+
+        return roleId == AdminRoleId ? null : leaveBalance;
     }
 }

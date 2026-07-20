@@ -5,6 +5,7 @@ using PFE.Application.Common.Exceptions;
 using PFE.Application.DTOs.SeatReservation;
 using PFE.Application.Services;
 using System.Security.Claims;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace PFE.API.Controllers;
 
@@ -84,6 +85,7 @@ public class SeatReservationsController : ControllerBase
 
     [Authorize]
     [HttpPost("checkin")]
+    [EnableRateLimiting("QrScanPolicy")]
     public async Task<ActionResult<ApiResponse<SeatReservationDto>>> CheckIn([FromBody] SeatCheckInDto dto)
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
@@ -92,22 +94,6 @@ public class SeatReservationsController : ControllerBase
         {
             var result = await _seatReservationService.CheckInAsync(userId, dto);
             return Ok(ApiResponse<SeatReservationDto>.SuccessResponse(result, "Seat check-in successful"));
-        }
-        catch (FrontendValidationException ex)
-        {
-            return StatusCode(ex.StatusCode, ApiResponse<SeatReservationDto>.ErrorResponse(ex.Message, ex.Errors));
-        }
-    }
-
-    [HttpPost("checkout")]
-    public async Task<ActionResult<ApiResponse<SeatReservationDto>>> CheckOut()
-    {
-        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-
-        try
-        {
-            var result = await _seatReservationService.CheckOutAsync(userId);
-            return Ok(ApiResponse<SeatReservationDto>.SuccessResponse(result, "Seat check-out successful"));
         }
         catch (FrontendValidationException ex)
         {
@@ -127,4 +113,3 @@ public class SeatReservationsController : ControllerBase
         return Ok(ApiResponse<List<MonthCheckInDto>>.SuccessResponse(result));
     }
 }
-

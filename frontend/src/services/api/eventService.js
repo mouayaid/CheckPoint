@@ -1,5 +1,5 @@
 import logger from '../../utils/logger';
-import axiosInstance, { BASE_URL } from './axiosInstance';
+import axiosInstance, { getResolvedBaseUrl } from './axiosInstance';
 
 const logEventRequest = (label, payload) => {
   logger.debug(label, payload);
@@ -37,9 +37,10 @@ export const eventService = {
 
   updateEvent: async (id, data) => {
     const path = `/Events/${id}`;
+    const baseUrl = await getResolvedBaseUrl();
     const requestInfo = {
       method: "PUT",
-      url: `${BASE_URL}${path}`,
+      url: `${baseUrl}${path}`,
       path,
       id,
       payload: data,

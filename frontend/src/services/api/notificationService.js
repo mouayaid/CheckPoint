@@ -24,5 +24,15 @@ export const notificationService = {
   markAllAsRead: async () => {
     return await axiosInstance.put("/Notifications/read-all");
   },
+
+  registerExpoPushToken: async (expoPushToken) => {
+    return await axiosInstance.put("/Notifications/expo-token", {
+      expoPushToken,
+    });
+  },
+
+  clearExpoPushToken: async () => {
+    return await axiosInstance.delete("/Notifications/expo-token");
+  },
 };
 

@@ -1,0 +1,59 @@
+# Frontend dependencies are installed cleanly by EAS.
+frontend/node_modules/
+frontend/node_modules/**
+frontend/node_modules_locked_cleanup/
+frontend/node_modules_locked_cleanup/**
+
+# Frontend Expo/Metro local state.
+frontend/.expo/
+frontend/.expo/**
+frontend/.expo-shared/
+frontend/.expo-shared/**
+frontend/dist/
+frontend/dist/**
+frontend/web-build/
+frontend/web-build/**
+
+# Android local machine state and generated build output.
+frontend/android/local.properties
+frontend/android/.gradle/
+frontend/android/.gradle/**
+frontend/android/build/
+frontend/android/build/**
+frontend/android/app/build/
+frontend/android/app/build/**
+frontend/android/.cxx/
+frontend/android/.cxx/**
+frontend/android/app/.cxx/
+frontend/android/app/.cxx/**
+frontend/android/**/build/
+frontend/android/**/.cxx/
+frontend/android/**/*.hprof
+frontend/android/**/*.iml
+frontend/android/**/*.keystore
+!frontend/android/app/debug.keystore
+
+# Generated binaries, archives, inspection output, logs, and temp files.
+frontend/*.apk
+frontend/*.aab
+frontend/*.ipa
+frontend/*.zip
+frontend/*.tar.gz
+frontend/*.tgz
+frontend/*.log
+frontend/*.tmp
+frontend/artifacts/
+frontend/artifacts/**
+frontend/eas-inspect-archive/
+frontend/eas-inspect-archive/**
+frontend/android/*.log
+frontend/android/**/*.log
+
+# Local environment files.
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# EAS local metadata/cache.
+frontend/.eas/
+frontend/.eas/**

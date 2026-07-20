@@ -4,6 +4,7 @@ using PFE.Application.Common.Exceptions;
 using PFE.Application.DTOs.Leave;
 using PFE.Domain.Entities;
 using PFE.Domain.Enums;
+using System.Data;
 using RequestStatus = PFE.Domain.Enums.RequestStatus;
 
 namespace PFE.Application.Services;
@@ -54,10 +55,14 @@ public class LeaveService : ILeaveService
     {
         var user = await _context.Users
             .Include(u => u.Department)
+            .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user == null)
             throw new NotFoundException("User not found.");
+
+        if (IsAdminUser(user))
+            throw new BadRequestException("Admin users cannot have leave balance.");
 
         ValidateLeaveRequest(dto, _timeProvider.TunisiaToday);
         var requestedDays = CalculateRequestedDays(dto.Type, dto.StartDate, dto.EndDate);
@@ -157,6 +162,9 @@ public class LeaveService : ILeaveService
 
     public async Task<LeaveRequestDto?> ApproveLeaveRequestAsync(int id, int reviewerId, ApproveLeaveRequestDto dto)
     {
+        await using var transaction = await _context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable);
+
         var reviewer = await _context.Users
             .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == reviewerId);
@@ -165,17 +173,22 @@ public class LeaveService : ILeaveService
             return null;
 
         var request = await _context.LeaveRequests
+            .AsNoTracking()
             .Include(l => l.User)
+                .ThenInclude(u => u.Role)
             .FirstOrDefaultAsync(l => l.Id == id);
 
         if (request == null)
             return null;
 
         if (request.Status != RequestStatus.Pending)
-            throw new BadRequestException("Cette demande de congé a déjà été traitée.");
+            throw new ConflictException("Cette demande de congé a déjà été traitée.");
 
         if (reviewer.Role.Name != "Admin")
             return null;
+
+        if (IsAdminUser(request.User))
+            throw new BadRequestException("Admin users cannot have leave balance.");
 
         var shouldDeductBalance = ShouldDeductFromBalance(request.Type);
         var deductionAmount = GetBalanceDeductionAmount(request);
@@ -183,36 +196,60 @@ public class LeaveService : ILeaveService
         if (shouldDeductBalance && (request.User.LeaveBalance ?? 0) < deductionAmount)
             throw new BadRequestException("Votre solde de congés est insuffisant.");
 
-        request.Status = RequestStatus.Approved;
-        request.ManagerComment = dto.Comment;
-        request.ReviewedAt = DateTime.UtcNow;
-        request.ReviewedById = reviewerId;
+        var reviewedAt = DateTime.UtcNow;
+        var reviewedRows = await _context.LeaveRequests
+            .Where(l => l.Id == id && l.Status == RequestStatus.Pending)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(l => l.Status, RequestStatus.Approved)
+                .SetProperty(l => l.ManagerComment, dto.Comment)
+                .SetProperty(l => l.ReviewedAt, reviewedAt)
+                .SetProperty(l => l.ReviewedById, reviewerId));
+
+        if (reviewedRows == 0)
+            throw new ConflictException("Cette demande de congé a déjà été traitée.");
 
         if (shouldDeductBalance)
         {
-            request.User.LeaveBalance = (request.User.LeaveBalance ?? 0) - deductionAmount;
+            var balanceRows = await _context.Users
+                .Where(u =>
+                    u.Id == request.UserId &&
+                    (u.LeaveBalance ?? 0) >= deductionAmount)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(
+                        u => u.LeaveBalance,
+                        u => (u.LeaveBalance ?? 0) - deductionAmount));
+
+            if (balanceRows == 0)
+                throw new BadRequestException("Votre solde de congés est insuffisant.");
         }
 
-        await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
 
-        if (request.User.IsActive &&
-            request.User.ApprovedAt != null &&
-            request.User.RejectedAt == null)
+        var reviewedRequest = await _context.LeaveRequests
+            .Include(l => l.User)
+            .FirstAsync(l => l.Id == id);
+
+        if (reviewedRequest.User.IsActive &&
+            reviewedRequest.User.ApprovedAt != null &&
+            reviewedRequest.User.RejectedAt == null)
         {
             await _notificationService.CreateNotificationAsync(
-                request.UserId,
+                reviewedRequest.UserId,
                 "Leave Request Approved",
-                $"Your leave request from {request.StartDate:yyyy-MM-dd} to {request.EndDate:yyyy-MM-dd} has been approved.{(string.IsNullOrEmpty(dto.Comment) ? "" : $" Comment: {dto.Comment}")}",
+                $"Your leave request from {reviewedRequest.StartDate:yyyy-MM-dd} to {reviewedRequest.EndDate:yyyy-MM-dd} has been approved.{(string.IsNullOrEmpty(dto.Comment) ? "" : $" Comment: {dto.Comment}")}",
                 "Success",
                 "LeaveRequest",
-                request.Id);
+                reviewedRequest.Id);
         }
 
-        return MapToDto(request);
+        return MapToDto(reviewedRequest);
     }
 
     public async Task<LeaveRequestDto?> RejectLeaveRequestAsync(int id, int reviewerId, RejectLeaveRequestDto dto)
     {
+        await using var transaction = await _context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable);
+
         var reviewer = await _context.Users
             .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == reviewerId);
@@ -221,6 +258,7 @@ public class LeaveService : ILeaveService
             return null;
 
         var request = await _context.LeaveRequests
+            .AsNoTracking()
             .Include(l => l.User)
             .FirstOrDefaultAsync(l => l.Id == id);
 
@@ -228,32 +266,43 @@ public class LeaveService : ILeaveService
             return null;
 
         if (request.Status != RequestStatus.Pending)
-            throw new Exception("Cette demande de congé a déjà été traitée.");
+            throw new ConflictException("Cette demande de congé a déjà été traitée.");
 
         if (reviewer.Role.Name != "Admin")
             return null;
 
-        request.Status = RequestStatus.Rejected;
-        request.ManagerComment = dto.Comment;
-        request.ReviewedAt = DateTime.UtcNow;
-        request.ReviewedById = reviewerId;
+        var reviewedAt = DateTime.UtcNow;
+        var reviewedRows = await _context.LeaveRequests
+            .Where(l => l.Id == id && l.Status == RequestStatus.Pending)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(l => l.Status, RequestStatus.Rejected)
+                .SetProperty(l => l.ManagerComment, dto.Comment)
+                .SetProperty(l => l.ReviewedAt, reviewedAt)
+                .SetProperty(l => l.ReviewedById, reviewerId));
 
-        await _context.SaveChangesAsync();
+        if (reviewedRows == 0)
+            throw new ConflictException("Cette demande de congé a déjà été traitée.");
 
-        if (request.User.IsActive &&
-            request.User.ApprovedAt != null &&
-            request.User.RejectedAt == null)
+        await transaction.CommitAsync();
+
+        var reviewedRequest = await _context.LeaveRequests
+            .Include(l => l.User)
+            .FirstAsync(l => l.Id == id);
+
+        if (reviewedRequest.User.IsActive &&
+            reviewedRequest.User.ApprovedAt != null &&
+            reviewedRequest.User.RejectedAt == null)
         {
             await _notificationService.CreateNotificationAsync(
-                request.UserId,
+                reviewedRequest.UserId,
                 "Leave Request Rejected",
-                $"Your leave request from {request.StartDate:yyyy-MM-dd} to {request.EndDate:yyyy-MM-dd} has been rejected.{(string.IsNullOrEmpty(dto.Comment) ? "" : $" Comment: {dto.Comment}")}",
+                $"Your leave request from {reviewedRequest.StartDate:yyyy-MM-dd} to {reviewedRequest.EndDate:yyyy-MM-dd} has been rejected.{(string.IsNullOrEmpty(dto.Comment) ? "" : $" Comment: {dto.Comment}")}",
                 "Warning",
                 "LeaveRequest",
-                request.Id);
+                reviewedRequest.Id);
         }
 
-        return MapToDto(request);
+        return MapToDto(reviewedRequest);
     }
 
     public async Task<LeaveRequestDto?> CancelLeaveRequestAsync(int id, int userId)
@@ -298,6 +347,12 @@ public class LeaveService : ILeaveService
     private static bool ShouldDeductFromBalance(LeaveType type)
     {
         return type is LeaveType.PaidLeave or LeaveType.HalfDayPaidLeave;
+    }
+
+    private static bool IsAdminUser(User user)
+    {
+        return user.RoleId == 3 ||
+            string.Equals(user.Role?.Name, "Admin", StringComparison.OrdinalIgnoreCase);
     }
 
     private static decimal GetBalanceDeductionAmount(LeaveRequest request)

@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using PFE.Application.Common;
+using PFE.Application.Common.Exceptions;
 using PFE.Application.DTOs.Auth;
 using PFE.Application.Services;
 using System.Security.Claims;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace PFE.API.Controllers;
 
@@ -12,13 +14,18 @@ namespace PFE.API.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService)
+    public AuthController(
+        IAuthService authService,
+        ILogger<AuthController> logger)
     {
         _authService = authService;
+        _logger = logger;
     }
 
     [HttpPost("forgot-password")]
+    [EnableRateLimiting("PasswordRecoveryPolicy")]
     public async Task<ActionResult<ApiResponse<object>>> ForgotPassword([FromBody] ForgotPasswordDto dto)
     {
         await _authService.ForgotPasswordAsync(dto.Email);
@@ -28,6 +35,7 @@ public class AuthController : ControllerBase
 
 
     [HttpPost("verify-reset-otp")]
+    [EnableRateLimiting("AuthenticationPolicy")]
     public async Task<ActionResult<ApiResponse<object>>> VerifyResetOtp([FromBody] VerifyResetOtpDto dto)
     {
         var result = await _authService.VerifyResetOtpAsync(dto.Email, dto.OtpCode);
@@ -41,6 +49,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("reset-password")]
+    [EnableRateLimiting("PasswordRecoveryPolicy")]
     public async Task<ActionResult<ApiResponse<object>>> ResetPassword([FromBody] ResetPasswordDto dto)
     {
         var result = await _authService.ResetPasswordAsync(dto.Email, dto.OtpCode, dto.NewPassword);
@@ -54,6 +63,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("AuthenticationPolicy")]
     public async Task<ActionResult<ApiResponse<AuthResponseDto>>> Login([FromBody] LoginDto loginDto)
     {
         try
@@ -72,10 +82,16 @@ public class AuthController : ControllerBase
 
             return Ok(ApiResponse<AuthResponseDto>.SuccessResponse(result, "Login successful"));
         }
+        catch (BadRequestException ex)
+        {
+            _logger.LogWarning(ex, "Invalid login request.");
+            return BadRequest(ApiResponse<AuthResponseDto>.ErrorResponse("Invalid request."));
+        }
         catch (Exception ex)
         {
+            _logger.LogError(ex, "Unexpected login failure.");
             return StatusCode(500, ApiResponse<AuthResponseDto>.ErrorResponse(
-                ex.InnerException?.Message ?? ex.Message
+                "An unexpected error occurred."
             ));
         }
     }

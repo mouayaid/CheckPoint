@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PFE.Application.Abstractions;
+using PFE.Application.Common.Exceptions;
 using PFE.Application.DTOs.Announcement;
 using PFE.Domain.Entities;
 
@@ -10,15 +11,18 @@ public class AnnouncementService : IAnnouncementService
     private readonly IApplicationDbContext _context;
     private readonly CloudinaryService _cloudinaryService;
     private readonly IAppTimeProvider _timeProvider;
+    private readonly INotificationService _notificationService;
 
     public AnnouncementService(
         IApplicationDbContext context,
         CloudinaryService cloudinaryService,
-        IAppTimeProvider timeProvider)
+        IAppTimeProvider timeProvider,
+        INotificationService notificationService)
     {
         _context = context;
         _cloudinaryService = cloudinaryService;
         _timeProvider = timeProvider;
+        _notificationService = notificationService;
     }
 
     public async Task<AnnouncementDto> CreateAsync(int userId, CreateAnnouncementDto dto)
@@ -28,7 +32,7 @@ public class AnnouncementService : IAnnouncementService
 
         if (publishAtUtc.HasValue && expiresAtUtc.HasValue && expiresAtUtc <= publishAtUtc)
         {
-            throw new Exception("Expiry time must be after publish time.");
+            throw new BadRequestException("Expiry time must be after publish time.");
         }
 
         var imageUrl = await _cloudinaryService.UploadImageAsync(dto.Image);
@@ -47,6 +51,23 @@ public class AnnouncementService : IAnnouncementService
 
         _context.Announcements.Add(announcement);
         await _context.SaveChangesAsync();
+
+        var recipientIds = await _context.Users
+            .Where(u =>
+                u.Id != userId &&
+                u.IsActive &&
+                u.ApprovedAt != null &&
+                u.RejectedAt == null)
+            .Select(u => u.Id)
+            .ToListAsync();
+
+        await _notificationService.CreateNotificationsAsync(
+            recipientIds,
+            "New Announcement",
+            $"New announcement: {announcement.Title}",
+            "Info",
+            "Announcement",
+            announcement.Id);
 
         var created = await _context.Announcements
             .Include(a => a.CreatedBy)
@@ -104,7 +125,7 @@ public class AnnouncementService : IAnnouncementService
 
         if (publishAtUtc.HasValue && expiresAtUtc.HasValue && expiresAtUtc <= publishAtUtc)
         {
-            throw new Exception("Expiry time must be after publish time.");
+            throw new BadRequestException("Expiry time must be after publish time.");
         }
 
         var announcement = await _context.Announcements

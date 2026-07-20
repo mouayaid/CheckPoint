@@ -21,9 +21,11 @@ export default function SwipeTabsPager({
   activeRouteName,
   onChangeRouteName,
   renderRoute,
+  enabled = true,
 }) {
   const { width } = useWindowDimensions();
   const isFocused = useIsFocused();
+  const gestureEnabled = enabled && isFocused;
   const routeCount = routes.length;
   const routesKey = routes.join("|");
   const routeIndex = routes.indexOf(activeRouteName);
@@ -188,11 +190,14 @@ export default function SwipeTabsPager({
     extrapolate: "clamp",
   });
 
-  const animatedTranslateX = Animated.add(translateX, resistedDragX);
+  const animatedTranslateX = gestureEnabled
+    ? Animated.add(translateX, resistedDragX)
+    : translateX;
 
   return (
     <View style={styles.container}>
       <PanGestureHandler
+        enabled={gestureEnabled}
         activeOffsetX={[-ACTIVATION_OFFSET, ACTIVATION_OFFSET]}
         failOffsetY={[-30, 30]}
         onGestureEvent={handleGestureEvent}

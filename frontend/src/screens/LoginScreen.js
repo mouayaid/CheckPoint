@@ -32,6 +32,7 @@ const LoginScreen = () => {
   const [errors, setErrors] = useState({});
 
   const passwordRef = useRef(null);
+  const scrollRef = useRef(null);
 
   const showFeedbackAlert = (title, message, type = "error") => {
     showFeedback({
@@ -44,10 +45,11 @@ const LoginScreen = () => {
 
   const validate = () => {
     const next = {};
+    const normalizedEmail = email.trim().toLowerCase();
 
-    if (!email.trim()) {
+    if (!normalizedEmail) {
       next.email = "Veuillez saisir votre e-mail";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       next.email = "Veuillez saisir un e-mail valide";
     }
 
@@ -66,10 +68,12 @@ const LoginScreen = () => {
     setErrors({});
 
     try {
-      const response = await authService.login(email.trim(), password);
+      const normalizedEmail = email.trim().toLowerCase();
+      const response = await authService.login(normalizedEmail, password);
 
       if (response.success && response.data) {
         const { token, user } = response.data;
+
         logger.debug("LOGIN USER:", user);
         logger.debug("ROLE:", user?.roleName);
 
@@ -118,55 +122,71 @@ const LoginScreen = () => {
     scrollContent: {
       flexGrow: 1,
       justifyContent: "center",
-      paddingHorizontal: spacing.xl,
-      paddingVertical: spacing.xxxl,
+      paddingHorizontal: spacing.lg,
+      paddingTop: Platform.OS === "android" ? spacing.xl : spacing.lg,
+      paddingBottom: spacing.xxxl,
     },
     header: {
       alignItems: "center",
-      marginBottom: spacing.xxl,
+      marginBottom: spacing.lg,
     },
     logoBox: {
-      width: 96,
-      height: 96,
-      borderRadius: borderRadius.xl + 4,
+      width: 82,
+      height: 82,
+      borderRadius: borderRadius.xl,
       backgroundColor: colors.surfaceElevated,
       justifyContent: "center",
       alignItems: "center",
-      marginBottom: spacing.md,
+      marginBottom: spacing.sm,
       borderWidth: 1,
       borderColor: colors.border,
-      ...shadows.md,
+      ...shadows.sm,
     },
     logo: {
-      width: 74,
-      height: 74,
+      width: 62,
+      height: 62,
     },
     brandText: {
-      fontSize: typography.sm,
+      fontSize: typography.xs || 13,
       color: colors.textSecondary,
       marginBottom: spacing.sm,
       fontWeight: typography.medium,
     },
     subtitle: {
-      fontSize: typography.xxl,
+      fontSize: typography.xl,
       color: colors.text,
       fontWeight: typography.bold,
       textAlign: "center",
     },
+    helperText: {
+      marginTop: spacing.xs,
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+      textAlign: "center",
+      lineHeight: 20,
+      paddingHorizontal: spacing.md,
+    },
+    cardWrapper: {
+      width: "100%",
+      maxWidth: 390,
+      alignSelf: "center",
+    },
     card: {
       backgroundColor: colors.card,
-      borderRadius: 28,
-      paddingHorizontal: spacing.xl,
-      paddingTop: spacing.xl + 4,
-      paddingBottom: spacing.xl,
+      borderRadius: 24,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.lg,
       borderWidth: 1,
       borderColor: colors.border,
-      ...shadows.md,
+      ...shadows.sm,
     },
     forgotButton: {
       alignSelf: "flex-end",
-      marginTop: 2,
-      marginBottom: spacing.sm,
+      marginTop: -4,
+      marginBottom: spacing.md,
+      minHeight: 32,
+      justifyContent: "center",
     },
     forgotText: {
       fontSize: typography.sm,
@@ -174,10 +194,11 @@ const LoginScreen = () => {
       fontWeight: typography.semibold,
     },
     signInButton: {
-      marginTop: 4,
+      marginTop: spacing.xs,
+      minHeight: 54,
     },
     footer: {
-      marginTop: spacing.xl + 2,
+      marginTop: spacing.lg,
       flexDirection: "row",
       justifyContent: "center",
       alignItems: "center",
@@ -205,11 +226,16 @@ const LoginScreen = () => {
         <KeyboardAvoidingView
           style={styles.keyboardView}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
         >
           <ScrollView
+            ref={scrollRef}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            contentInsetAdjustmentBehavior="always"
+            keyboardDismissMode="on-drag"
+            bounces={false}
           >
             <View style={styles.header}>
               <View style={styles.logoBox}>
@@ -221,73 +247,92 @@ const LoginScreen = () => {
               </View>
 
               <Text style={styles.brandText}>by Triweb</Text>
+
+              <Text style={styles.subtitle}>Bienvenue</Text>
+
+              <Text style={styles.helperText}>
+                Connectez-vous pour accéder à votre espace Checkpoint
+              </Text>
             </View>
 
-            <View style={styles.card}>
-              <Input
-                label="Email professionnel"
-                value={email}
-                onChangeText={setEmail}
-                placeholder="you@company.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-                returnKeyType="next"
-                blurOnSubmit={false}
-                onSubmitEditing={() => passwordRef.current?.focus()}
-                error={errors.email}
-                editable={!loading}
-                testID="auth.emailInput"
-              />
+            <View style={styles.cardWrapper}>
+              <View style={styles.card}>
+                <Input
+                  label="Email professionnel"
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="vous@entreprise.com"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  error={errors.email}
+                  editable={!loading}
+                  testID="auth.emailInput"
+                />
 
-              <Input
-                ref={passwordRef}
-                label="Mot de passe"
-                value={password}
-                onChangeText={setPassword}
-                placeholder="••••••••"
-                secureTextEntry
-                autoCapitalize="none"
-                autoComplete="password"
-                returnKeyType="done"
-                onSubmitEditing={handleLogin}
-                error={errors.password}
-                editable={!loading}
-                testID="auth.passwordInput"
-              />
+                <Input
+                  ref={passwordRef}
+                  label="Mot de passe"
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="Votre mot de passe"
+                  secureTextEntry
+                  autoCapitalize="none"
+                  autoComplete="password"
+                  returnKeyType="done"
+                  onFocus={() => {
+                    setTimeout(() => {
+                      scrollRef.current?.scrollToEnd({ animated: true });
+                    }, 250);
+                  }}
+                  onSubmitEditing={handleLogin}
+                  error={errors.password}
+                  editable={!loading}
+                  testID="auth.passwordInput"
+                />
 
-              <TouchableOpacity
-                activeOpacity={0.75}
-                style={styles.forgotButton}
-                onPress={() => navigation.navigate("ForgotPassword")}
-                disabled={loading}
-              >
-                <Text style={styles.forgotText}>Mot de passe oublié ?</Text>
-              </TouchableOpacity>
-
-              <Button
-                title="Se connecter"
-                onPress={handleLogin}
-                loading={loading}
-                disabled={loading}
-                style={styles.signInButton}
-                testID="auth.loginButton"
-              />
-
-              <View style={styles.footer}>
-                <Text style={styles.footerText}>Pas de compte ? </Text>
                 <TouchableOpacity
                   activeOpacity={0.75}
-                  onPress={() => navigation.navigate("Register")}
+                  style={styles.forgotButton}
+                  onPress={() => navigation.navigate("ForgotPassword")}
                   disabled={loading}
+                  accessibilityRole="button"
+                  accessibilityLabel="Mot de passe oublié"
                 >
-                  <Text style={styles.footerLink}>Créez-en un</Text>
+                  <Text style={styles.forgotText}>Mot de passe oublié ?</Text>
                 </TouchableOpacity>
+
+                <Button
+                  title="Se connecter"
+                  onPress={handleLogin}
+                  loading={loading}
+                  disabled={loading}
+                  style={styles.signInButton}
+                  testID="auth.loginButton"
+                />
+
+                <View style={styles.footer}>
+                  <Text style={styles.footerText}>Pas de compte ? </Text>
+
+                  <TouchableOpacity
+                    activeOpacity={0.75}
+                    onPress={() => navigation.navigate("Register")}
+                    disabled={loading}
+                    accessibilityRole="button"
+                    accessibilityLabel="Créer un compte"
+                  >
+                    <Text style={styles.footerLink}>Créez-en un</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
       <FeedbackModal
         visible={feedback.visible}
         type={feedback.type}

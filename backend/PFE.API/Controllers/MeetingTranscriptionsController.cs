@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using PFE.Application.Abstractions;
 using PFE.Application.Services;
 using System.Security.Claims;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace PFE.API.Controllers;
 
@@ -24,6 +25,7 @@ public class MeetingTranscriptionsController : ControllerBase
     }
 
     [HttpPost("{reservationId}/upload")]
+    [EnableRateLimiting("TranscriptionUploadPolicy")]
     public async Task<IActionResult> Upload(int reservationId, IFormFile audio)
     {
         var accessResult = await EnsureReservationAccessAsync(reservationId);
@@ -73,7 +75,7 @@ public class MeetingTranscriptionsController : ControllerBase
         var reservation = await _context.RoomReservations
             .AsNoTracking()
             .Where(r => r.Id == reservationId)
-            .Select(r => new { r.UserId })
+            .Select(r => new { r.UserId, r.CreatedById })
             .FirstOrDefaultAsync();
 
         if (reservation == null)
@@ -81,7 +83,9 @@ public class MeetingTranscriptionsController : ControllerBase
             return NotFound("Room reservation not found.");
         }
 
-        if (User.IsInRole("Admin") || User.IsInRole("Manager") || reservation.UserId == userId)
+        if (User.IsInRole("Admin") ||
+            reservation.UserId == userId ||
+            reservation.CreatedById == userId)
         {
             return null;
         }

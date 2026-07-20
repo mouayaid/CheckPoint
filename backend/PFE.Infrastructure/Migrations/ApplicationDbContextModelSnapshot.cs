@@ -248,7 +248,7 @@ namespace PFE.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.HasIndex("PollId", "UserId", "PollOptionId")
+                    b.HasIndex("PollId", "UserId")
                         .IsUnique()
                         .HasDatabaseName("IX_PollVotes_UniqueVote");
 
@@ -1004,12 +1004,12 @@ namespace PFE.Infrastructure.Migrations
                     b.HasIndex("SeatId", "Date")
                         .IsUnique()
                         .HasDatabaseName("IX_SeatReservations_Seat_Date_Unique")
-                        .HasFilter("[Status] = 1");
+                        .HasFilter("[Status] IN (1, 2)");
 
                     b.HasIndex("UserId", "Date")
                         .IsUnique()
                         .HasDatabaseName("IX_SeatReservations_User_Date_Unique")
-                        .HasFilter("[Status] = 1");
+                        .HasFilter("[Status] IN (1, 2)");
 
                     b.ToTable("SeatReservations");
                 });
@@ -1041,6 +1041,10 @@ namespace PFE.Infrastructure.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)");
 
+                    b.Property<string>("ExpoPushToken")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -1063,6 +1067,14 @@ namespace PFE.Infrastructure.Migrations
                     b.Property<string>("PhoneNumber")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("ProfileImagePublicId")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("ProfileImageUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<DateTime?>("RejectedAt")
                         .HasColumnType("datetime2");

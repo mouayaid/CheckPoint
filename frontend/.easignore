@@ -1,0 +1,68 @@
+# macOS
+.DS_Store
+
+# Xcode / iOS generated files
+build/
+DerivedData/
+xcuserdata/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.xcuserstate
+project.xcworkspace/
+ios/Pods/
+
+# Android / Gradle local machine state
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/.cxx/
+android/app/.cxx/
+android/**/build/
+android/**/.cxx/
+android/**/*.hprof
+android/**/*.iml
+android/**/*.keystore
+!android/app/debug.keystore
+
+# Dependencies are installed cleanly by EAS
+node_modules/
+node_modules_locked_cleanup/
+
+# Expo / Metro local state
+.expo/
+.expo-shared/
+dist/
+web-build/
+
+# Generated bundles, binaries, archives, logs, and temp files
+*.jsbundle
+*.apk
+*.aab
+*.ipa
+*.zip
+*.tar.gz
+*.tgz
+*.log
+*.tmp
+npm-debug.log
+yarn-error.log
+artifacts/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# EAS local metadata/cache
+.eas/

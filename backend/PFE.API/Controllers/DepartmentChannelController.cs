@@ -75,4 +75,13 @@ public class DepartmentChannelController : ControllerBase
         await _departmentChannelService.VotePollAsync(userId, pollId, dto);
         return Ok(new { message = "Vote submitted successfully." });
     }
+
+    [HttpGet("polls/{pollId}/voters")]
+    [Authorize(Roles = "Manager")]
+    public async Task<IActionResult> GetPollVoters(int pollId)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var result = await _departmentChannelService.GetPollVotersAsync(userId, pollId);
+        return Ok(result);
+    }
 }

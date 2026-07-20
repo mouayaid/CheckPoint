@@ -53,7 +53,18 @@ const isPollClosed = (poll) =>
   poll.isClosed ||
   (poll.expiresAt && new Date(poll.expiresAt).getTime() <= Date.now());
 
-const PollItem = React.memo(({ poll, canVotePoll, votingId, onVote }) => {
+const PollItem = React.memo(
+  ({
+    poll,
+    canVotePoll,
+    canViewPollVoters,
+    votingId,
+    votersData,
+    loadingVoters,
+    expandedVoterOptions,
+    onVote,
+    onToggleVoters,
+  }) => {
   const { colors, spacing, borderRadius, typography } = useTheme();
 
   const styles = useMemo(
@@ -83,6 +94,11 @@ const PollItem = React.memo(({ poll, canVotePoll, votingId, onVote }) => {
         const isSelected = poll.selectedOptionId === opt.id;
         const percent =
           totalVotes > 0 ? Math.round((opt.voteCount / totalVotes) * 100) : 0;
+        const optionKey = `${poll.id}:${opt.id}`;
+        const isVotersExpanded = expandedVoterOptions[optionKey] === true;
+        const optionVoters =
+          votersData?.options?.find((option) => option.optionId === opt.id)
+            ?.voters ?? [];
 
         return (
           <TouchableOpacity
@@ -112,6 +128,45 @@ const PollItem = React.memo(({ poll, canVotePoll, votingId, onVote }) => {
             <Text style={styles.pollVoteCount}>
               {opt.voteCount} {opt.voteCount === 1 ? "vote" : "votes"}
             </Text>
+
+            {canViewPollVoters && (
+              <View style={styles.pollVotersBlock}>
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  onPress={() => onToggleVoters(poll.id, opt.id)}
+                  style={styles.pollVotersToggle}
+                  disabled={loadingVoters}
+                >
+                  <Text style={styles.pollVotersToggleText}>
+                    Voir les participants {isVotersExpanded ? "▲" : "▼"}
+                  </Text>
+                </TouchableOpacity>
+
+                {isVotersExpanded && loadingVoters && !votersData ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={colors.primary}
+                    style={styles.pollVotersLoader}
+                  />
+                ) : null}
+
+                {isVotersExpanded && votersData ? (
+                  <View style={styles.pollVotersList}>
+                    {optionVoters.length > 0 ? (
+                      optionVoters.map((voter) => (
+                        <Text key={voter.userId} style={styles.pollVoterName}>
+                          👤 {voter.userName}
+                        </Text>
+                      ))
+                    ) : (
+                      <Text style={styles.pollVotersEmpty}>
+                        Aucun participant
+                      </Text>
+                    )}
+                  </View>
+                ) : null}
+              </View>
+            )}
           </TouchableOpacity>
         );
       })}
@@ -134,10 +189,23 @@ const PollItem = React.memo(({ poll, canVotePoll, votingId, onVote }) => {
       </View>
     </View>
   );
-});
+  },
+);
 
 const FeedItem = React.memo(
-  ({ item, canVotePoll, votingId, onVote, styles, colors }) => {
+  ({
+    item,
+    canVotePoll,
+    canViewPollVoters,
+    votingId,
+    votersData,
+    loadingVoters,
+    expandedVoterOptions,
+    onVote,
+    onToggleVoters,
+    styles,
+    colors,
+  }) => {
     const isPoll = item.messageType === "Poll";
 
     return (
@@ -190,8 +258,13 @@ const FeedItem = React.memo(
           <PollItem
             poll={item.poll}
             canVotePoll={canVotePoll}
+            canViewPollVoters={canViewPollVoters}
             votingId={votingId}
+            votersData={votersData}
+            loadingVoters={loadingVoters}
+            expandedVoterOptions={expandedVoterOptions}
             onVote={onVote}
+            onToggleVoters={onToggleVoters}
           />
         ) : (
           <Text style={styles.messageContent}>{item.content}</Text>
@@ -220,7 +293,7 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
   const headerHeight = useHeaderHeight();
   const flatListRef = useRef(null);
   const { user } = useAuth();
-  const { canPublishDepartmentChannel, canVotePoll } = useRoles();
+  const { canPublishDepartmentChannel, canVotePoll, isManager } = useRoles();
   const { refreshChannelInfo } = useDepartmentChannel();
   const departmentId = user?.departmentId ?? user?.DepartmentId ?? null;
 
@@ -235,6 +308,11 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
   const [pollOptions, setPollOptions] = useState(["", ""]);
   const [submitting, setSubmitting] = useState(false);
   const [votingId, setVotingId] = useState(null);
+  const [pollVotersByPollId, setPollVotersByPollId] = useState({});
+  const [expandedVoterOptions, setExpandedVoterOptions] = useState({});
+  const [loadingVotersPollId, setLoadingVotersPollId] = useState(null);
+
+  const canViewPollVoters = isManager === true;
 
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", () => {
@@ -426,18 +504,89 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
     [loadFeed, refreshChannelInfo],
   );
 
+  const handleToggleVoters = useCallback(
+    async (pollId, optionId) => {
+      if (!canViewPollVoters) return;
+
+      const optionKey = `${pollId}:${optionId}`;
+      const isExpanded = expandedVoterOptions[optionKey] === true;
+
+      if (isExpanded) {
+        setExpandedVoterOptions((prev) => ({
+          ...prev,
+          [optionKey]: false,
+        }));
+        return;
+      }
+
+      setExpandedVoterOptions((prev) => ({
+        ...prev,
+        [optionKey]: true,
+      }));
+
+      if (pollVotersByPollId[pollId] || loadingVotersPollId === pollId) {
+        return;
+      }
+
+      setLoadingVotersPollId(pollId);
+
+      try {
+        const res = await departmentChannelService.getPollVoters(pollId);
+        const votersData = res?.data ?? res;
+
+        setPollVotersByPollId((prev) => ({
+          ...prev,
+          [pollId]: votersData,
+        }));
+      } catch (error) {
+        setExpandedVoterOptions((prev) => ({
+          ...prev,
+          [optionKey]: false,
+        }));
+        Alert.alert(
+          "Erreur",
+          error?.message || "Impossible de charger les participants.",
+        );
+      } finally {
+        setLoadingVotersPollId(null);
+      }
+    },
+    [
+      canViewPollVoters,
+      expandedVoterOptions,
+      loadingVotersPollId,
+      pollVotersByPollId,
+    ],
+  );
+
   const renderItem = useCallback(
     ({ item }) => (
       <FeedItem
         item={item}
         canVotePoll={canVotePoll}
+        canViewPollVoters={canViewPollVoters}
         votingId={votingId}
+        votersData={pollVotersByPollId[item.poll?.id]}
+        loadingVoters={loadingVotersPollId === item.poll?.id}
+        expandedVoterOptions={expandedVoterOptions}
         onVote={handleVote}
+        onToggleVoters={handleToggleVoters}
         styles={styles}
         colors={colors}
       />
     ),
-    [canVotePoll, votingId, handleVote, styles, colors],
+    [
+      canVotePoll,
+      canViewPollVoters,
+      votingId,
+      pollVotersByPollId,
+      loadingVotersPollId,
+      expandedVoterOptions,
+      handleVote,
+      handleToggleVoters,
+      styles,
+      colors,
+    ],
   );
 
   const keyExtractor = useCallback((item) => String(item.id), []);
@@ -861,6 +1010,43 @@ const createStyles = (colors, spacing, borderRadius, typography) =>
     pollVoteCount: {
       fontSize: 11,
       color: colors.textSecondary,
+    },
+
+    pollVotersBlock: {
+      marginTop: spacing.xs,
+    },
+
+    pollVotersToggle: {
+      alignSelf: "flex-start",
+      paddingVertical: 3,
+    },
+
+    pollVotersToggleText: {
+      fontSize: typography.xs,
+      color: colors.primary,
+      fontWeight: typography.semibold,
+    },
+
+    pollVotersLoader: {
+      alignSelf: "flex-start",
+      marginTop: spacing.xs,
+    },
+
+    pollVotersList: {
+      marginTop: spacing.xs,
+      gap: 3,
+    },
+
+    pollVoterName: {
+      fontSize: typography.xs,
+      color: colors.text,
+      lineHeight: 18,
+    },
+
+    pollVotersEmpty: {
+      fontSize: typography.xs,
+      color: colors.textSecondary,
+      fontStyle: "italic",
     },
 
     pollFooterRow: {

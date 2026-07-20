@@ -186,6 +186,11 @@ const combineDateAndTime = (dateStr, timeDateObj) => {
 };
 
 function normalizeStatusKey(status) {
+  if (status === 1) return "active";
+  if (status === 2) return "cancelled";
+  if (status === 3) return "completed";
+  if (status === 5) return "inprogress";
+  if (status === 6) return "expired";
   return String(status ?? "").toLowerCase();
 }
 
@@ -379,13 +384,12 @@ function getRoomResActionState(reservation, now = new Date()) {
   const start = parseApiInstant(
     reservation.startDateTime || reservation.StartDateTime,
   );
-  const end = parseApiInstant(reservation.endDateTime || reservation.EndDateTime);
   const startWindowOpensAt = new Date(start.getTime() - 15 * 60 * 1000);
+  const startDeadline = new Date(start.getTime() + 10 * 60 * 1000);
   const isInsideStartWindow =
     !Number.isNaN(start.getTime()) &&
-    !Number.isNaN(end.getTime()) &&
     now >= startWindowOpensAt &&
-    now <= end;
+    now <= startDeadline;
   const canStart = key === "active" && !isStarted && isInsideStartWindow;
   const canFinish = key === "inprogress";
   return { key, isStarted, canStart, canFinish };

@@ -62,6 +62,14 @@ public class EventService : IEventService
             return null;
         }
 
+        if (creator.Role.Name != "Admin")
+        {
+            _logger.LogWarning(
+                "CreateEventAsync rejected non-admin creator. UserId={UserId}",
+                userId);
+            return null;
+        }
+
         // Validate room if provided
         if (dto.RoomId.HasValue)
         {
@@ -91,25 +99,16 @@ public class EventService : IEventService
         _context.Events.Add(eventEntity);
         await _context.SaveChangesAsync();
 
-        var creatorRole = creator.Role.Name;
         var recipientsQuery = _context.Users
-            .Include(u => u.Role)
             .Where(u =>
                 u.Id != userId &&
                 u.IsActive &&
                 u.ApprovedAt != null &&
                 u.RejectedAt == null);
 
-        if (creatorRole == "Manager")
-        {
-            recipientsQuery = recipientsQuery.Where(u => u.Role.Name == "Employee");
-        }
-        else if (creatorRole != "Admin")
-        {
-            recipientsQuery = recipientsQuery.Where(u => false);
-        }
-
-        var recipients = await recipientsQuery.ToListAsync();
+        var recipientIds = await recipientsQuery
+            .Select(u => u.Id)
+            .ToListAsync();
         var notificationTitle = dto.IsMandatory ? "Mandatory Event" : "New Event";
         var notificationStart = _timeProvider.ConvertUtcToTunisia(startUtc);
         var notificationMessage = dto.IsMandatory
@@ -117,16 +116,13 @@ public class EventService : IEventService
             : $"New event: {dto.Title} on {notificationStart:yyyy-MM-dd HH:mm}";
         var notificationType = dto.IsMandatory ? "Warning" : "Info";
 
-        foreach (var recipient in recipients)
-        {
-            await _notificationService.CreateNotificationAsync(
-                recipient.Id,
-                notificationTitle,
-                notificationMessage,
-                notificationType,
-                "Event",
-                eventEntity.Id);
-        }
+        await _notificationService.CreateNotificationsAsync(
+            recipientIds,
+            notificationTitle,
+            notificationMessage,
+            notificationType,
+            "Event",
+            eventEntity.Id);
 
         // Reload with includes for mapping
         var savedEvent = await _context.Events
@@ -156,7 +152,11 @@ public class EventService : IEventService
         return events.Select(e => MapEventDto(e, currentUserId)).ToList();
     }
 
-    public async Task<EventDto?> UpdateEventAsync(int eventId, UpdateEventDto dto)
+    public async Task<EventDto?> UpdateEventAsync(
+        int eventId,
+        int actorUserId,
+        bool actorIsAdmin,
+        UpdateEventDto dto)
     {
         _logger.LogInformation("UpdateEventAsync started. EventId={EventId}", eventId);
 
@@ -188,6 +188,15 @@ public class EventService : IEventService
         if (eventEntity == null)
         {
             _logger.LogWarning("UpdateEventAsync could not find event. EventId={EventId}", eventId);
+            return null;
+        }
+
+        if (!actorIsAdmin)
+        {
+            _logger.LogWarning(
+                "UpdateEventAsync rejected unauthorized actor. EventId={EventId}, ActorUserId={ActorUserId}",
+                eventId,
+                actorUserId);
             return null;
         }
 
@@ -231,6 +240,26 @@ public class EventService : IEventService
         _logger.LogInformation("UpdateEventAsync saved event. EventId={EventId}", eventId);
 
         return _mapper.Map<EventDto>(eventEntity);
+    }
+
+    public async Task<bool> DeleteEventAsync(int eventId, int actorUserId, bool actorIsAdmin)
+    {
+        var eventEntity = await _context.Events
+            .FirstOrDefaultAsync(e => e.Id == eventId);
+
+        if (eventEntity == null)
+        {
+            return false;
+        }
+
+        if (!actorIsAdmin)
+        {
+            return false;
+        }
+
+        _context.Events.Remove(eventEntity);
+        await _context.SaveChangesAsync();
+        return true;
     }
 
     private bool IsInPast(DateTime utcDateTime)

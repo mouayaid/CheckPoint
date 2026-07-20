@@ -1,7 +1,8 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
@@ -15,8 +16,9 @@ import api from "../services/api/axiosInstance";
 import { useAuth } from "../context/AuthContext";
 import { Card } from "../components";
 import { useTheme } from "../context/ThemeContext";
+import logger from "../utils/logger";
 
-const ProfileScreen = () => {
+const ProfileScreen = ({ navigation }) => {
   const { colors, spacing, typography, borderRadius, toggleTheme, darkMode } =
     useTheme();
 
@@ -24,7 +26,7 @@ const ProfileScreen = () => {
 
   const [profileData, setProfileData] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
-
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
@@ -39,14 +41,13 @@ const ProfileScreen = () => {
             setProfileData(response.data);
           }
         } catch (error) {
-          console.error("Error fetching profile", error);
+          logger.error("Error fetching profile", error);
         } finally {
           if (isActive) setLoadingProfile(false);
         }
       };
 
       fetchProfile();
-
       return () => {
         isActive = false;
       };
@@ -54,6 +55,11 @@ const ProfileScreen = () => {
   );
 
   const currentUser = profileData?.user || user;
+  const profileImageUrl = currentUser?.profileImageUrl;
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [profileImageUrl]);
 
   const displayName = currentUser?.fullName || "Utilisateur";
   const email = currentUser?.email || "Non renseigné";
@@ -97,6 +103,8 @@ const ProfileScreen = () => {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
+
+  const showProfileImage = !!profileImageUrl && !avatarLoadFailed;
 
   const InfoRow = ({ icon, label, value, last = false }) => (
     <View style={[styles.infoRow, last && styles.noBorder]}>
@@ -142,8 +150,14 @@ const ProfileScreen = () => {
       padding: spacing.lg,
     },
     profileHeader: {
+      flex: 1,
       flexDirection: "row",
       alignItems: "center",
+      marginRight: spacing.sm,
+    },
+    profileHeaderTop: {
+      flexDirection: "row",
+      alignItems: "flex-start",
     },
     avatarWrap: {
       width: 72,
@@ -159,8 +173,14 @@ const ProfileScreen = () => {
       fontWeight: typography.bold,
       color: "#FFFFFF",
     },
+    avatarImage: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+    },
     profileTextWrap: {
       flex: 1,
+      minWidth: 0,
     },
     headerName: {
       fontSize: typography.xl,
@@ -190,6 +210,15 @@ const ProfileScreen = () => {
       flex: 1,
       fontSize: typography.sm,
       color: colors.textSecondary,
+    },
+    editButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 14,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
     },
     sectionTitle: {
       fontSize: typography.lg,
@@ -312,31 +341,58 @@ const ProfileScreen = () => {
       ) : (
         <>
           <Card style={[styles.card, styles.profileCard]}>
-            <View style={styles.profileHeader}>
-              <View style={styles.avatarWrap}>
-                <Text style={styles.avatarText}>{initials || "U"}</Text>
-              </View>
-
-              <View style={styles.profileTextWrap}>
-                <Text style={styles.headerName} numberOfLines={1}>
-                  {displayName}
-                </Text>
-
-                <View style={styles.roleBadge}>
-                  <Text style={styles.roleText}>{role}</Text>
+            <View style={styles.profileHeaderTop}>
+              <View style={styles.profileHeader}>
+                <View style={styles.avatarWrap}>
+                  {showProfileImage ? (
+                    <Image
+                      source={{ uri: profileImageUrl }}
+                      style={styles.avatarImage}
+                      onError={() => setAvatarLoadFailed(true)}
+                    />
+                  ) : (
+                    <Text style={styles.avatarText}>{initials || "U"}</Text>
+                  )}
                 </View>
 
-                <View style={styles.metaRow}>
-                  <Ionicons
-                    name="business-outline"
-                    size={15}
-                    color={colors.textSecondary}
-                  />
-                  <Text style={styles.metaText} numberOfLines={1}>
-                    {department}
+                <View style={styles.profileTextWrap}>
+                  <Text style={styles.headerName} numberOfLines={1}>
+                    {displayName}
                   </Text>
+
+                  <View style={styles.roleBadge}>
+                    <Text style={styles.roleText}>{role}</Text>
+                  </View>
+
+                  <View style={styles.metaRow}>
+                    <Ionicons
+                      name="business-outline"
+                      size={15}
+                      color={colors.textSecondary}
+                    />
+                    <Text style={styles.metaText} numberOfLines={1}>
+                      {department}
+                    </Text>
+                  </View>
                 </View>
               </View>
+
+              <TouchableOpacity
+                style={styles.editButton}
+                activeOpacity={0.82}
+                onPress={() =>
+                  navigation.navigate("EditProfile", {
+                    profile: profileData,
+                  })
+                }
+                accessibilityLabel="Modifier le profil"
+              >
+                <Ionicons
+                  name="create-outline"
+                  size={21}
+                  color={colors.primary}
+                />
+              </TouchableOpacity>
             </View>
           </Card>
 

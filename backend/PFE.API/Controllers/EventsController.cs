@@ -31,7 +31,7 @@ public class EventsController : ControllerBase
     }
 
     [HttpPost]
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ApiResponse<EventDto>>> CreateEvent([FromBody] CreateEventDto dto)
     {
         var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
@@ -61,7 +61,7 @@ public class EventsController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Authorize(Roles = "Manager,Admin")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdateEvent(int id, [FromBody] UpdateEventDto dto)
     {
         _logger.LogInformation(
@@ -117,7 +117,12 @@ public class EventsController : ControllerBase
 
         try
         {
-            result = await _eventService.UpdateEventAsync(id, dto);
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            result = await _eventService.UpdateEventAsync(
+                id,
+                userId,
+                User.IsInRole("Admin"),
+                dto);
         }
         catch (Exception ex)
         {
@@ -138,6 +143,24 @@ public class EventsController : ControllerBase
 
         _logger.LogInformation("Event update succeeded. EventId={EventId}", id);
         return Ok(ApiResponse<EventDto>.SuccessResponse(result, "Event updated successfully"));
+    }
+
+    [HttpDelete("{id}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> DeleteEvent(int id)
+    {
+        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var deleted = await _eventService.DeleteEventAsync(
+            id,
+            userId,
+            User.IsInRole("Admin"));
+
+        if (!deleted)
+        {
+            return NotFound(ApiResponse<string>.ErrorResponse("Event not found or you don't have permission."));
+        }
+
+        return Ok(ApiResponse<string>.SuccessResponse("", "Event deleted successfully"));
     }
 
     private bool IsInPast(DateTime dateTime)

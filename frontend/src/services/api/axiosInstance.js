@@ -1,40 +1,16 @@
 import axios from "axios";
-import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
-import Constants from "expo-constants";
-import { STORAGE_KEYS } from "../../utils/constants";
-import { isE2EMode } from "../../utils/e2eMode";
+import { API_BASE_URL, STORAGE_KEYS } from "../../utils/constants";
 import logger from "../../utils/logger";
 
-const API_HOST = Constants.expoConfig?.extra?.apiHost || null;
 
-const getBaseUrl = () => {
-  if (isE2EMode()) {
-    return Constants.expoConfig?.extra?.e2eApiUrl || "http://10.0.2.2:5000/api";
-  }
 
-  if (!__DEV__) {
-    const productionApiUrl =
-      Constants.expoConfig?.extra?.apiUrl ?? Constants.manifest?.extra?.apiUrl;
+export const BASE_URL = API_BASE_URL;
 
-    if (!productionApiUrl) {
-      throw new Error(
-        "Missing production API URL. Configure EXPO_PUBLIC_PRODUCTION_API_URL or EXPO_PUBLIC_STAGING_API_URL before building.",
-      );
-    }
-
-    return productionApiUrl;
-  }
-
-  if (API_HOST) return `http://${API_HOST}:5000/api`;
-
-  return Platform.OS === "android"
-    ? "http://10.0.2.2:5000/api"
-    : "http://localhost:5000/api";
+export const getResolvedBaseUrl = async () => {
+  return API_BASE_URL;
 };
-
-export const BASE_URL = getBaseUrl();
 
 const axiosInstance = axios.create({
   baseURL: BASE_URL,
@@ -98,6 +74,9 @@ const clearStoredAuthAndSignalSignOut = async () => {
 
 axiosInstance.interceptors.request.use(
   async (config) => {
+    const resolvedBaseUrl = await getResolvedBaseUrl();
+    config.baseURL = resolvedBaseUrl;
+
     const token = await SecureStore.getItemAsync(STORAGE_KEYS.USER_TOKEN);
 
     if (token) {
@@ -110,7 +89,7 @@ axiosInstance.interceptors.request.use(
 
       logger.debug("EVENT UPDATE AUTH HEADER:", {
         method: String(config.method ?? "").toUpperCase(),
-        url: `${config.baseURL ?? BASE_URL}${config.url ?? ""}`,
+        url: `${resolvedBaseUrl}${config.url ?? ""}`,
         hasStoredToken: Boolean(token),
         storedTokenLength: token?.length ?? 0,
         hasAuthorizationHeader: Boolean(authHeader),
@@ -187,9 +166,13 @@ axiosInstance.interceptors.response.use(
           throw new Error("No refresh token found");
         }
 
-        const refreshResponse = await axios.post(`${BASE_URL}/Auth/refresh`, {
-          refreshToken,
-        });
+        const refreshBaseUrl = await getResolvedBaseUrl();
+        const refreshResponse = await axios.post(
+          `${refreshBaseUrl}/Auth/refresh`,
+          {
+            refreshToken,
+          },
+        );
 
         const payload =
           refreshResponse?.data?.data ?? refreshResponse?.data ?? {};

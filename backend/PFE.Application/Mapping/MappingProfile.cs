@@ -14,6 +14,7 @@ using PFE.Domain.Entities;
 using PFE.Domain.Enums;
 using PFE.Application.DTOs.Leave;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace PFE.Application.Mapping;
 
@@ -89,7 +90,7 @@ public class MappingProfile : Profile
         CreateMap<SeatReservationCreateDto, SeatReservation>()
             .ForMember(dest => dest.Id, opt => opt.Ignore())
             .ForMember(dest => dest.UserId, opt => opt.Ignore())
-            .ForMember(dest => dest.Status, opt => opt.MapFrom(src => ReservationStatus.Active))
+            .ForMember(dest => dest.Status, opt => opt.MapFrom(src => SeatReservationStatus.Active))
             .ForMember(dest => dest.CreatedAt, opt => opt.MapFrom(src => DateTime.UtcNow))
             .ForMember(dest => dest.Seat, opt => opt.Ignore())
             .ForMember(dest => dest.User, opt => opt.Ignore());
@@ -160,8 +161,7 @@ public class MappingProfile : Profile
                 src.RecoveryNature))
             .ForMember(dest => dest.RequiredRecoveryMinutes, opt => opt.MapFrom(src =>
                 src.RequiredRecoveryMinutes))
-            .ForMember(dest => dest.RecoverySlots, opt => opt.MapFrom(src =>
-                DeserializeRecoverySlots(src.RecoverySlotsJson)));
+            .ForMember(dest => dest.RecoverySlots, opt => opt.MapFrom<RecoverySlotsResolver>());
 
         CreateMap<CreateGeneralRequestDto, GeneralRequest>()
             .ForMember(dest => dest.Id, opt => opt.Ignore())
@@ -203,21 +203,40 @@ public class MappingProfile : Profile
         CreateMap<Notification, NotificationDto>();
 
     }
+}
 
-    private static List<RecoverySlotDto>? DeserializeRecoverySlots(string? recoverySlotsJson)
+public sealed class RecoverySlotsResolver : IValueResolver<GeneralRequest, GeneralRequestDto, List<RecoverySlotDto>?>
+{
+    private readonly ILogger<RecoverySlotsResolver> _logger;
+
+    public RecoverySlotsResolver(ILogger<RecoverySlotsResolver> logger)
     {
-        if (string.IsNullOrWhiteSpace(recoverySlotsJson))
+        _logger = logger;
+    }
+
+    public List<RecoverySlotDto>? Resolve(
+        GeneralRequest source,
+        GeneralRequestDto destination,
+        List<RecoverySlotDto>? destMember,
+        ResolutionContext context)
+    {
+        if (string.IsNullOrWhiteSpace(source.RecoverySlotsJson))
         {
-            return null;
+            return [];
         }
 
         try
         {
-            return JsonSerializer.Deserialize<List<RecoverySlotDto>>(recoverySlotsJson);
+            return JsonSerializer.Deserialize<List<RecoverySlotDto>>(source.RecoverySlotsJson) ?? [];
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
-            return null;
+            _logger.LogWarning(
+                "Malformed recovery slots JSON for general request {RequestId}. ExceptionType: {ExceptionType}.",
+                source.Id,
+                ex.GetType().Name);
+
+            return [];
         }
     }
 }

@@ -48,7 +48,7 @@ const roleIdFromName = (roleName) => {
   }
 };
 
-const resolveRole = (user) => {
+export const resolveRole = (user) => {
   const rawRoleId = user?.roleId ?? user?.RoleId;
   const rawRoleName = user?.roleName ?? user?.RoleName;
   const rawRole = user?.role ?? user?.Role;
@@ -75,32 +75,36 @@ const resolveRole = (user) => {
   };
 };
 
+export const getRolePermissions = (user) => {
+  const role = resolveRole(user);
+
+  const isEmployee =
+    role.roleId === ROLE_IDS.EMPLOYEE || role.normalizedRole === "employee";
+  const isManager =
+    role.roleId === ROLE_IDS.MANAGER || role.normalizedRole === "manager";
+  const isAdmin =
+    role.roleId === ROLE_IDS.ADMIN || role.normalizedRole === "admin";
+
+  return {
+    ...role,
+    isEmployee,
+    isManager,
+    isAdmin,
+    canReviewRequests: isAdmin,
+    canReviewLeave: isAdmin,
+    canManageEvents: isManager || isAdmin,
+    canPublishDepartmentChannel: isManager || isAdmin,
+    canViewTeamContext: isManager || isAdmin,
+    canVotePoll: isEmployee,
+  };
+};
+
 export const useRoles = (userOverride) => {
   const { user: authUser } = useAuth();
   const user = userOverride ?? authUser;
 
   return useMemo(() => {
-    const role = resolveRole(user);
-
-    const isEmployee =
-      role.roleId === ROLE_IDS.EMPLOYEE || role.normalizedRole === "employee";
-    const isManager =
-      role.roleId === ROLE_IDS.MANAGER || role.normalizedRole === "manager";
-    const isAdmin =
-      role.roleId === ROLE_IDS.ADMIN || role.normalizedRole === "admin";
-
-    return {
-      ...role,
-      isEmployee,
-      isManager,
-      isAdmin,
-      canReviewRequests: isAdmin,
-      canReviewLeave: isAdmin,
-      canManageEvents: isManager || isAdmin,
-      canPublishDepartmentChannel: isManager || isAdmin,
-      canViewTeamContext: isManager || isAdmin,
-      canVotePoll: isEmployee,
-    };
+    return getRolePermissions(user);
   }, [user]);
 };
 

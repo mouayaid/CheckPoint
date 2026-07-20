@@ -862,10 +862,6 @@ export default function GeneralRequestScreen() {
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{selectedCategoryLabel}</Text>
-              <View
-                testID={`generalRequest.category.${category}`}
-                style={styles.e2eHiddenMarker}
-              />
               <TouchableOpacity
                 style={styles.closeButton}
                 onPress={resetForm}
@@ -1798,10 +1794,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
     container: {
       flex: 1,
       backgroundColor: colors.background,
-    },
-    e2eHiddenMarker: {
-      width: 0,
-      height: 0,
     },
     content: {
       padding: spacing.lg,

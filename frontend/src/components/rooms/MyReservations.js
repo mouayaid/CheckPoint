@@ -30,6 +30,11 @@ const parseApiInstant = (value) => {
 };
 
 function normalizeStatusKey(status) {
+  if (status === 1) return "active";
+  if (status === 2) return "cancelled";
+  if (status === 3) return "completed";
+  if (status === 5) return "inprogress";
+  if (status === 6) return "expired";
   return String(status ?? "").toLowerCase();
 }
 
@@ -58,6 +63,12 @@ function StatusBadge({ status, colors }) {
     },
     completed: {
       label: "Terminée",
+      bg: colors.surfaceMuted,
+      fg: colors.textSecondary,
+      dot: colors.textTertiary,
+    },
+    expired: {
+      label: "Expirée",
       bg: colors.surfaceMuted,
       fg: colors.textSecondary,
       dot: colors.textTertiary,
@@ -107,7 +118,6 @@ export default function MyReservations({
   const [reservationFilter, setReservationFilter] = useState("All");
 
   const filteredMyReservations = useMemo(() => {
-    const now = new Date();
     const visibleReservations = myReservations.filter(
       (reservation) => !isCancelledReservation(reservation),
     );
@@ -117,13 +127,15 @@ export default function MyReservations({
         parseApiInstant(a.startDateTime || a.startDate || a.start),
     );
     if (reservationFilter === "Upcoming")
-      return sorted.filter(
-        (r) => parseApiInstant(r.endDateTime || r.endDate || r.end) >= now,
-      );
+      return sorted.filter((r) => {
+        const key = normalizeStatusKey(r.status ?? r.Status);
+        return key === "active" || key === "inprogress";
+      });
     if (reservationFilter === "Past")
-      return sorted.filter(
-        (r) => parseApiInstant(r.endDateTime || r.endDate || r.end) < now,
-      );
+      return sorted.filter((r) => {
+        const key = normalizeStatusKey(r.status ?? r.Status);
+        return key === "completed" || key === "expired";
+      });
     return sorted;
   }, [myReservations, reservationFilter]);
 
@@ -181,7 +193,8 @@ export default function MyReservations({
 
           const canCancel = key === "active";
           const canOpen =
-            canManageRooms && (key === "active" || key === "inprogress");
+            canManageRooms &&
+            (key === "active" || key === "inprogress" || key === "completed");
 
           const accentColor =
             key === "active"

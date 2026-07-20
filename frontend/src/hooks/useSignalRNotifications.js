@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import * as signalR from "@microsoft/signalr";
 import * as SecureStore from "expo-secure-store";
 import { STORAGE_KEYS } from "../utils/constants";
-import { BASE_URL } from "../services/api/axiosInstance";
+import { getResolvedBaseUrl } from "../services/api/axiosInstance";
 
 export const useSignalRNotifications = (onNotificationReceived, enabled = true) => {
   const connectionRef = useRef(null);
@@ -17,10 +17,11 @@ export const useSignalRNotifications = (onNotificationReceived, enabled = true) 
     const connect = async () => {
       const getAccessToken = () => SecureStore.getItemAsync(STORAGE_KEYS.USER_TOKEN);
       const token = await getAccessToken();
+      const baseUrl = await getResolvedBaseUrl();
 
-      if (!token || !BASE_URL) return;
+      if (!token || !baseUrl) return;
 
-      const hubUrl = BASE_URL.replace("/api", "/hubs/notifications");
+      const hubUrl = baseUrl.replace("/api", "/hubs/notifications");
 
       const connection = new signalR.HubConnectionBuilder()
         .withUrl(hubUrl, {

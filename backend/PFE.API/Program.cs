@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -13,6 +14,8 @@ using PFE.Infrastructure.Repositories;
 using PFE.API.Middlewares;
 using PFE.Infrastructure.Data;
 using System.Text.Json.Serialization;
+using System.Security.Claims;
+using System.Threading.RateLimiting;
 using PFE.API.Hubs;
 using Microsoft.AspNetCore.SignalR;
 using PFE.API.Services;
@@ -39,6 +42,52 @@ static string RequireConfigurationValue(
     }
 
     return value;
+}
+
+static void RequireStrongJwtKey(string key)
+{
+    if (Encoding.UTF8.GetByteCount(key) < 32)
+    {
+        throw new InvalidOperationException(
+            "Required configuration 'Jwt:Key' must be at least 32 bytes long.");
+    }
+}
+
+static int RequirePositiveIntConfigurationValue(
+    IConfiguration configuration,
+    string key)
+{
+    var value = RequireConfigurationValue(configuration, key);
+    if (!int.TryParse(value, out var parsed) || parsed <= 0)
+    {
+        throw new InvalidOperationException(
+            $"Required configuration '{key}' must be a positive integer.");
+    }
+
+    return parsed;
+}
+
+static void ValidateProductionOrigin(string origin)
+{
+    if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri) ||
+        uri.Scheme != Uri.UriSchemeHttps ||
+        uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+        uri.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            "Production CORS origins must be explicit HTTPS origins.");
+    }
+}
+
+static string GetRemoteIpPartitionKey(HttpContext context) =>
+    context.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip";
+
+static string GetUserOrIpPartitionKey(HttpContext context)
+{
+    var userId = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+    return !string.IsNullOrWhiteSpace(userId)
+        ? $"user:{userId}"
+        : $"ip:{GetRemoteIpPartitionKey(context)}";
 }
 
 builder.Services.AddControllers()
@@ -114,6 +163,14 @@ builder.Services.AddCors(options =>
                 "At least one production CORS origin must be configured in 'Cors:AllowedOrigins'.");
         }
 
+        if (!builder.Environment.IsDevelopment())
+        {
+            foreach (var origin in allowedOrigins)
+            {
+                ValidateProductionOrigin(origin);
+            }
+        }
+
         policy.WithOrigins(allowedOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod()
@@ -121,14 +178,105 @@ builder.Services.AddCors(options =>
     });
 });
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+        {
+            context.HttpContext.Response.Headers.RetryAfter =
+                Math.Ceiling(retryAfter.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        context.HttpContext.Response.ContentType = "application/json";
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+
+        var result = System.Text.Json.JsonSerializer.Serialize(
+            ApiResponse<object>.ErrorResponse("Too many requests. Please try again later."),
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+
+        await context.HttpContext.Response.WriteAsync(result, cancellationToken);
+    };
+
+    options.AddPolicy("AuthenticationPolicy", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            GetRemoteIpPartitionKey(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+
+    options.AddPolicy("PasswordRecoveryPolicy", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            GetRemoteIpPartitionKey(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 3,
+                Window = TimeSpan.FromMinutes(10),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+
+    options.AddPolicy("QrScanPolicy", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            GetUserOrIpPartitionKey(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 15,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+
+    options.AddPolicy("TranscriptionUploadPolicy", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            GetUserOrIpPartitionKey(context),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 2,
+                Window = TimeSpan.FromMinutes(10),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
+});
+
 builder.Services.AddScoped<IOfficeLayoutService, OfficeLayoutService>();
 
 
 builder.Services.AddScoped<CloudinaryService>();
 builder.Services.AddScoped<INotificationPushService, SignalRNotificationPushService>();
+builder.Services.AddSingleton<INotificationDeliveryQueue, NotificationDeliveryQueue>();
+builder.Services.AddHostedService<NotificationDeliveryBackgroundService>();
+builder.Services.AddSingleton<IExpoPushReceiptQueue, ExpoPushReceiptQueue>();
+builder.Services.AddHostedService<ExpoPushReceiptBackgroundService>();
+builder.Services.AddHttpClient("ExpoPush", client =>
+{
+    client.BaseAddress = new Uri("https://exp.host/--/api/v2/push/");
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddHttpClient<IExpoPushNotificationService, ExpoPushNotificationService>(client =>
+{
+    client.BaseAddress = new Uri("https://exp.host/--/api/v2/push/");
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
 builder.Services.AddHttpClient<IOllamaMeetingInsightService, OllamaMeetingInsightService>(client =>
 {
-    client.BaseAddress = new Uri("http://localhost:11434/");
+    var ollamaBaseUrl = builder.Configuration["Ollama:BaseUrl"];
+    if (!string.IsNullOrWhiteSpace(ollamaBaseUrl))
+    {
+        if (!Uri.TryCreate(ollamaBaseUrl, UriKind.Absolute, out var ollamaUri))
+        {
+            throw new InvalidOperationException(
+                "Configuration 'Ollama:BaseUrl' must be an absolute URL.");
+        }
+
+        client.BaseAddress = ollamaUri;
+    }
+
     client.Timeout = TimeSpan.FromMinutes(2);
 });
 builder.Services.AddScoped<IWhisperService, WhisperService>();
@@ -153,11 +301,20 @@ sp.GetRequiredService<ApplicationDbContext>());
 
 // JWT Authentication
 var jwtKey = RequireConfigurationValue(builder.Configuration, "Jwt:Key");
+RequireStrongJwtKey(jwtKey);
+RequirePositiveIntConfigurationValue(builder.Configuration, "Jwt:AccessTokenMinutes");
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "PFE.API";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "PFE.Client";
 
 if (!builder.Environment.IsDevelopment())
 {
+    var allowedHosts = builder.Configuration["AllowedHosts"];
+    if (string.IsNullOrWhiteSpace(allowedHosts) || allowedHosts.Trim() == "*")
+    {
+        throw new InvalidOperationException(
+            "Production 'AllowedHosts' must be configured to explicit host names.");
+    }
+
     RequireConfigurationValue(builder.Configuration, "Cloudinary:CloudName");
     RequireConfigurationValue(builder.Configuration, "Cloudinary:ApiKey");
     RequireConfigurationValue(builder.Configuration, "Cloudinary:ApiSecret");
@@ -201,6 +358,48 @@ builder.Services.AddAuthentication(options =>
             }
 
             return Task.CompletedTask;
+        },
+        OnTokenValidated = async context =>
+        {
+            var userIdClaim = context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!int.TryParse(userIdClaim, out var userId))
+            {
+                context.Fail("Invalid user claim.");
+                return;
+            }
+
+            try
+            {
+                var dbContext = context.HttpContext.RequestServices.GetRequiredService<ApplicationDbContext>();
+                var userState = await dbContext.Users
+                    .AsNoTracking()
+                    .Include(u => u.Role)
+                    .Where(u => u.Id == userId)
+                    .Select(u => new
+                    {
+                        u.IsActive,
+                        u.RejectedAt,
+                        RoleName = u.Role.Name
+                    })
+                    .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
+
+                if (userState == null ||
+                    !userState.IsActive ||
+                    userState.RejectedAt != null ||
+                    userState.RoleName is not ("Employee" or "Manager" or "Admin"))
+                {
+                    context.Fail("User account is inactive or invalid.");
+                }
+            }
+            catch (Exception ex)
+            {
+                var logger = context.HttpContext.RequestServices
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("JwtAccountStateValidation");
+
+                logger.LogError(ex, "Failed to validate authenticated user account state for user {UserId}.", userId);
+                context.Fail("Unable to validate user account state.");
+            }
         }
     };
 });
@@ -242,8 +441,15 @@ builder.Services.AddSignalR();
 
 var app = builder.Build();
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var connection = db.Database.GetDbConnection();
+
+}
+
 var swaggerEnabled =
-    app.Environment.IsDevelopment() ||
+    app.Environment.IsDevelopment() &&
     app.Configuration.GetValue<bool>("Swagger:Enabled");
 
 if (swaggerEnabled)
@@ -263,9 +469,12 @@ if (!app.Environment.IsDevelopment())
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
+app.UseRouting();
+
 app.UseCors("AllowReactNative");
 
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 app.MapHub<NotificationHub>("/hubs/notifications");
 

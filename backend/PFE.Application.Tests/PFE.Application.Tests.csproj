@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="PFE.Application">
+      <HintPath>..\PFE.Application\bin\Debug\net8.0\PFE.Application.dll</HintPath>
+    </Reference>
+    <Reference Include="PFE.Domain">
+      <HintPath>..\PFE.Domain\bin\Debug\net8.0\PFE.Domain.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

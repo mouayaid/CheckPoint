@@ -6,6 +6,7 @@ using PFE.Domain.Entities;
 using PFE.Domain.Enums;
 using PFE.Application.Abstractions;
 using PFE.Application.Common.Exceptions;
+using System.Data;
 using System.Text.Json;
 
 namespace PFE.Application.Services;
@@ -98,6 +99,30 @@ public class GeneralRequestService : IGeneralRequestService
         if (user == null)
         {
             return null;
+        }
+
+        if (dto.Category == RequestCategory.ExitAuthorization)
+        {
+            var authorizedDate = dto.AuthorizedDate!.Value.Date;
+            var startTime = dto.StartTime!.Value;
+            var endTime = dto.EndTime!.Value;
+
+            var hasOverlap = await _context.GeneralRequests.AnyAsync(r =>
+                r.UserId == userId &&
+                r.Category == RequestCategory.ExitAuthorization &&
+                (r.Status == RequestStatus.Pending || r.Status == RequestStatus.Approved) &&
+                r.AuthorizedDate.HasValue &&
+                r.AuthorizedDate.Value.Date == authorizedDate &&
+                r.StartTime.HasValue &&
+                r.EndTime.HasValue &&
+                r.StartTime.Value < endTime &&
+                r.EndTime.Value > startTime);
+
+            if (hasOverlap)
+            {
+                throw new BadRequestException(
+                    "You already have a pending or approved exit authorization that overlaps this time slot.");
+            }
         }
 
         var title = dto.Category switch
@@ -340,16 +365,8 @@ public class GeneralRequestService : IGeneralRequestService
         RequestStatus status,
         string? comment)
     {
-        var request = await _context.GeneralRequests
-            .Include(r => r.User)
-            .FirstOrDefaultAsync(r => r.Id == requestId);
-
-        if (request == null)
-        {
-            return null;
-        }
-
         var admin = await _context.Users
+            .AsNoTracking()
             .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.Id == adminId);
 
@@ -358,16 +375,44 @@ public class GeneralRequestService : IGeneralRequestService
             return null;
         }
 
-        if (request.Status != RequestStatus.Pending)
+        var requestState = await _context.GeneralRequests
+            .AsNoTracking()
+            .Where(r => r.Id == requestId)
+            .Select(r => new { r.Id, r.Status })
+            .FirstOrDefaultAsync();
+
+        if (requestState == null)
         {
             return null;
         }
 
-        request.Status = status;
-        request.AdminComment = comment;
-        request.ResolvedAt = DateTime.UtcNow;
+        if (requestState.Status != RequestStatus.Pending)
+        {
+            throw new ConflictException("Cette demande a déjà été traitée.");
+        }
 
-        await _context.SaveChangesAsync();
+        await using var transaction = await _context.Database.BeginTransactionAsync(
+            IsolationLevel.Serializable);
+
+        var resolvedAt = DateTime.UtcNow;
+        var reviewedRows = await _context.GeneralRequests
+            .Where(r => r.Id == requestId && r.Status == RequestStatus.Pending)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(r => r.Status, status)
+                .SetProperty(r => r.AdminComment, comment)
+                .SetProperty(r => r.ResolvedAt, resolvedAt));
+
+        if (reviewedRows == 0)
+        {
+            throw new ConflictException("Cette demande a déjà été traitée.");
+        }
+
+        await transaction.CommitAsync();
+
+        var reviewedRequest = await _context.GeneralRequests
+            .Include(r => r.User)
+                .ThenInclude(u => u.Department)
+            .FirstAsync(r => r.Id == requestId);
 
         var statusMessage = status switch
         {
@@ -375,26 +420,20 @@ public class GeneralRequestService : IGeneralRequestService
             _ => "has been approved"
         };
 
-        if (request.User.IsActive &&
-            request.User.ApprovedAt != null &&
-            request.User.RejectedAt == null)
+        if (reviewedRequest.User.IsActive &&
+            reviewedRequest.User.ApprovedAt != null &&
+            reviewedRequest.User.RejectedAt == null)
         {
             await _notificationService.CreateNotificationAsync(
-                request.UserId,
+                reviewedRequest.UserId,
                 "Request Status Updated",
-                $"Your {request.Category} request '{request.Title}' {statusMessage}.{(string.IsNullOrEmpty(comment) ? "" : $" Comment: {comment}")}",
+                $"Your {reviewedRequest.Category} request '{reviewedRequest.Title}' {statusMessage}.{(string.IsNullOrEmpty(comment) ? "" : $" Comment: {comment}")}",
                 status == RequestStatus.Approved ? "Success" : "Warning",
                 "GeneralRequest",
-                request.Id);
+                reviewedRequest.Id);
         }
 
-        // Reload with includes for mapping
-        var savedRequest = await _context.GeneralRequests
-            .Include(r => r.User)
-                .ThenInclude(u => u.Department)
-            .FirstOrDefaultAsync(r => r.Id == requestId);
-
-        return _mapper.Map<GeneralRequestDto>(savedRequest);
+        return _mapper.Map<GeneralRequestDto>(reviewedRequest);
     }
 
     private static bool ValidateExitAuthorization(CreateGeneralRequestDto dto, DateOnly tunisiaToday)

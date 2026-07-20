@@ -301,7 +301,7 @@ const ManageAnnouncementsScreen = () => {
     if (publishAtValue && expiresAtValue && expiresAtValue <= publishAtValue) {
       Alert.alert(
         "Validation",
-        "L'heure d'expiration doit Ãªtre aprÃ¨s l'heure de publication.",
+        "L'heure d'expiration doit étre aprés l'heure de publication.",
       );
       return false;
     }
@@ -847,7 +847,7 @@ const ManageAnnouncementsScreen = () => {
                     <View style={styles.previewChip}>
                       <Ionicons name="time-outline" size={13} color="#1D4ED8" />
                       <Text style={styles.previewChipText}>
-                        Publication le {formatPrettyDate(form.publishDate)} Ã {" "}
+                        Publication le {formatPrettyDate(form.publishDate)} à{" "}
                         {formatPrettyTime(form.publishTime)}
                       </Text>
                     </View>
@@ -866,7 +866,7 @@ const ManageAnnouncementsScreen = () => {
                     Suppression automatique
                   </Text>
                   <Text style={styles.toggleSubtitle}>
-                    Masquer aprÃ¨s une date
+                    Masquer aprés une date
                   </Text>
                 </View>
 
@@ -944,7 +944,7 @@ const ManageAnnouncementsScreen = () => {
                       <Text
                         style={[styles.previewChipText, { color: "#B91C1C" }]}
                       >
-                        Expiration le {formatPrettyDate(form.expiryDate)} Ã {" "}
+                        Expiration le {formatPrettyDate(form.expiryDate)} à{" "}
                         {formatPrettyTime(form.expiryTime)}
                       </Text>
                     </View>

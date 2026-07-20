@@ -72,4 +72,11 @@ export const departmentChannelService = {
       optionId,
     });
   },
+
+  /**
+   * Manager: get voters grouped by poll option.
+   */
+  getPollVoters: async (pollId) => {
+    return await axiosInstance.get(`/DepartmentChannel/polls/${pollId}/voters`);
+  },
 };

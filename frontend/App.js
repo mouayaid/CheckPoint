@@ -24,7 +24,6 @@ import {
 } from "react-native";
 
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
-import { E2eModeProvider, useE2eMode } from "./src/context/E2eModeContext";
 import {
   NotificationsProvider,
   useNotifications,
@@ -45,6 +44,7 @@ import DemandMenuScreen from "./src/screens/DemandMenuScreen";
 import EventsScreen from "./src/screens/EventsScreen";
 import NotificationsScreen from "./src/screens/NotificationsScreen";
 import ProfileScreen from "./src/screens/ProfileScreen";
+import EditProfileScreen from "./src/screens/EditProfileScreen";
 import ManageAnnouncementsScreen from "./src/screens/admin/ManageAnnouncementsScreen";
 import DepartmentChannelScreen from "./src/screens/DepartmentChannelScreen";
 import ApprovalsScreen from "./src/screens/approvals/ApprovalsScreen";
@@ -60,8 +60,10 @@ import DepartmentManagementScreen from "./src/screens/admin/DepartmentManagement
 import SwipeTabsPager from "./src/components/SwipeTabsPager";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import ErrorBoundary from "./src/components/ErrorBoundary";
-import { isE2EMode } from "./src/utils/e2eMode";
 import { useRoles } from "./src/hooks/useRoles";
+import { configureForegroundNotificationHandler } from "./src/utils/notificationRuntime";
+
+configureForegroundNotificationHandler();
 
 const Stack = createNativeStackNavigator();
 
@@ -156,6 +158,8 @@ function HomeTabs({ navigation, route }) {
     return visibleSwipeRoutes;
   }, [activeRouteName, availableRouteNames, visibleSwipeRoutes]);
 
+  const isSwipeEnabled = visibleSwipeRoutes.includes(activeRouteName);
+
   useEffect(() => {
     if (availableRouteNames.includes(activeRouteName)) return;
 
@@ -243,6 +247,7 @@ function HomeTabs({ navigation, route }) {
         activeRouteName={activeRouteName}
         onChangeRouteName={handleChangeRouteName}
         renderRoute={renderRoute}
+        enabled={isSwipeEnabled}
       />
 
       <CustomBottomTabBar
@@ -258,9 +263,8 @@ function AppNavigator() {
   const { colors, darkMode, themeLoaded } = useTheme();
   const { isAuthenticated, isLoading, user } = useAuth();
   const { isManager } = useRoles(user);
-  const isE2e = useE2eMode();
 
-  if ((isLoading || !themeLoaded) && !isE2e) {
+  if (isLoading || !themeLoaded) {
     return (
       <View
         testID="bootstrap.loading"
@@ -292,7 +296,7 @@ function AppNavigator() {
           },
         }}
       >
-        <Stack.Navigator initialRouteName={isE2e ? "Login" : "Splash"}>
+        <Stack.Navigator initialRouteName="Splash">
           {!isAuthenticated ? (
             <>
               <Stack.Screen
@@ -301,9 +305,17 @@ function AppNavigator() {
                 options={{ headerShown: false }}
               />
 
-              <Stack.Screen name="Login" component={LoginScreen} />
+              <Stack.Screen
+                name="Login"
+                component={LoginScreen}
+                options={{ headerShown: false }}
+              />
 
-              <Stack.Screen name="Register" component={RegisterScreen} />
+              <Stack.Screen
+                name="Register"
+                component={RegisterScreen}
+                options={{ headerShown: false }}
+              />
 
               <Stack.Screen
                 name="ForgotPassword"
@@ -370,6 +382,12 @@ function AppNavigator() {
               />
 
               <Stack.Screen
+                name="EditProfile"
+                component={EditProfileScreen}
+                options={{ title: "Modifier le profil" }}
+              />
+
+              <Stack.Screen
                 name="ManageAnnouncements"
                 component={ManageAnnouncementsScreen}
                 options={{ title: "Gérer Annonces" }}
@@ -424,14 +442,9 @@ function AppNavigator() {
 
 function RootApp() {
   const { colors, darkMode } = useTheme();
-  const isE2e = useE2eMode();
 
   return (
     <>
-      {isE2e ? (
-        <View testID="e2e.modeActive" style={{ width: 0, height: 0 }} />
-      ) : null}
-
       <StatusBar
         barStyle={darkMode ? "light-content" : "dark-content"}
         backgroundColor={colors.surface}
@@ -449,8 +462,6 @@ function RootApp() {
 }
 
 export default function App() {
-  const isE2e = isE2EMode();
-
   const [fontsLoaded] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -458,7 +469,7 @@ export default function App() {
     Inter_700Bold,
   });
 
-  if (!fontsLoaded && !isE2e) {
+  if (!fontsLoaded) {
     return (
       <View
         testID="bootstrap.fontsLoading"
@@ -473,9 +484,7 @@ export default function App() {
     <ErrorBoundary>
       <SafeAreaProvider>
         <ThemeProvider>
-          <E2eModeProvider>
-            <RootApp />
-          </E2eModeProvider>
+          <RootApp />
         </ThemeProvider>
       </SafeAreaProvider>
     </ErrorBoundary>

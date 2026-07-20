@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   View,
   Text,
@@ -70,6 +76,16 @@ const DAY_PERIOD_LABELS_FR = {
   1: "Matin",
   2: "Après-midi",
 };
+const RECOVERY_NATURE_LABELS_FR = {
+  SpecialLeave: "Congé spécial",
+  PaidLeave: "Congé payé",
+  UnpaidLeave: "Congé sans solde",
+  MaternityLeave: "Congé maternité",
+};
+const RECOVERY_PERMUTATION_LABELS_FR = {
+  Leave: "Congé",
+  Authorization: "Autorisation de sortie",
+};
 
 const formatRequestedDays = (days) => {
   const value = Number(days);
@@ -77,10 +93,87 @@ const formatRequestedDays = (days) => {
   return String(value).replace(".", ",");
 };
 
-const normalizeMainFilterParam = (value) => {
-  const normalized = String(value ?? "").trim().toLowerCase();
+const formatDurationMinutes = (minutes) => {
+  const value = Number(minutes);
+  if (Number.isNaN(value) || value <= 0) return "";
 
-  if (["demandes", "requests", "general", "leave", "leaves"].includes(normalized)) {
+  const roundedValue = Math.round(value);
+  const hours = Math.floor(roundedValue / 60);
+  const remainingMinutes = roundedValue % 60;
+
+  if (hours > 0 && remainingMinutes > 0) {
+    return `${hours} h ${remainingMinutes} min`;
+  }
+
+  if (hours > 0) {
+    return `${hours} h`;
+  }
+
+  return `${remainingMinutes} min`;
+};
+
+const normalizeRecoverySlots = (slots) => {
+  if (Array.isArray(slots)) return slots;
+
+  if (typeof slots === "string") {
+    try {
+      const parsedSlots = JSON.parse(slots);
+      return Array.isArray(parsedSlots) ? parsedSlots : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+};
+
+const formatRecoveryTime = (value) => {
+  if (!value) return "";
+  return String(value).slice(0, 5);
+};
+
+const parseRecoveryTimeToMinutes = (value) => {
+  const formattedTime = formatRecoveryTime(value);
+  const [hours, minutes] = formattedTime.split(":").map(Number);
+
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+};
+
+const getRecoverySlotMinutes = (slot) => {
+  const explicitMinutes = Number(slot?.minutes ?? slot?.Minutes);
+
+  if (!Number.isNaN(explicitMinutes) && explicitMinutes > 0) {
+    return explicitMinutes;
+  }
+
+  const startMinutes = parseRecoveryTimeToMinutes(
+    slot?.startTime ?? slot?.StartTime,
+  );
+  const endMinutes = parseRecoveryTimeToMinutes(slot?.endTime ?? slot?.EndTime);
+
+  if (
+    startMinutes === null ||
+    endMinutes === null ||
+    endMinutes <= startMinutes
+  ) {
+    return null;
+  }
+
+  return endMinutes - startMinutes;
+};
+
+const normalizeMainFilterParam = (value) => {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    ["demandes", "requests", "general", "leave", "leaves"].includes(normalized)
+  ) {
     return "general";
   }
 
@@ -96,13 +189,25 @@ const normalizeMainFilterParam = (value) => {
 };
 
 const normalizeRequestTypeParam = (value) => {
-  const normalized = String(value ?? "").trim().toLowerCase();
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
 
   if (!normalized || ["all", "toutes", "tout"].includes(normalized)) {
     return "all";
   }
 
-  if (["conge", "congé", "conges", "congés", "leave", "leaves", "leaverequest"].includes(normalized)) {
+  if (
+    [
+      "conge",
+      "congé",
+      "conges",
+      "congés",
+      "leave",
+      "leaves",
+      "leaverequest",
+    ].includes(normalized)
+  ) {
     return "leave";
   }
 
@@ -113,8 +218,10 @@ const normalizeRequestTypeParam = (value) => {
     return (
       name === normalized ||
       label === normalized ||
-      (entry.name === "ExitAuthorization" && ["sortie", "sorties"].includes(normalized)) ||
-      (entry.name === "Document" && ["documents", "document"].includes(normalized))
+      (entry.name === "ExitAuthorization" &&
+        ["sortie", "sorties"].includes(normalized)) ||
+      (entry.name === "Document" &&
+        ["documents", "document"].includes(normalized))
     );
   });
 
@@ -190,7 +297,7 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
     if (!value) return "Date inconnue";
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return String(value);
-    return d.toLocaleDateString();
+    return d.toLocaleDateString("fr-FR");
   };
 
   const normalizeDateRange = (start, end) => {
@@ -233,91 +340,95 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
     return ROLE_OPTIONS.find((r) => r.value === value) || ROLE_OPTIONS[0];
   };
 
-  const loadApprovals = useCallback(async (isRefresh = false) => {
-    if (!isAdmin) {
-      setLeaveRequests([]);
-      setGeneralRequests([]);
-      setPendingUsers([]);
-      setDepartments([]);
-      setLoading(false);
-      setRefreshing(false);
-      return;
-    }
-
-    try {
-      if (isRefresh) setRefreshing(true);
-      else setLoading(true);
-
-      const [leaveRes, generalRes, usersRes, depsRes] = await Promise.allSettled([
-        api.get("/Leave/pending-review"),
-        api.get("/GeneralRequests", { params: { status: "Pending" } }),
-        api.get("/admin/users/pending"),
-        api.get("/Departments"),
-      ]);
-
-      let leaveData = [];
-      let generalData = [];
-      let usersData = [];
-      let depsData = [];
-
-      if (leaveRes.status === "fulfilled") {
-        leaveData = extractArray(leaveRes.value);
+  const loadApprovals = useCallback(
+    async (isRefresh = false) => {
+      if (!isAdmin) {
+        setLeaveRequests([]);
+        setGeneralRequests([]);
+        setPendingUsers([]);
+        setDepartments([]);
+        setLoading(false);
+        setRefreshing(false);
+        return;
       }
 
-      if (generalRes.status === "fulfilled") {
-        generalData = extractArray(generalRes.value);
-      }
+      try {
+        if (isRefresh) setRefreshing(true);
+        else setLoading(true);
 
-      if (usersRes.status === "fulfilled") {
-        usersData = extractArray(usersRes.value);
-      }
+        const [leaveRes, generalRes, usersRes, depsRes] =
+          await Promise.allSettled([
+            api.get("/Leave/pending-review"),
+            api.get("/GeneralRequests", { params: { status: "Pending" } }),
+            api.get("/admin/users/pending"),
+            api.get("/Departments"),
+          ]);
 
-      if (depsRes.status === "fulfilled") {
-        depsData = extractArray(depsRes.value).map((d) => ({
-          label: d.name || d.Name || "Inconnu",
-          value: d.id ?? d.Id,
-        }));
-      }
+        let leaveData = [];
+        let generalData = [];
+        let usersData = [];
+        let depsData = [];
 
-      setLeaveRequests(leaveData);
-      setGeneralRequests(generalData);
-      setPendingUsers(usersData);
-      setDepartments(depsData);
+        if (leaveRes.status === "fulfilled") {
+          leaveData = extractArray(leaveRes.value);
+        }
 
-      setFormByUserId((prev) => {
-        const next = { ...prev };
+        if (generalRes.status === "fulfilled") {
+          generalData = extractArray(generalRes.value);
+        }
 
-        usersData.forEach((user) => {
-          const userId = getUserId(user);
+        if (usersRes.status === "fulfilled") {
+          usersData = extractArray(usersRes.value);
+        }
 
-          if (!next[userId]) {
-            next[userId] = {
-              leaveBalance: DEFAULT_LEAVE_BALANCE,
-              yearlySalary: DEFAULT_YEARLY_SALARY,
-              role: normalizeRoleValue(
-                user?.roleId ?? user?.RoleId ?? user?.role ?? user?.Role,
-              ),
-              departmentId: user?.departmentId ?? user?.DepartmentId ?? null,
-            };
-          }
+        if (depsRes.status === "fulfilled") {
+          depsData = extractArray(depsRes.value).map((d) => ({
+            label: d.name || d.Name || "Inconnu",
+            value: d.id ?? d.Id,
+          }));
+        }
+
+        setLeaveRequests(leaveData);
+        setGeneralRequests(generalData);
+        setPendingUsers(usersData);
+        setDepartments(depsData);
+
+        setFormByUserId((prev) => {
+          const next = { ...prev };
+
+          usersData.forEach((user) => {
+            const userId = getUserId(user);
+
+            if (!next[userId]) {
+              next[userId] = {
+                leaveBalance: DEFAULT_LEAVE_BALANCE,
+                yearlySalary: DEFAULT_YEARLY_SALARY,
+                role: normalizeRoleValue(
+                  user?.roleId ?? user?.RoleId ?? user?.role ?? user?.Role,
+                ),
+                departmentId: null,
+              };
+            }
+          });
+
+          return next;
         });
+      } catch (error) {
+        Alert.alert(
+          "Erreur",
+          getErrorMessage(error, "Impossible de charger les approbations."),
+        );
 
-        return next;
-      });
-    } catch (error) {
-      Alert.alert(
-        "Erreur",
-        getErrorMessage(error, "Impossible de charger les approbations."),
-      );
-
-      setLeaveRequests([]);
-      setGeneralRequests([]);
-      setPendingUsers([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [isAdmin]);
+        setLeaveRequests([]);
+        setGeneralRequests([]);
+        setPendingUsers([]);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [isAdmin],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -538,17 +649,22 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
   const approveUser = async (user) => {
     const userId = getUserId(user);
     const form = formByUserId[userId] || {};
+    const isAdminApproval = form.role === ADMIN_ROLE_ID;
 
-    const rawLeaveBalance = String(form.leaveBalance ?? "").trim();
-    const leaveBalance = Number(rawLeaveBalance);
+    let leaveBalance = null;
 
-    if (
-      rawLeaveBalance === "" ||
-      Number.isNaN(leaveBalance) ||
-      leaveBalance < 0
-    ) {
-      Alert.alert("Validation", "Veuillez saisir un solde de congés valide.");
-      return;
+    if (!isAdminApproval) {
+      const rawLeaveBalance = String(form.leaveBalance ?? "").trim();
+      leaveBalance = Number(rawLeaveBalance);
+
+      if (
+        rawLeaveBalance === "" ||
+        Number.isNaN(leaveBalance) ||
+        leaveBalance < 0
+      ) {
+        Alert.alert("Validation", "Veuillez saisir un solde de congés valide.");
+        return;
+      }
     }
 
     const rawYearlySalary = String(form.yearlySalary ?? "").trim();
@@ -563,10 +679,11 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
       return;
     }
 
-    const isAdminApproval = form.role === ADMIN_ROLE_ID;
-
     if (!isAdminApproval && !form.departmentId) {
-      Alert.alert("Validation", "Veuillez sélectionner un département.");
+      Alert.alert(
+        "Validation",
+        "Veuillez choisir un département avant d'approuver l'utilisateur.",
+      );
       return;
     }
 
@@ -574,7 +691,7 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
       setUserAction(userId, "approving");
 
       await api.put(`/admin/users/${userId}/approve`, {
-        leaveBalance,
+        leaveBalance: isAdminApproval ? null : leaveBalance,
         yearlySalary,
         roleId: form.role,
         departmentId: isAdminApproval ? null : form.departmentId,
@@ -640,8 +757,12 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
         disabled={disabled}
         onPress={() => {
           updateForm(userId, "role", option.value);
+
           if (option.value === ADMIN_ROLE_ID) {
             updateForm(userId, "departmentId", null);
+            updateForm(userId, "leaveBalance", null);
+          } else if (!formByUserId[userId]?.leaveBalance) {
+            updateForm(userId, "leaveBalance", DEFAULT_LEAVE_BALANCE);
           }
         }}
         style={[
@@ -727,7 +848,6 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
         testID={`approvals.leaveCard.${requestId}`}
         style={[styles.card, !expanded && styles.compactCard]}
       >
-        <View testID="leave.requestCard" style={styles.e2eHiddenMarker} />
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={() => toggleExpanded(rowKey)}
@@ -862,7 +982,6 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
                   isBusy && styles.disabledButton,
                 ]}
               >
-                <View testID="leave.rejectButton" style={styles.e2eHiddenMarker} />
                 {isRejecting ? (
                   <ActivityIndicator size="small" color={colors.text} />
                 ) : (
@@ -884,11 +1003,6 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
                 disabled={isBusy}
                 style={[styles.primaryButton, isBusy && styles.disabledButton]}
               >
-                <View
-                  testID={`approvals.leaveApprove.${requestId}`}
-                  style={styles.e2eHiddenMarker}
-                />
-                <View testID="leave.approveButton" style={styles.e2eHiddenMarker} />
                 {isApproving ? (
                   <ActivityIndicator
                     size="small"
@@ -928,7 +1042,98 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
     const description = item?.description ?? item?.Description ?? "";
     const category = item?.category ?? item?.Category;
     const categoryLabel = getGeneralCategoryLabel(category);
+    const categoryName = getGeneralCategoryName(category);
+    const isRecoveryRequest = categoryName === "Recovery";
     const createdAt = item?.createdAt ?? item?.CreatedAt;
+    const recoveryMotif = item?.motif ?? item?.Motif ?? description;
+    const recoverySlots = normalizeRecoverySlots(
+      item?.recoverySlots ??
+        item?.RecoverySlots ??
+        item?.recoverySlotsJson ??
+        item?.RecoverySlotsJson,
+    );
+    const explicitTotalRecoveryMinutes = Number(
+      item?.totalRecoveryMinutes ?? item?.TotalRecoveryMinutes,
+    );
+    const calculatedRecoveryMinutes = recoverySlots.reduce((total, slot) => {
+      const slotMinutes = getRecoverySlotMinutes(slot);
+      return total + (slotMinutes ?? 0);
+    }, 0);
+    const effectiveTotalRecoveryMinutes =
+      !Number.isNaN(explicitTotalRecoveryMinutes) &&
+      explicitTotalRecoveryMinutes > 0
+        ? explicitTotalRecoveryMinutes
+        : calculatedRecoveryMinutes;
+    const requiredRecoveryMinutes =
+      item?.requiredRecoveryMinutes ?? item?.RequiredRecoveryMinutes;
+    const recoveryPermutationType =
+      item?.recoveryPermutationType ?? item?.RecoveryPermutationType;
+    const recoveryNature = item?.recoveryNature ?? item?.RecoveryNature;
+    const effectiveTotalRecoveryDuration = formatDurationMinutes(
+      effectiveTotalRecoveryMinutes,
+    );
+    const requiredRecoveryDuration =
+      formatDurationMinutes(requiredRecoveryMinutes);
+    const shouldShowRequiredRecoveryDuration =
+      !!requiredRecoveryDuration &&
+      requiredRecoveryDuration !== effectiveTotalRecoveryDuration;
+    const recoverySlotCount = recoverySlots.length;
+    const recoverySummaryDuration =
+      effectiveTotalRecoveryDuration || "Non renseigné";
+    const recoveryPermutationLabel =
+      RECOVERY_PERMUTATION_LABELS_FR[recoveryPermutationType] ??
+      recoveryPermutationType ??
+      "Non renseigné";
+    const recoveryNatureLabel =
+      RECOVERY_NATURE_LABELS_FR[recoveryNature] ?? recoveryNature;
+    const firstRecoverySlot = recoverySlots[0];
+    const recoveryCompactPreviewParts = [];
+
+    if (firstRecoverySlot) {
+      const firstSlotDate = firstRecoverySlot?.date ?? firstRecoverySlot?.Date;
+
+      if (firstSlotDate) {
+        recoveryCompactPreviewParts.push(normalizeDate(firstSlotDate));
+      }
+
+      const firstSlotStartTime = formatRecoveryTime(
+        firstRecoverySlot?.startTime ?? firstRecoverySlot?.StartTime,
+      );
+      const firstSlotEndTime = formatRecoveryTime(
+        firstRecoverySlot?.endTime ?? firstRecoverySlot?.EndTime,
+      );
+
+      if (firstSlotStartTime && firstSlotEndTime) {
+        recoveryCompactPreviewParts.push(
+          `${firstSlotStartTime} → ${firstSlotEndTime}`,
+        );
+      }
+
+      const firstSlotDuration = formatDurationMinutes(
+        getRecoverySlotMinutes(firstRecoverySlot),
+      );
+
+      if (firstSlotDuration) {
+        recoveryCompactPreviewParts.push(firstSlotDuration);
+      }
+    }
+
+    const recoveryCompactPreview =
+      recoveryCompactPreviewParts.length > 0
+        ? recoveryCompactPreviewParts.join(" · ")
+        : recoveryMotif || title;
+    const renderRecoveryDetailRow = (icon, label, value) => (
+      <View style={styles.recoveryDetailRow}>
+        <View style={styles.recoveryDetailIcon}>
+          <Ionicons name={icon} size={16} color={colors.primary} />
+        </View>
+        <View style={styles.recoveryDetailContent}>
+          <Text style={styles.recoveryDetailLabel}>{label}</Text>
+          <Text style={styles.recoveryDetailValue}>{value}</Text>
+        </View>
+      </View>
+    );
+    const renderRecoveryDivider = () => <View style={styles.recoveryDivider} />;
 
     return (
       <Card
@@ -942,7 +1147,7 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
         >
           <View style={styles.avatarWrap}>
             <Ionicons
-              name="document-text-outline"
+              name={isRecoveryRequest ? "repeat-outline" : "document-text-outline"}
               size={22}
               color={colors.primary}
             />
@@ -952,11 +1157,11 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
             <Text style={styles.name}>{categoryLabel}</Text>
             <Text style={styles.email}>{userName}</Text>
             <Text style={styles.smallPreview} numberOfLines={1}>
-              {title}
+              {isRecoveryRequest ? recoveryCompactPreview : title}
             </Text>
-            <Text style={styles.smallPreview}>
-              {categoryLabel}
-            </Text>
+            {!isRecoveryRequest && (
+              <Text style={styles.smallPreview}>{categoryLabel}</Text>
+            )}
           </View>
 
           <View style={styles.rowRight}>
@@ -974,47 +1179,230 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
 
         {expanded && (
           <View style={styles.expandedContent}>
-            <View style={styles.infoBlock}>
-              <View style={styles.metaRow}>
-                <Ionicons
-                  name="folder-open-outline"
-                  size={16}
-                  color={colors.textSecondary}
-                />
-                <Text style={styles.metaText}>
-                  Type : {categoryLabel}
-                </Text>
-              </View>
+            {isRecoveryRequest ? (
+              <View style={styles.infoBlock}>
+                <View style={styles.recoveryDetailsSection}>
+                  {renderRecoveryDetailRow(
+                    "swap-horizontal-outline",
+                    "Mode de récupération",
+                    recoveryPermutationLabel,
+                  )}
 
-              <View style={styles.metaRow}>
-                <Ionicons
-                  name="document-text-outline"
-                  size={16}
-                  color={colors.textSecondary}
-                />
-                <Text style={styles.metaText}>{title}</Text>
-              </View>
+                  {!!recoveryNatureLabel && (
+                    <>
+                      {renderRecoveryDetailRow(
+                        "briefcase-outline",
+                        "Nature du congé",
+                        recoveryNatureLabel,
+                      )}
+                    </>
+                  )}
 
-              <View style={styles.metaRow}>
-                <Ionicons
-                  name="chatbox-ellipses-outline"
-                  size={16}
-                  color={colors.textSecondary}
-                />
-                <Text style={styles.metaText}>{description}</Text>
-              </View>
+                  {shouldShowRequiredRecoveryDuration && (
+                    <>
+                      {renderRecoveryDetailRow(
+                        "timer-outline",
+                        "Durée requise",
+                        requiredRecoveryDuration,
+                      )}
+                    </>
+                  )}
+                </View>
 
-              <View style={styles.metaRow}>
-                <Ionicons
-                  name="time-outline"
-                  size={16}
-                  color={colors.textSecondary}
-                />
-                <Text style={styles.metaText}>
-                  Soumise le {normalizeDate(createdAt)}
-                </Text>
+                {renderRecoveryDivider()}
+
+                <View style={styles.recoverySummarySection}>
+                  <Text style={styles.recoverySectionTitle}>Résumé</Text>
+
+                  {renderRecoveryDetailRow(
+                    "hourglass-outline",
+                    "Total demandé",
+                    recoverySummaryDuration,
+                  )}
+
+                  {renderRecoveryDetailRow(
+                    "calendar-outline",
+                    "Nombre de créneaux",
+                    String(recoverySlotCount),
+                  )}
+                </View>
+
+                {renderRecoveryDivider()}
+
+                <View style={styles.recoverySlotsSection}>
+                  <Text style={styles.recoverySectionTitle}>
+                    {recoverySlots.length === 1
+                      ? "Créneau demandé"
+                      : "Créneaux demandés"}
+                  </Text>
+
+                  {recoverySlots.length > 0 ? (
+                    recoverySlots.map((slot, index) => {
+                      const slotDate = slot?.date ?? slot?.Date;
+                      const startTime = formatRecoveryTime(
+                        slot?.startTime ?? slot?.StartTime,
+                      );
+                      const endTime = formatRecoveryTime(
+                        slot?.endTime ?? slot?.EndTime,
+                      );
+                      const slotDuration = formatDurationMinutes(
+                        getRecoverySlotMinutes(slot),
+                      );
+                      const timeRange =
+                        startTime && endTime
+                          ? `${startTime} → ${endTime}`
+                          : "Horaire non renseigné";
+
+                      return (
+                        <View
+                          key={`${requestId}-slot-${index}`}
+                          style={[
+                            styles.recoverySlot,
+                            index > 0 && styles.recoverySlotSeparated,
+                          ]}
+                        >
+                          {recoverySlots.length > 1 && (
+                            <Text style={styles.recoverySlotTitle}>
+                              Créneau {index + 1}
+                            </Text>
+                          )}
+
+                          <View style={styles.recoverySlotRow}>
+                            <Ionicons
+                              name="calendar-outline"
+                              size={16}
+                              color={colors.textSecondary}
+                            />
+                            <View style={styles.recoverySlotContent}>
+                              <Text style={styles.recoverySlotLabel}>Date</Text>
+                              <Text style={styles.recoverySlotText}>
+                                {normalizeDate(slotDate)}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.recoverySlotRow}>
+                            <Ionicons
+                              name="time-outline"
+                              size={16}
+                              color={colors.textSecondary}
+                            />
+                            <View style={styles.recoverySlotContent}>
+                              <Text style={styles.recoverySlotLabel}>
+                                Horaire
+                              </Text>
+                              <Text style={styles.recoverySlotText}>
+                                {timeRange}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {!!slotDuration && (
+                            <View style={styles.recoverySlotRow}>
+                              <Ionicons
+                                name="hourglass-outline"
+                                size={16}
+                                color={colors.textSecondary}
+                              />
+                              <View style={styles.recoverySlotContent}>
+                                <Text style={styles.recoverySlotLabel}>
+                                  Durée
+                                </Text>
+                                <Text style={styles.recoverySlotText}>
+                                  {slotDuration}
+                                </Text>
+                              </View>
+                            </View>
+                          )}
+                        </View>
+                      );
+                    })
+                  ) : (
+                    <View style={styles.recoverySlotRow}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={16}
+                        color={colors.textSecondary}
+                      />
+                      <View style={styles.recoverySlotContent}>
+                        <Text style={styles.recoverySlotText}>
+                          Aucun créneau renseigné
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+
+                {renderRecoveryDivider()}
+
+                <View style={styles.recoveryMotifSection}>
+                  <View style={styles.recoveryMotifHeader}>
+                    <Ionicons
+                      name="chatbox-ellipses-outline"
+                      size={16}
+                      color={colors.primary}
+                    />
+                    <Text style={styles.recoverySectionTitle}>Motif</Text>
+                  </View>
+                  <Text style={styles.recoveryMotifText}>
+                    {recoveryMotif || "Aucun motif fourni"}
+                  </Text>
+                </View>
+
+                {renderRecoveryDivider()}
+
+                <View style={styles.recoverySubmittedRow}>
+                  <Ionicons
+                    name="time-outline"
+                    size={16}
+                    color={colors.textSecondary}
+                  />
+                  <Text style={styles.recoverySubmittedText}>
+                    Soumise le {normalizeDate(createdAt)}
+                  </Text>
+                </View>
               </View>
-            </View>
+            ) : (
+              <View style={styles.infoBlock}>
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="folder-open-outline"
+                    size={16}
+                    color={colors.textSecondary}
+                  />
+                  <Text style={styles.metaText}>Type : {categoryLabel}</Text>
+                </View>
+
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="document-text-outline"
+                    size={16}
+                    color={colors.textSecondary}
+                  />
+                  <Text style={styles.metaText}>{title}</Text>
+                </View>
+
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="chatbox-ellipses-outline"
+                    size={16}
+                    color={colors.textSecondary}
+                  />
+                  <Text style={styles.metaText}>{description}</Text>
+                </View>
+
+                <View style={styles.metaRow}>
+                  <Ionicons
+                    name="time-outline"
+                    size={16}
+                    color={colors.textSecondary}
+                  />
+                  <Text style={styles.metaText}>
+                    Soumise le {normalizeDate(createdAt)}
+                  </Text>
+                </View>
+              </View>
+            )}
 
             <View style={styles.actionsRow}>
               <TouchableOpacity
@@ -1081,17 +1469,20 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
 
     const fullName = item?.fullName ?? item?.FullName ?? "Utilisateur inconnu";
     const email = item?.email ?? item?.Email ?? "Aucun e-mail";
-    const departmentName =
-      item?.departmentName ?? item?.DepartmentName ?? "Aucun département";
+    const selectedDepartmentName =
+      departments.find((department) => department.value === form.departmentId)
+        ?.label ?? null;
+    let departmentDisplayName =
+      selectedDepartmentName ?? "Département à choisir";
 
     const createdAt = item?.createdAt ?? item?.CreatedAt;
 
     const selectedRole = form.role;
     const isAdminSelection = selectedRole === ADMIN_ROLE_ID;
-    const departmentDisplayName = isAdminSelection
-      ? "Administration globale"
-      : departmentName;
     const roleMeta = getRoleMeta(selectedRole);
+    if (isAdminSelection) {
+      departmentDisplayName = "Administration globale";
+    }
 
     const action = userActionState[userId];
     const isSubmitting = action === "approving";
@@ -1163,30 +1554,31 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
               </View>
             </View>
 
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>Solde de congés initial</Text>
+            {!isAdminSelection && (
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>Solde de congés initial</Text>
 
-              <View style={styles.inputWrap}>
-                <Ionicons
-                  name="calendar-number-outline"
-                  size={18}
-                  color={colors.textSecondary}
-                />
+                <View style={styles.inputWrap}>
+                  <Ionicons
+                    name="calendar-number-outline"
+                    size={18}
+                    color={colors.textSecondary}
+                  />
 
-                <TextInput
-                  value={String(form.leaveBalance)}
-                  onChangeText={(text) =>
-                    updateForm(userId, "leaveBalance", text)
-                  }
-                  keyboardType="numeric"
-                  placeholder="ex. 18"
-                  placeholderTextColor={colors.textSecondary}
-                  style={styles.input}
-                  editable={!isBusy}
-                />
+                  <TextInput
+                    value={String(form.leaveBalance ?? "")}
+                    onChangeText={(text) =>
+                      updateForm(userId, "leaveBalance", text)
+                    }
+                    keyboardType="numeric"
+                    placeholder="ex. 18"
+                    placeholderTextColor={colors.textSecondary}
+                    style={styles.input}
+                    editable={!isBusy}
+                  />
+                </View>
               </View>
-            </View>
-
+            )}
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Salaire annuel</Text>
 
@@ -1222,32 +1614,33 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
             </View>
 
             {!isAdminSelection && (
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>Attribuer un département</Text>
-
-              {departments.length === 0 ? (
-                <Text style={styles.helperText}>
-                  Aucun département disponible.
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>
+                  Attribuer un département
                 </Text>
-              ) : (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.scrollChips}
-                >
-                  {departments.map((dept) =>
-                    renderDepartmentOption(
-                      userId,
-                      dept,
-                      form.departmentId,
-                      isBusy,
-                    ),
-                  )}
-                </ScrollView>
-              )}
-            </View>
-            )}
 
+                {departments.length === 0 ? (
+                  <Text style={styles.helperText}>
+                    Aucun département disponible.
+                  </Text>
+                ) : (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.scrollChips}
+                  >
+                    {departments.map((dept) =>
+                      renderDepartmentOption(
+                        userId,
+                        dept,
+                        form.departmentId,
+                        isBusy,
+                      ),
+                    )}
+                  </ScrollView>
+                )}
+              </View>
+            )}
             <View style={styles.actionsRow}>
               <TouchableOpacity
                 activeOpacity={0.85}
@@ -1345,7 +1738,8 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
       {
         key: "all",
         label: "Tout",
-        count: leaveRequests.length + generalRequests.length + pendingUsers.length,
+        count:
+          leaveRequests.length + generalRequests.length + pendingUsers.length,
       },
       {
         key: "general",
@@ -1436,8 +1830,7 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
         scrollEventThrottle={16}
         onScroll={(event) => {
           const offset = event.nativeEvent.contentOffset.x;
-          const pendingOffset =
-            requestSubtypePendingRestoreOffsetRef.current;
+          const pendingOffset = requestSubtypePendingRestoreOffsetRef.current;
 
           if (pendingOffset !== null && pendingOffset > 1 && offset <= 1) {
             return;
@@ -1445,10 +1838,7 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
 
           requestSubtypeScrollOffsetRef.current = offset;
 
-          if (
-            pendingOffset !== null &&
-            Math.abs(offset - pendingOffset) <= 1
-          ) {
+          if (pendingOffset !== null && Math.abs(offset - pendingOffset) <= 1) {
             requestSubtypePendingRestoreOffsetRef.current = null;
           }
         }}
@@ -1530,7 +1920,8 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
     const noLeaveRequests = leaveRequests.length === 0;
     const noFilteredGeneralRequests = filteredGeneralRequests.length === 0;
     const noPendingUsers = pendingUsers.length === 0;
-    const fullyEmpty = noLeaveRequests && generalRequests.length === 0 && noPendingUsers;
+    const fullyEmpty =
+      noLeaveRequests && generalRequests.length === 0 && noPendingUsers;
 
     if (fullyEmpty) {
       rows.push({
@@ -1626,7 +2017,13 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
     }
 
     return rows;
-  }, [activeTab, leaveRequests, generalRequests, pendingUsers, requestSubtypeFilter]);
+  }, [
+    activeTab,
+    leaveRequests,
+    generalRequests,
+    pendingUsers,
+    requestSubtypeFilter,
+  ]);
 
   const renderItem = ({ item }) => {
     switch (item.type) {
@@ -1694,23 +2091,26 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-    <FlatList
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      data={listData}
-      keyExtractor={(item) => item.key}
-      renderItem={renderItem}
-      ListHeaderComponent={renderListHeader}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={colors.primary}
-        />
-      }
-    />
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <FlatList
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        data={listData}
+        keyExtractor={(item) => item.key}
+        renderItem={renderItem}
+        ListHeaderComponent={renderListHeader}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+          />
+        }
+      />
     </KeyboardAvoidingView>
   );
 };
@@ -1895,11 +2295,6 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       paddingVertical: spacing.md,
     },
 
-    e2eHiddenMarker: {
-      width: 0,
-      height: 0,
-    },
-
     compactRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -1979,6 +2374,131 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       fontSize: typography.sm,
       color: colors.textSecondary,
       lineHeight: 20,
+    },
+
+    recoveryDetailsSection: {
+      gap: spacing.md,
+    },
+
+    recoveryDetailRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.sm,
+    },
+
+    recoveryDetailIcon: {
+      width: 27,
+      height: 27,
+      borderRadius: borderRadius.full,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 1,
+    },
+
+    recoveryDetailContent: {
+      flex: 1,
+    },
+
+    recoveryDetailLabel: {
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+      color: colors.text,
+    },
+
+    recoveryDetailValue: {
+      marginTop: 2,
+      fontSize: typography.sm,
+      color: colors.textSecondary,
+      lineHeight: 20,
+    },
+
+    recoveryDivider: {
+      height: 1,
+      backgroundColor: colors.border,
+    },
+
+    recoverySummarySection: {
+      gap: spacing.sm,
+    },
+
+    recoverySlotsSection: {
+      gap: spacing.sm,
+    },
+
+    recoverySectionTitle: {
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+      color: colors.textSecondary,
+    },
+
+    recoverySlot: {
+      gap: spacing.sm,
+      paddingTop: spacing.xs,
+    },
+
+    recoverySlotSeparated: {
+      marginTop: spacing.sm,
+      paddingTop: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+
+    recoverySlotTitle: {
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+      color: colors.primary,
+    },
+
+    recoverySlotRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.sm,
+    },
+
+    recoverySlotContent: {
+      flex: 1,
+    },
+
+    recoverySlotLabel: {
+      fontSize: 12,
+      fontWeight: typography.medium,
+      color: colors.textSecondary,
+    },
+
+    recoverySlotText: {
+      marginTop: 2,
+      fontSize: typography.sm,
+      fontWeight: typography.semibold,
+      color: colors.text,
+      lineHeight: 20,
+    },
+
+    recoveryMotifSection: {
+      gap: spacing.xs,
+    },
+
+    recoveryMotifHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+
+    recoveryMotifText: {
+      fontSize: typography.sm,
+      color: colors.text,
+      lineHeight: 21,
+    },
+
+    recoverySubmittedRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+
+    recoverySubmittedText: {
+      fontSize: typography.sm,
+      color: colors.textSecondary,
     },
 
     section: {

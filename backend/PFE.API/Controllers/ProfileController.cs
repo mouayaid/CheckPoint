@@ -26,7 +26,11 @@ public class ProfileController : ControllerBase
     [HttpGet("me")]
     public async Task<ActionResult<ApiResponse<ProfileDto>>> GetMyProfile()
     {
-        var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        if (!TryGetAuthenticatedUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<ProfileDto>.ErrorResponse("Invalid authenticated user."));
+        }
+
         var profile = await _profileService.GetUserProfileAsync(userId);
 
         if (profile == null)
@@ -35,5 +39,33 @@ public class ProfileController : ControllerBase
         }
 
         return Ok(ApiResponse<ProfileDto>.SuccessResponse(profile));
+    }
+
+    /// <summary>
+    /// Update current user's editable profile information.
+    /// </summary>
+    [HttpPut("me")]
+    [RequestSizeLimit(5_500_000)]
+    public async Task<ActionResult<ApiResponse<ProfileDto>>> UpdateMyProfile([FromForm] UpdateMyProfileDto dto)
+    {
+        if (!TryGetAuthenticatedUserId(out var userId))
+        {
+            return Unauthorized(ApiResponse<ProfileDto>.ErrorResponse("Invalid authenticated user."));
+        }
+
+        var profile = await _profileService.UpdateMyProfileAsync(userId, dto);
+
+        if (profile == null)
+        {
+            return NotFound(ApiResponse<ProfileDto>.ErrorResponse("User not found"));
+        }
+
+        return Ok(ApiResponse<ProfileDto>.SuccessResponse(profile, "Profile updated successfully."));
+    }
+
+    private bool TryGetAuthenticatedUserId(out int userId)
+    {
+        var userIdValue = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return int.TryParse(userIdValue, out userId);
     }
 }

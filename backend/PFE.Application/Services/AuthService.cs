@@ -7,12 +7,17 @@ using PFE.Application.Abstractions;
 using System.Security.Cryptography;
 using System.Text;
 using PFE.Application.Common;
+using PFE.Application.Common.Exceptions;
 
 namespace PFE.Application.Services;
 
 public class AuthService : IAuthService
 {
     private const int MaxResetOtpAttempts = 5;
+    private const int MinPasswordLength = 8;
+    private const int ResetOtpCooldownSeconds = 60;
+    private const int MaxResetOtpRequestsPerWindow = 5;
+    private static readonly TimeSpan ResetOtpThrottleWindow = TimeSpan.FromMinutes(15);
 
     private readonly IApplicationDbContext _context;
     private readonly IJwtService _jwtService;
@@ -41,6 +46,10 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponseDto?> LoginAsync(LoginDto loginDto)
     {
+        loginDto.Email = NormalizeEmail(loginDto.Email);
+        ValidateRequired(loginDto.Email, "Email is required.");
+        ValidateRequired(loginDto.Password, "Password is required.");
+
         var user = await _context.Users
             .Include(u => u.Department)
             .Include(u => u.Role)
@@ -129,11 +138,15 @@ public class AuthService : IAuthService
 
         var user = storedToken.User;
 
-        if (user.Role == null || !user.IsActive || user.RejectedAt != null)
+        if (user == null ||
+            user.Role == null ||
+            !user.IsActive ||
+            user.RejectedAt != null ||
+            !IsSupportedRole(user.Role.Name))
+        {
+            await _context.SaveChangesAsync();
             return null;
-
-        if (!IsSupportedRole(user.Role.Name))
-            return null;
+        }
 
         var newToken = _jwtService.GenerateToken(
     user.Id,
@@ -166,11 +179,14 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponseDto?> RegisterAsync(RegisterDto registerDto)
     {
+        registerDto.Email = NormalizeEmail(registerDto.Email);
+        registerDto.FullName = registerDto.FullName?.Trim() ?? string.Empty;
+        ValidateRequired(registerDto.Email, "Email is required.");
+        ValidateRequired(registerDto.FullName, "Full name is required.");
+        ValidatePassword(registerDto.Password);
+
         if (await _context.Users.AnyAsync(u => u.Email == registerDto.Email))
             return null;
-
-        if (!registerDto.DepartmentId.HasValue || registerDto.DepartmentId.Value <= 0)
-            throw new InvalidOperationException("Department is required for Employee users.");
 
         var user = new User
         {
@@ -178,7 +194,7 @@ public class AuthService : IAuthService
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(registerDto.Password),
             FullName = registerDto.FullName,
             RoleId = 1,
-            DepartmentId = registerDto.DepartmentId.Value,
+            DepartmentId = null,
             PhoneNumber = registerDto.PhoneNumber,
             LeaveBalance = null,
             IsActive = false,
@@ -211,6 +227,7 @@ public class AuthService : IAuthService
     public async Task<bool> ForgotPasswordAsync(string email)
     {
         email = NormalizeEmail(email);
+        ValidateRequired(email, "Email is required.");
 
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
 
@@ -219,7 +236,19 @@ public class AuthService : IAuthService
             return true;
         }
 
-        var otpCode = Random.Shared.Next(100000, 999999).ToString();
+        var now = DateTime.UtcNow;
+        var recentOtps = await _context.PasswordResetOtps
+            .Where(o => o.Email == email && o.CreatedAt >= now.Subtract(ResetOtpThrottleWindow))
+            .OrderByDescending(o => o.CreatedAt)
+            .ToListAsync();
+
+        if (recentOtps.Count >= MaxResetOtpRequestsPerWindow ||
+            recentOtps.FirstOrDefault()?.CreatedAt > now.AddSeconds(-ResetOtpCooldownSeconds))
+        {
+            return true;
+        }
+
+        var otpCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
 
         var oldOtps = await _context.PasswordResetOtps
             .Where(o => o.Email == email && !o.IsUsed)
@@ -233,7 +262,7 @@ public class AuthService : IAuthService
         _context.PasswordResetOtps.Add(new PasswordResetOtp
         {
             Email = email,
-            OtpCode = otpCode,
+            OtpCode = HashToken(otpCode),
             ExpiresAt = DateTime.UtcNow.AddMinutes(5),
             IsUsed = false,
             Attempts = 0,
@@ -265,6 +294,9 @@ public class AuthService : IAuthService
     public async Task<bool> ResetPasswordAsync(string email, string otpCode, string newPassword)
     {
         email = NormalizeEmail(email);
+        ValidateRequired(email, "Email is required.");
+        ValidateOtpCode(otpCode);
+        ValidatePassword(newPassword);
 
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == email);
 
@@ -302,6 +334,8 @@ public class AuthService : IAuthService
     private async Task<bool> ValidateResetOtpAsync(string email, string otpCode, bool consumeOnSuccess)
     {
         email = NormalizeEmail(email);
+        ValidateRequired(email, "Email is required.");
+        ValidateOtpCode(otpCode);
 
         var otp = await _context.PasswordResetOtps
             .Where(o => o.Email == email && !o.IsUsed)
@@ -320,7 +354,7 @@ public class AuthService : IAuthService
             return false;
         }
 
-        if (otp.OtpCode != otpCode)
+        if (otp.OtpCode != HashToken(otpCode))
         {
             otp.Attempts++;
 
@@ -348,6 +382,28 @@ public class AuthService : IAuthService
 
     private static string NormalizeEmail(string email)
     {
-        return email?.Trim() ?? string.Empty;
+        return email?.Trim().ToLowerInvariant() ?? string.Empty;
+    }
+
+    private static void ValidateRequired(string value, string message)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new BadRequestException(message);
+    }
+
+    private static void ValidatePassword(string password)
+    {
+        if (string.IsNullOrWhiteSpace(password) || password.Length < MinPasswordLength)
+            throw new BadRequestException($"Password must be at least {MinPasswordLength} characters.");
+    }
+
+    private static void ValidateOtpCode(string otpCode)
+    {
+        if (string.IsNullOrWhiteSpace(otpCode) ||
+            otpCode.Length != 6 ||
+            !otpCode.All(char.IsDigit))
+        {
+            throw new BadRequestException("OTP code must contain 6 digits.");
+        }
     }
 }

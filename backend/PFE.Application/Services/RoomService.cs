@@ -14,13 +14,16 @@ public class RoomService : IRoomService
 {
     private readonly IApplicationDbContext _context;
     private readonly IMapper _mapper;
+    private readonly IAppTimeProvider _timeProvider;
 
     public RoomService(
         IApplicationDbContext context,
-        IMapper mapper)
+        IMapper mapper,
+        IAppTimeProvider timeProvider)
     {
         _context = context;
         _mapper = mapper;
+        _timeProvider = timeProvider;
     }
 
     // ===== Methods required by IRoomService =====
@@ -140,6 +143,8 @@ public class RoomService : IRoomService
 
     public async Task<List<RoomReservationDto>> GetUserReservationsAsync(int userId)
     {
+        await ExpireOverdueActiveUserReservationsAsync(userId);
+
         var reservations = await _context.RoomReservations
             .Include(r => r.User)
             .Include(r => r.Room)
@@ -147,6 +152,7 @@ public class RoomService : IRoomService
                         (r.Status == ReservationStatus.Active ||
                          r.Status == ReservationStatus.InProgress ||
                          r.Status == ReservationStatus.Completed ||
+                         r.Status == ReservationStatus.Expired ||
                          r.Status == ReservationStatus.Cancelled))
             .OrderByDescending(r => r.StartDateTime)
             .ToListAsync();
@@ -165,6 +171,12 @@ public class RoomService : IRoomService
 
         if (reservation == null)
             throw new NotFoundException("Reservation not found.");
+
+        if (RoomReservationLifecycle.ExpireIfOverdue(reservation, _timeProvider.UtcNow))
+        {
+            await _context.SaveChangesAsync();
+            throw new ConflictException("Expired reservations cannot be cancelled.");
+        }
 
         if (reservation.Status != ReservationStatus.Active)
             throw new ConflictException("Only an active reservation can be cancelled.");
@@ -185,5 +197,28 @@ public class RoomService : IRoomService
             throw new NotFoundException("User not found.");
 
         return actor.Role.Name;
+    }
+
+    private async Task ExpireOverdueActiveUserReservationsAsync(int userId)
+    {
+        var now = _timeProvider.UtcNow;
+        var expirationCutoff = now.Subtract(RoomReservationLifecycle.StartGracePeriod);
+        var reservations = await _context.RoomReservations
+            .Where(r => r.UserId == userId &&
+                        r.Status == ReservationStatus.Active &&
+                        r.StartedAt == null &&
+                        r.StartDateTime < expirationCutoff)
+            .ToListAsync();
+
+        var changed = false;
+        foreach (var reservation in reservations)
+        {
+            changed |= RoomReservationLifecycle.ExpireIfOverdue(reservation, now);
+        }
+
+        if (changed)
+        {
+            await _context.SaveChangesAsync();
+        }
     }
 }

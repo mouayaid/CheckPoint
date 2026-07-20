@@ -1,9 +1,8 @@
 import logger from "../utils/logger";
-import React, { useEffect, useState, useRef } from "react";
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
-  Alert,
   StyleSheet,
   TouchableOpacity,
   Image,
@@ -12,10 +11,10 @@ import {
   ScrollView,
   Platform,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
 import { useNavigation } from "@react-navigation/native";
-import { authService, departmentService } from "../services/api";
+import { authService } from "../services/api";
 import { Button, Input } from "../components";
+import ConfirmActionModal from "../components/common/ConfirmActionModal";
 import { useTheme } from "../context/ThemeContext";
 import { LinearGradient } from "expo-linear-gradient";
 
@@ -26,53 +25,39 @@ const RegisterScreen = () => {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [departmentId, setDepartmentId] = useState("");
-  const [departments, setDepartments] = useState([]);
-  const [loadingDepartments, setLoadingDepartments] = useState(true);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalMessage, setModalMessage] = useState("");
+  const [modalType, setModalType] = useState("info");
+  const [modalOnConfirm, setModalOnConfirm] = useState(null);
 
   const emailRef = useRef(null);
   const phoneRef = useRef(null);
   const passwordRef = useRef(null);
   const confirmPasswordRef = useRef(null);
 
-  useEffect(() => {
-    let isMounted = true;
+  const showModal = ({ title, message, type = "info", onConfirm }) => {
+    setModalTitle(title);
+    setModalMessage(message);
+    setModalType(type);
+    setModalOnConfirm(() => onConfirm || null);
+    setModalVisible(true);
+  };
 
-    const loadDepartments = async () => {
-      try {
-        const data = await departmentService.getDepartments();
-        const normalized = data
-          .map((item) => ({
-            id: item?.id ?? item?.Id,
-            name: item?.name ?? item?.Name,
-          }))
-          .filter((item) => item.id != null && item.name);
+  const closeModal = () => {
+    setModalVisible(false);
+    setModalOnConfirm(null);
+  };
 
-        if (isMounted) {
-          setDepartments(normalized);
-        }
-      } catch (error) {
-        logger.error("Departments load error:", error);
-        if (isMounted) {
-          setDepartments([]);
-        }
-      } finally {
-        if (isMounted) {
-          setLoadingDepartments(false);
-        }
-      }
-    };
-
-    loadDepartments();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+  const handleModalConfirm = () => {
+    const next = modalOnConfirm;
+    closeModal();
+    next?.();
+  };
 
   const validate = () => {
     const next = {};
@@ -89,10 +74,6 @@ const RegisterScreen = () => {
 
     if (!phoneNumber.trim()) {
       next.phoneNumber = "Veuillez saisir votre numéro de téléphone";
-    }
-
-    if (!departmentId) {
-      next.departmentId = "Veuillez choisir votre département";
     }
 
     if (!password) {
@@ -123,40 +104,38 @@ const RegisterScreen = () => {
         phoneNumber: phoneNumber.trim(),
         password,
         fullName: fullName.trim(),
-        departmentId: Number(departmentId),
       };
 
       const response = await authService.register(payload);
 
       if (response.success) {
-        Alert.alert(
-          "Compte créé",
-          "Votre compte a été créé et est en attente de validation par un administrateur. Vous pourrez vous connecter après validation.",
-          [
-            {
-              text: "OK",
-              onPress: () => navigation.goBack(),
-            },
-          ]
-        );
+        showModal({
+          title: "Compte créé",
+          message:
+            "Votre compte a été créé et est en attente de validation par un administrateur. Vous pourrez vous connecter après validation.",
+          type: "success",
+          onConfirm: () => navigation.goBack(),
+        });
       } else {
-        Alert.alert(
-          "Inscription échouée",
-          response.message || "Impossible de créer le compte"
-        );
+        showModal({
+          title: "Inscription échouée",
+          message: response.message || "Impossible de créer le compte",
+          type: "error",
+        });
       }
     } catch (error) {
       logger.error("Register error:", error);
-      Alert.alert(
-        "Erreur",
-        error.message ||
-          "Échec de l'inscription. Veuillez vérifier votre connexion et réessayer."
-      );
+      showModal({
+        title: "Erreur",
+        message:
+          error.message ||
+          "Échec de l'inscription. Veuillez vérifier votre connexion et réessayer.",
+        type: "error",
+      });
     } finally {
       setLoading(false);
     }
   };
-
   const styles = StyleSheet.create({
     gradient: {
       flex: 1,
@@ -218,39 +197,6 @@ const RegisterScreen = () => {
     primaryButton: {
       marginTop: 4,
     },
-    fieldWrap: {
-      marginBottom: spacing.md,
-    },
-    label: {
-      fontSize: typography.sm,
-      fontWeight: typography.medium,
-      color: colors.textSecondary,
-      marginBottom: spacing.xs,
-    },
-    pickerContainer: {
-      backgroundColor: colors.surfaceMuted,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: borderRadius.lg,
-      overflow: "hidden",
-    },
-    pickerContainerError: {
-      borderColor: colors.error,
-    },
-    picker: {
-      color: colors.text,
-      minHeight: 52,
-    },
-    helperText: {
-      fontSize: typography.xs,
-      color: colors.textSecondary,
-      marginTop: 4,
-    },
-    errorText: {
-      fontSize: typography.xs,
-      color: colors.error,
-      marginTop: 4,
-    },
     footer: {
       marginTop: spacing.xl + 2,
       flexDirection: "row",
@@ -306,7 +252,7 @@ const RegisterScreen = () => {
                 label="Nom complet"
                 value={fullName}
                 onChangeText={setFullName}
-                placeholder="John Doe"
+                placeholder="Mouayaid Zammit Chatti"
                 autoCapitalize="words"
                 blurOnSubmit={false}
                 returnKeyType="next"
@@ -336,7 +282,7 @@ const RegisterScreen = () => {
                 label="Numéro de téléphone"
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
-                placeholder="+33 6 12 34 56 78"
+                placeholder="55 555 555"
                 keyboardType="phone-pad"
                 returnKeyType="next"
                 blurOnSubmit={false}
@@ -344,46 +290,6 @@ const RegisterScreen = () => {
                 error={errors.phoneNumber}
                 editable={!loading}
               />
-
-              <View style={styles.fieldWrap}>
-                <Text style={styles.label}>Département</Text>
-                <View
-                  style={[
-                    styles.pickerContainer,
-                    errors.departmentId && styles.pickerContainerError,
-                  ]}
-                >
-                  <Picker
-                    selectedValue={departmentId}
-                    onValueChange={(value) => setDepartmentId(value)}
-                    enabled={!loading && !loadingDepartments}
-                    style={styles.picker}
-                  >
-                    <Picker.Item
-                      label={
-                        loadingDepartments
-                          ? "Chargement des départements..."
-                          : "Choisir un département"
-                      }
-                      value=""
-                    />
-                    {departments.map((department) => (
-                      <Picker.Item
-                        key={department.id}
-                        label={department.name}
-                        value={String(department.id)}
-                      />
-                    ))}
-                  </Picker>
-                </View>
-                {errors.departmentId ? (
-                  <Text style={styles.errorText}>{errors.departmentId}</Text>
-                ) : !loadingDepartments && departments.length === 0 ? (
-                  <Text style={styles.helperText}>
-                    Aucun département disponible pour le moment.
-                  </Text>
-                ) : null}
-              </View>
 
               <Input
                 ref={passwordRef}
@@ -437,6 +343,16 @@ const RegisterScreen = () => {
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
+        <ConfirmActionModal
+          visible={modalVisible}
+          title={modalTitle}
+          message={modalMessage}
+          confirmLabel="OK"
+          destructive={modalType === "error"}
+          showCancel={false}
+          onCancel={closeModal}
+          onConfirm={handleModalConfirm}
+        />
       </SafeAreaView>
     </LinearGradient>
   );

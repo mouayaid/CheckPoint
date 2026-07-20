@@ -26,10 +26,6 @@ export const seatService = {
     });
   },
 
-  checkOutReservation: async () => {
-    return await axiosInstance.post("/SeatReservations/checkout");
-  },
-
   getMyMonthReservations: async (year, month) => {
     return await axiosInstance.get("/SeatReservations/my-month", {
       params: { year, month },

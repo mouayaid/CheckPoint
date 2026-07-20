@@ -20,6 +20,7 @@ export default function ConfirmActionModal({
   confirmLabel = "Confirmer",
   destructive = false,
   loading = false,
+  showCancel = true,
   onCancel,
   onConfirm,
 }) {
@@ -54,14 +55,16 @@ export default function ConfirmActionModal({
           <Text style={styles.message}>{message}</Text>
 
           <View style={styles.actions}>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={onCancel}
-              disabled={loading}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.cancelText}>{cancelLabel}</Text>
-            </TouchableOpacity>
+            {showCancel ? (
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={onCancel}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.cancelText}>{cancelLabel}</Text>
+              </TouchableOpacity>
+            ) : null}
 
             <TouchableOpacity
               style={[

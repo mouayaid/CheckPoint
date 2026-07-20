@@ -11,8 +11,6 @@ namespace PFE.Application.Services;
 
 public class RoomReservationService : IRoomReservationService
 {
-    private static readonly TimeSpan StartWindowLeadTime = TimeSpan.FromMinutes(15);
-
     private readonly IApplicationDbContext _context;
     private readonly IMapper _mapper;
     private readonly INotificationService _notificationService;
@@ -37,6 +35,11 @@ public class RoomReservationService : IRoomReservationService
             tunisiaDate.ToDateTime(TimeOnly.MinValue));
         var endOfDay = _timeProvider.ConvertTunisiaToUtc(
             tunisiaDate.AddDays(1).ToDateTime(TimeOnly.MinValue));
+
+        await ExpireOverdueActiveReservationsAsync(
+            r => r.RoomId == roomId &&
+                 r.StartDateTime < endOfDay &&
+                 r.EndDateTime > startOfDay);
 
         var reservations = await _context.RoomReservations
             .AsNoTracking()
@@ -82,6 +85,11 @@ public class RoomReservationService : IRoomReservationService
 
         if (startUtc <= _timeProvider.UtcNow)
             throw new BadRequestException("Reservation start time must be in the future.");
+
+        await ExpireOverdueActiveReservationsAsync(
+            r => r.RoomId == dto.RoomId &&
+                 r.StartDateTime < endUtc &&
+                 r.EndDateTime > startUtc);
 
         var hasConflict = await _context.RoomReservations
             .AnyAsync(r =>
@@ -170,10 +178,16 @@ public class RoomReservationService : IRoomReservationService
             throw new BadRequestException("Meeting already started.");
 
         var now = _timeProvider.UtcNow;
-        if (now < reservation.StartDateTime.Subtract(StartWindowLeadTime))
+        if (RoomReservationLifecycle.ExpireIfOverdue(reservation, now))
+        {
+            await _context.SaveChangesAsync();
+            throw new BadRequestException("This reservation has expired because it was not started within 10 minutes of its scheduled start time.");
+        }
+
+        if (now < reservation.StartDateTime.Subtract(RoomReservationLifecycle.StartWindowLeadTime))
             throw new BadRequestException("This reservation can only be started up to 15 minutes before its scheduled start time.");
 
-        if (now > reservation.EndDateTime)
+        if (now > RoomReservationLifecycle.StartDeadline(reservation))
             throw new BadRequestException("This reservation cannot be started because its scheduled time has passed.");
 
         reservation.StartedAt = now;
@@ -196,6 +210,12 @@ public class RoomReservationService : IRoomReservationService
         if (actorRole != "Manager" || !IsOwner(reservation, userId))
             throw new ForbiddenException("You cannot cancel another user's reservation.");
 
+        if (RoomReservationLifecycle.ExpireIfOverdue(reservation, _timeProvider.UtcNow))
+        {
+            await _context.SaveChangesAsync();
+            throw new BadRequestException("Expired reservations cannot be cancelled.");
+        }
+
         if (reservation.Status != ReservationStatus.Active)
             throw new BadRequestException("Only an active reservation can be cancelled.");
 
@@ -215,6 +235,30 @@ public class RoomReservationService : IRoomReservationService
             throw new NotFoundException("User not found.");
 
         return actor.Role.Name;
+    }
+
+    private async Task ExpireOverdueActiveReservationsAsync(
+        System.Linq.Expressions.Expression<Func<RoomReservation, bool>> predicate)
+    {
+        var now = _timeProvider.UtcNow;
+        var expirationCutoff = now.Subtract(RoomReservationLifecycle.StartGracePeriod);
+        var reservations = await _context.RoomReservations
+            .Where(predicate)
+            .Where(r => r.Status == ReservationStatus.Active &&
+                        r.StartedAt == null &&
+                        r.StartDateTime < expirationCutoff)
+            .ToListAsync();
+
+        var changed = false;
+        foreach (var reservation in reservations)
+        {
+            changed |= RoomReservationLifecycle.ExpireIfOverdue(reservation, now);
+        }
+
+        if (changed)
+        {
+            await _context.SaveChangesAsync();
+        }
     }
 
     private static bool IsOwner(RoomReservation reservation, int userId)

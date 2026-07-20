@@ -1223,10 +1223,6 @@ const DashboardScreen = () => {
         >
           <View style={styles.heroTopRow}>
             <View style={styles.heroTextWrap}>
-              <Text style={styles.heroEyebrow}>
-                {isAdmin ? "Tableau de bord administrateur" : "Tableau de bord"}
-              </Text>
-
               <Text style={styles.heroTitle}>
                 {greeting}
                 {displayName ? ` ${displayName.split(" ")[0]}` : ""} {emoji}

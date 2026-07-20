@@ -1,5 +1,4 @@
-import logger from "../utils/logger";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -12,6 +11,7 @@ import {
   Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+
 import { authService } from "../services/api";
 import { Button, Input } from "../components";
 import FeedbackModal from "../components/FeedbackModal";
@@ -19,15 +19,35 @@ import { useFeedback } from "../hooks/useFeedback";
 import { useTheme } from "../context/ThemeContext";
 import { getApiErrorMessage } from "../utils/apiErrors";
 
-const ForgotPasswordScreen = ({ navigation }) => {
+const RESEND_COOLDOWN_SECONDS = 60;
+
+const VerifyResetOtpScreen = ({ navigation, route }) => {
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
   const { feedback, showFeedback, hideFeedback } = useFeedback();
 
-  const [email, setEmail] = useState("");
+  const email = useMemo(
+    () => String(route?.params?.email || "").trim().toLowerCase(),
+    [route?.params?.email],
+  );
+
+  const [otpCode, setOtpCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [errors, setErrors] = useState({});
 
-  const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
+  const cleanOtpCode = useMemo(() => otpCode.trim(), [otpCode]);
+  const isResendBlocked = resendCooldown > 0;
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return undefined;
+
+    const timer = setTimeout(() => {
+      setResendCooldown((current) => Math.max(current - 1, 0));
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
 
   const showMessage = (type, title, message, onConfirm) => {
     showFeedback({
@@ -42,56 +62,90 @@ const ForgotPasswordScreen = ({ navigation }) => {
   const validate = () => {
     const next = {};
 
-    if (!normalizedEmail) {
-      next.email = "Veuillez saisir votre e-mail";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      next.email = "Veuillez saisir un e-mail valide";
+    if (!email) {
+      next.email =
+        "Adresse e-mail manquante. Veuillez recommencer la récupération.";
+    }
+
+    if (!cleanOtpCode) {
+      next.otpCode = "Veuillez saisir le code de vérification";
+    } else if (!/^\d{6}$/.test(cleanOtpCode)) {
+      next.otpCode = "Le code doit contenir 6 chiffres";
     }
 
     setErrors(next);
     return Object.keys(next).length === 0;
   };
 
-  const handleSubmit = async () => {
-    if (!validate()) return;
+  const handleVerify = async () => {
+    if (loading || !validate()) return;
 
     setLoading(true);
     setErrors({});
 
     try {
-      const response = await authService.forgotPassword(normalizedEmail);
+      const response = await authService.verifyResetOtp(email, cleanOtpCode);
 
       if (response?.success) {
-        showMessage(
-          "success",
-          "E-mail envoye",
-          response.message ||
-            "Si ce compte existe, vous recevrez les instructions de reinitialisation.",
-          () =>
-            navigation.navigate("VerifyResetOtp", {
-              email: normalizedEmail,
-            }),
-        );
+        navigation.navigate("ResetPassword", {
+          email,
+          otpCode: cleanOtpCode,
+        });
       } else {
         showMessage(
           "error",
-          "Envoi impossible",
-          response?.message ||
-            "Impossible d'envoyer les instructions de reinitialisation.",
+          "Code invalide",
+          response?.message || "Le code est invalide ou a expiré.",
         );
       }
     } catch (error) {
-      logger.error("Forgot password error:", error);
       showMessage(
         "error",
-        "Erreur",
-        getApiErrorMessage(
-          error,
-          "Impossible de contacter le serveur. Veuillez reessayer.",
-        ),
+        "Vérification impossible",
+        getApiErrorMessage(error, "Le code est invalide ou a expiré."),
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (resending || isResendBlocked) return;
+
+    if (!email) {
+      showMessage(
+        "error",
+        "E-mail manquant",
+        "Veuillez recommencer la récupération du mot de passe.",
+        () => navigation.navigate("ForgotPassword"),
+      );
+      return;
+    }
+
+    setResending(true);
+
+    try {
+      const response = await authService.forgotPassword(email);
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
+      showMessage(
+        response?.success ? "success" : "error",
+        response?.success ? "Code renvoyé" : "Renvoi impossible",
+        response?.message ||
+          (response?.success
+            ? "Un nouveau code a été envoyé si ce compte existe."
+            : "Impossible de renvoyer le code pour le moment."),
+      );
+    } catch (error) {
+      showMessage(
+        "error",
+        "Renvoi impossible",
+        getApiErrorMessage(
+          error,
+          "Impossible de renvoyer le code. Veuillez réessayer.",
+        ),
+      );
+    } finally {
+      setResending(false);
     }
   };
 
@@ -160,6 +214,10 @@ const ForgotPasswordScreen = ({ navigation }) => {
       lineHeight: 20,
       marginBottom: spacing.md,
     },
+    emailText: {
+      color: colors.text,
+      fontWeight: typography.semibold,
+    },
     submitButton: {
       marginTop: spacing.xs,
     },
@@ -171,6 +229,16 @@ const ForgotPasswordScreen = ({ navigation }) => {
       fontSize: typography.sm,
       color: colors.primary,
       fontWeight: typography.bold,
+      marginTop: spacing.sm,
+    },
+    disabledLink: {
+      opacity: 0.5,
+    },
+    inlineError: {
+      color: colors.error,
+      fontSize: typography.sm,
+      lineHeight: 20,
+      marginBottom: spacing.md,
     },
   });
 
@@ -200,47 +268,73 @@ const ForgotPasswordScreen = ({ navigation }) => {
                 />
               </View>
 
-              <Text style={styles.title}>Mot de passe oublie</Text>
+              <Text style={styles.title}>Vérification du code</Text>
               <Text style={styles.subtitle}>
-                Entrez votre e-mail professionnel pour recevoir les instructions.
+                Saisissez le code envoyé à votre adresse e-mail.
               </Text>
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.helperText}>
-                Nous enverrons un message de recuperation si un compte correspond
-                a cette adresse.
-              </Text>
+              {!email || errors.email ? (
+                <Text style={styles.inlineError}>
+                  {errors.email ||
+                    "Adresse e-mail manquante. Veuillez recommencer la récupération."}
+                </Text>
+              ) : (
+                <Text style={styles.helperText}>
+                  Un code de vérification a été envoyé à{" "}
+                  <Text style={styles.emailText}>{email}</Text>.
+                </Text>
+              )}
 
               <Input
-                label="Email professionnel"
-                value={email}
-                onChangeText={setEmail}
-                placeholder="you@company.com"
-                keyboardType="email-address"
+                label="Code de vérification"
+                value={otpCode}
+                onChangeText={(value) => setOtpCode(value.replace(/[^\d]/g, ""))}
+                placeholder="123456"
+                keyboardType="number-pad"
                 autoCapitalize="none"
-                autoComplete="email"
-                returnKeyType="send"
-                onSubmitEditing={handleSubmit}
-                error={errors.email}
+                autoComplete="one-time-code"
+                returnKeyType="done"
+                maxLength={6}
+                onSubmitEditing={handleVerify}
+                error={errors.otpCode}
                 editable={!loading}
               />
 
               <Button
-                title="Envoyer les instructions"
-                onPress={handleSubmit}
+                title="Vérifier le code"
+                onPress={handleVerify}
                 loading={loading}
-                disabled={loading}
+                disabled={loading || !email}
                 style={styles.submitButton}
               />
 
               <View style={styles.footer}>
                 <TouchableOpacity
                   activeOpacity={0.75}
-                  onPress={() => navigation.navigate("Login")}
-                  disabled={loading}
+                  onPress={handleResend}
+                  disabled={resending || isResendBlocked || !email}
+                  style={[
+                    (resending || isResendBlocked || !email) &&
+                      styles.disabledLink,
+                  ]}
                 >
-                  <Text style={styles.footerLink}>Retour a la connexion</Text>
+                  <Text style={styles.footerLink}>
+                    {resending
+                      ? "Renvoi en cours..."
+                      : resendCooldown > 0
+                        ? `Renvoyer le code (${resendCooldown}s)`
+                        : "Renvoyer le code"}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.75}
+                  onPress={() => navigation.navigate("Login")}
+                  disabled={loading || resending}
+                >
+                  <Text style={styles.footerLink}>Retour à la connexion</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -268,4 +362,4 @@ const ForgotPasswordScreen = ({ navigation }) => {
   );
 };
 
-export default ForgotPasswordScreen;
+export default VerifyResetOtpScreen;

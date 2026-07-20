@@ -652,6 +652,8 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
     const isAdminApproval = form.role === ADMIN_ROLE_ID;
 
     let leaveBalance = null;
+    let yearlySalary = null;
+    let departmentId = null;
 
     if (!isAdminApproval) {
       const rawLeaveBalance = String(form.leaveBalance ?? "").trim();
@@ -665,40 +667,52 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
         Alert.alert("Validation", "Veuillez saisir un solde de congés valide.");
         return;
       }
-    }
 
-    const rawYearlySalary = String(form.yearlySalary ?? "").trim();
-    const yearlySalary = Number(rawYearlySalary);
+      const rawYearlySalary = String(form.yearlySalary ?? "").trim();
+      yearlySalary = Number(rawYearlySalary);
 
-    if (
-      rawYearlySalary === "" ||
-      Number.isNaN(yearlySalary) ||
-      yearlySalary <= 0
-    ) {
-      Alert.alert("Validation", "Veuillez saisir un salaire annuel valide.");
-      return;
-    }
+      if (
+        rawYearlySalary === "" ||
+        Number.isNaN(yearlySalary) ||
+        yearlySalary <= 0
+      ) {
+        Alert.alert("Validation", "Veuillez saisir un salaire annuel valide.");
+        return;
+      }
 
-    if (!isAdminApproval && !form.departmentId) {
-      Alert.alert(
-        "Validation",
-        "Veuillez choisir un département avant d'approuver l'utilisateur.",
-      );
-      return;
+      if (!form.departmentId) {
+        Alert.alert(
+          "Validation",
+          "Veuillez choisir un département avant d'approuver l'utilisateur.",
+        );
+        return;
+      }
+
+      departmentId = form.departmentId;
     }
 
     try {
       setUserAction(userId, "approving");
 
       await api.put(`/admin/users/${userId}/approve`, {
-        leaveBalance: isAdminApproval ? null : leaveBalance,
+        leaveBalance,
         yearlySalary,
         roleId: form.role,
-        departmentId: isAdminApproval ? null : form.departmentId,
+        departmentId,
       });
 
-      setPendingUsers((prev) => prev.filter((u) => getUserId(u) !== userId));
+      setPendingUsers((prev) =>
+        prev.filter((pendingUser) => getUserId(pendingUser) !== userId),
+      );
     } catch (error) {
+      console.error("User approval failed:", {
+        status: error?.status ?? error?.response?.status,
+        data: error?.data ?? error?.response?.data,
+        message: error?.message,
+        url: error?.url,
+        baseURL: error?.baseURL,
+      });
+
       Alert.alert(
         "Erreur",
         getErrorMessage(error, "Impossible d'approuver cet utilisateur."),
@@ -761,8 +775,15 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
           if (option.value === ADMIN_ROLE_ID) {
             updateForm(userId, "departmentId", null);
             updateForm(userId, "leaveBalance", null);
-          } else if (!formByUserId[userId]?.leaveBalance) {
-            updateForm(userId, "leaveBalance", DEFAULT_LEAVE_BALANCE);
+            updateForm(userId, "yearlySalary", null);
+          } else {
+            if (!formByUserId[userId]?.leaveBalance) {
+              updateForm(userId, "leaveBalance", DEFAULT_LEAVE_BALANCE);
+            }
+
+            if (!formByUserId[userId]?.yearlySalary) {
+              updateForm(userId, "yearlySalary", DEFAULT_YEARLY_SALARY);
+            }
           }
         }}
         style={[
@@ -1072,8 +1093,9 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
     const effectiveTotalRecoveryDuration = formatDurationMinutes(
       effectiveTotalRecoveryMinutes,
     );
-    const requiredRecoveryDuration =
-      formatDurationMinutes(requiredRecoveryMinutes);
+    const requiredRecoveryDuration = formatDurationMinutes(
+      requiredRecoveryMinutes,
+    );
     const shouldShowRequiredRecoveryDuration =
       !!requiredRecoveryDuration &&
       requiredRecoveryDuration !== effectiveTotalRecoveryDuration;
@@ -1147,7 +1169,9 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
         >
           <View style={styles.avatarWrap}>
             <Ionicons
-              name={isRecoveryRequest ? "repeat-outline" : "document-text-outline"}
+              name={
+                isRecoveryRequest ? "repeat-outline" : "document-text-outline"
+              }
               size={22}
               color={colors.primary}
             />
@@ -1579,30 +1603,31 @@ const ApprovalsScreen = ({ pagerParams } = {}) => {
                 </View>
               </View>
             )}
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>Salaire annuel</Text>
+            {!isAdminSelection && (
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>Salaire annuel</Text>
 
-              <View style={styles.inputWrap}>
-                <Ionicons
-                  name="cash-outline"
-                  size={18}
-                  color={colors.textSecondary}
-                />
+                <View style={styles.inputWrap}>
+                  <Ionicons
+                    name="cash-outline"
+                    size={18}
+                    color={colors.textSecondary}
+                  />
 
-                <TextInput
-                  value={String(form.yearlySalary)}
-                  onChangeText={(text) =>
-                    updateForm(userId, "yearlySalary", text)
-                  }
-                  keyboardType="numeric"
-                  placeholder="ex. 50000"
-                  placeholderTextColor={colors.textSecondary}
-                  style={styles.input}
-                  editable={!isBusy}
-                />
+                  <TextInput
+                    value={String(form.yearlySalary ?? "")}
+                    onChangeText={(text) =>
+                      updateForm(userId, "yearlySalary", text)
+                    }
+                    keyboardType="numeric"
+                    placeholder="ex. 50000"
+                    placeholderTextColor={colors.textSecondary}
+                    style={styles.input}
+                    editable={!isBusy}
+                  />
+                </View>
               </View>
-            </View>
-
+            )}
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Attribuer un rôle</Text>
 

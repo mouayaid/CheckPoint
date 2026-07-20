@@ -1,5 +1,4 @@
-import logger from "../utils/logger";
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -12,6 +11,7 @@ import {
   Platform,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+
 import { authService } from "../services/api";
 import { Button, Input } from "../components";
 import FeedbackModal from "../components/FeedbackModal";
@@ -19,15 +19,26 @@ import { useFeedback } from "../hooks/useFeedback";
 import { useTheme } from "../context/ThemeContext";
 import { getApiErrorMessage } from "../utils/apiErrors";
 
-const ForgotPasswordScreen = ({ navigation }) => {
+const ResetPasswordScreen = ({ navigation, route }) => {
   const { colors, spacing, typography, borderRadius, shadows } = useTheme();
   const { feedback, showFeedback, hideFeedback } = useFeedback();
 
-  const [email, setEmail] = useState("");
+  const email = useMemo(
+    () => String(route?.params?.email || "").trim().toLowerCase(),
+    [route?.params?.email],
+  );
+  const otpCode = useMemo(
+    () => String(route?.params?.otpCode || "").trim(),
+    [route?.params?.otpCode],
+  );
+
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
 
-  const normalizedEmail = useMemo(() => email.trim().toLowerCase(), [email]);
+  const confirmPasswordRef = useRef(null);
+  const hasValidResetSession = email && /^\d{6}$/.test(otpCode);
 
   const showMessage = (type, title, message, onConfirm) => {
     showFeedback({
@@ -42,52 +53,70 @@ const ForgotPasswordScreen = ({ navigation }) => {
   const validate = () => {
     const next = {};
 
-    if (!normalizedEmail) {
-      next.email = "Veuillez saisir votre e-mail";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      next.email = "Veuillez saisir un e-mail valide";
+    if (!hasValidResetSession) {
+      next.form =
+        "Session de vérification invalide. Veuillez recommencer la récupération.";
+    }
+
+    if (!newPassword) {
+      next.newPassword = "Veuillez saisir un nouveau mot de passe";
+    } else if (newPassword.length < 8) {
+      next.newPassword =
+        "Le mot de passe doit contenir au moins 8 caractères";
+    } else if (newPassword.length > 100) {
+      next.newPassword =
+        "Le mot de passe doit contenir 100 caractères au maximum";
+    }
+
+    if (!confirmPassword) {
+      next.confirmPassword = "Veuillez confirmer votre mot de passe";
+    } else if (confirmPassword !== newPassword) {
+      next.confirmPassword = "Les mots de passe ne correspondent pas";
     }
 
     setErrors(next);
     return Object.keys(next).length === 0;
   };
 
-  const handleSubmit = async () => {
-    if (!validate()) return;
+  const handleResetPassword = async () => {
+    if (loading || !validate()) return;
 
     setLoading(true);
     setErrors({});
 
     try {
-      const response = await authService.forgotPassword(normalizedEmail);
+      const response = await authService.resetPassword(
+        email,
+        otpCode,
+        newPassword,
+      );
 
       if (response?.success) {
         showMessage(
           "success",
-          "E-mail envoye",
-          response.message ||
-            "Si ce compte existe, vous recevrez les instructions de reinitialisation.",
+          "Mot de passe réinitialisé",
+          "Votre mot de passe a été réinitialisé avec succès.",
           () =>
-            navigation.navigate("VerifyResetOtp", {
-              email: normalizedEmail,
+            navigation.reset({
+              index: 0,
+              routes: [{ name: "Login" }],
             }),
         );
       } else {
         showMessage(
           "error",
-          "Envoi impossible",
+          "Réinitialisation impossible",
           response?.message ||
-            "Impossible d'envoyer les instructions de reinitialisation.",
+            "Impossible de réinitialiser le mot de passe.",
         );
       }
     } catch (error) {
-      logger.error("Forgot password error:", error);
       showMessage(
         "error",
-        "Erreur",
+        "Réinitialisation impossible",
         getApiErrorMessage(
           error,
-          "Impossible de contacter le serveur. Veuillez reessayer.",
+          "Impossible de réinitialiser le mot de passe. Veuillez réessayer.",
         ),
       );
     } finally {
@@ -160,6 +189,12 @@ const ForgotPasswordScreen = ({ navigation }) => {
       lineHeight: 20,
       marginBottom: spacing.md,
     },
+    inlineError: {
+      color: colors.error,
+      fontSize: typography.sm,
+      lineHeight: 20,
+      marginBottom: spacing.md,
+    },
     submitButton: {
       marginTop: spacing.xs,
     },
@@ -200,47 +235,71 @@ const ForgotPasswordScreen = ({ navigation }) => {
                 />
               </View>
 
-              <Text style={styles.title}>Mot de passe oublie</Text>
+              <Text style={styles.title}>Nouveau mot de passe</Text>
               <Text style={styles.subtitle}>
-                Entrez votre e-mail professionnel pour recevoir les instructions.
+                Choisissez un nouveau mot de passe pour votre compte.
               </Text>
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.helperText}>
-                Nous enverrons un message de recuperation si un compte correspond
-                a cette adresse.
-              </Text>
+              {!hasValidResetSession || errors.form ? (
+                <Text style={styles.inlineError}>
+                  {errors.form ||
+                    "Session de vérification invalide. Veuillez recommencer la récupération."}
+                </Text>
+              ) : (
+                <Text style={styles.helperText}>
+                  Votre code est vérifié. Définissez votre nouveau mot de passe.
+                </Text>
+              )}
 
               <Input
-                label="Email professionnel"
-                value={email}
-                onChangeText={setEmail}
-                placeholder="you@company.com"
-                keyboardType="email-address"
+                label="Nouveau mot de passe"
+                value={newPassword}
+                onChangeText={setNewPassword}
+                placeholder="Votre nouveau mot de passe"
+                secureTextEntry
                 autoCapitalize="none"
-                autoComplete="email"
-                returnKeyType="send"
-                onSubmitEditing={handleSubmit}
-                error={errors.email}
+                autoComplete="new-password"
+                blurOnSubmit={false}
+                returnKeyType="next"
+                onSubmitEditing={() => confirmPasswordRef.current?.focus()}
+                error={errors.newPassword}
+                editable={!loading}
+              />
+
+              <Input
+                ref={confirmPasswordRef}
+                label="Confirmer le mot de passe"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Confirmez votre mot de passe"
+                secureTextEntry
+                autoCapitalize="none"
+                autoComplete="new-password"
+                returnKeyType="done"
+                onSubmitEditing={handleResetPassword}
+                error={errors.confirmPassword}
                 editable={!loading}
               />
 
               <Button
-                title="Envoyer les instructions"
-                onPress={handleSubmit}
+                title="Réinitialiser le mot de passe"
+                onPress={handleResetPassword}
                 loading={loading}
-                disabled={loading}
+                disabled={loading || !hasValidResetSession}
                 style={styles.submitButton}
               />
 
               <View style={styles.footer}>
                 <TouchableOpacity
                   activeOpacity={0.75}
-                  onPress={() => navigation.navigate("Login")}
+                  onPress={() => navigation.navigate("ForgotPassword")}
                   disabled={loading}
                 >
-                  <Text style={styles.footerLink}>Retour a la connexion</Text>
+                  <Text style={styles.footerLink}>
+                    Recommencer la récupération
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -268,4 +327,4 @@ const ForgotPasswordScreen = ({ navigation }) => {
   );
 };
 
-export default ForgotPasswordScreen;
+export default ResetPasswordScreen;

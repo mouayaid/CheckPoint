@@ -154,7 +154,21 @@ public class AdminUserService : IAdminUserService
 
         user.IsActive = true;
         user.LeaveBalance = NormalizeLeaveBalance(roleId, dto.LeaveBalance);
-        user.YearlySalary = dto.YearlySalary;
+        if (roleId == AdminRoleId)
+        {
+            user.YearlySalary = null;
+        }
+        else
+        {
+            if (!dto.YearlySalary.HasValue || dto.YearlySalary.Value <= 0)
+            {
+                throw new BadRequestException(
+                    "Yearly salary is required and must be greater than zero."
+                );
+            }
+
+            user.YearlySalary = dto.YearlySalary.Value;
+        }
         user.ApprovedAt = DateTime.UtcNow;
         user.ApprovedByUserId = reviewerId;
         user.RoleId = roleId;
@@ -342,10 +356,22 @@ public class AdminUserService : IAdminUserService
         return departmentId;
     }
 
-    private static decimal? NormalizeLeaveBalance(int roleId, decimal leaveBalance)
+    private static decimal? NormalizeLeaveBalance(int roleId, decimal? leaveBalance)
     {
         EnsureAllowedRole(roleId);
 
-        return roleId == AdminRoleId ? null : leaveBalance;
+        if (roleId == AdminRoleId)
+        {
+            return null;
+        }
+
+        if (!leaveBalance.HasValue || leaveBalance.Value < 0)
+        {
+            throw new BadRequestException(
+                "Leave balance is required and must be zero or greater."
+            );
+        }
+
+        return leaveBalance.Value;
     }
 }

@@ -34,6 +34,8 @@ import { typography } from "./src/theme/theme";
 import LoginScreen from "./src/screens/LoginScreen";
 import RegisterScreen from "./src/screens/RegisterScreen";
 import ForgotPasswordScreen from "./src/screens/ForgotPasswordScreen";
+import VerifyResetOtpScreen from "./src/screens/VerifyResetOtpScreen";
+import ResetPasswordScreen from "./src/screens/ResetPasswordScreen";
 import DashboardScreen from "./src/screens/DashboardScreen";
 import DeskScreen from "./src/screens/DeskScreen";
 import RoomReservationScreen from "./src/screens/RoomReservationScreen";
@@ -321,6 +323,18 @@ function AppNavigator() {
                 name="ForgotPassword"
                 component={ForgotPasswordScreen}
                 options={{ title: "Mot de passe oublié" }}
+              />
+
+              <Stack.Screen
+                name="VerifyResetOtp"
+                component={VerifyResetOtpScreen}
+                options={{ title: "Vérification du code" }}
+              />
+
+              <Stack.Screen
+                name="ResetPassword"
+                component={ResetPasswordScreen}
+                options={{ title: "Nouveau mot de passe" }}
               />
             </>
           ) : (

@@ -1,7 +1,8 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 
-export const CHECKPOINT_NOTIFICATION_CHANNEL_ID = "default";
+export const CHECKPOINT_NOTIFICATION_CHANNEL_ID =
+  "checkpoint-notifications";
 
 let notificationHandlerConfigured = false;
 let androidChannelPromise = null;
@@ -29,7 +30,7 @@ export const ensureAndroidNotificationChannel = () => {
     androidChannelPromise = Notifications.setNotificationChannelAsync(
       CHECKPOINT_NOTIFICATION_CHANNEL_ID,
       {
-        name: "Default",
+        name: "Notifications",
         importance: Notifications.AndroidImportance.MAX,
       },
     );

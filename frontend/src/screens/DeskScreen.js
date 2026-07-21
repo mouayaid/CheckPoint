@@ -924,12 +924,12 @@ const DeskScreen = () => {
           : "L'accès à la caméra est désactivé. Vous pouvez l'activer depuis les paramètres de votre téléphone.",
         !result.canAskAgain
           ? [
-              { text: "Annuler", style: "cancel" },
-              {
-                text: "Ouvrir les paramètres",
-                onPress: () => Linking.openSettings(),
-              },
-            ]
+            { text: "Annuler", style: "cancel" },
+            {
+              text: "Ouvrir les paramètres",
+              onPress: () => Linking.openSettings(),
+            },
+          ]
           : null,
       );
     } catch (error) {
@@ -950,8 +950,6 @@ const DeskScreen = () => {
     setScanned(true);
     console.log("DESK QR DATA:", data);
 
-    // FIX: keep a ref to the timeout so it can be cancelled if the modal
-    // closes or the component unmounts before it fires.
     const resetScan = () => {
       if (resetScanTimeoutRef.current) {
         clearTimeout(resetScanTimeoutRef.current);
@@ -992,32 +990,38 @@ const DeskScreen = () => {
       const response = await seatService.checkInReservation(
         `SEAT:${scannedSeatId}`,
       );
-      const result = response?.data ?? response;
 
-      if (result?.success) {
+      if (response?.success) {
         await Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Success,
         );
+
         setScannerVisible(false);
+
         setTimeout(() => {
           showFeedbackAlert(
             "Check-in réussi",
-            "Votre présence a été confirmée.",
+            response?.message || "Votre présence a été confirmée.",
           );
         }, 200);
+
         await Promise.all([fetchSeatMap(), fetchMyReservation()]);
       } else {
         await Haptics.notificationAsync(
           Haptics.NotificationFeedbackType.Error,
         );
+
         showFeedbackAlert(
           "Check-in refusé",
-          result?.message || "Impossible de confirmer le check-in.",
+          response?.message || "Impossible de confirmer le check-in.",
           [{ text: "Réessayer", onPress: resetScan }],
         );
       }
     } catch (error) {
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      await Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Error,
+      );
+
       showFeedbackAlert(
         "Erreur",
         getErrorMessage(error, "Impossible de faire le check-in."),
@@ -1028,9 +1032,7 @@ const DeskScreen = () => {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────
   // Data fetching
-  // ─────────────────────────────────────────────────────────────────
   useFocusEffect(
     useCallback(() => {
       fetchSeatMap();
@@ -1547,14 +1549,14 @@ const DeskScreen = () => {
         style={[
           styles.statusCard,
           hasActiveDeskReservation &&
-            !loadingMyReservation &&
-            styles.statusCardBooked,
+          !loadingMyReservation &&
+          styles.statusCardBooked,
           // FIX: distinct visual state when the "my reservation" lookup failed,
           // instead of silently rendering the same look as "nothing booked".
           !loadingMyReservation &&
-            !hasActiveDeskReservation &&
-            myReservationError &&
-            styles.statusCardError,
+          !hasActiveDeskReservation &&
+          myReservationError &&
+          styles.statusCardError,
         ]}
       >
         {loadingMyReservation ? (
@@ -1596,11 +1598,11 @@ const DeskScreen = () => {
                   Aujourd&apos;hui
                   {isCheckedIn && reservationCheckedInAt
                     ? ` · Check-in : ${new Date(
-                        reservationCheckedInAt,
-                      ).toLocaleTimeString("fr-FR", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}`
+                      reservationCheckedInAt,
+                    ).toLocaleTimeString("fr-FR", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}`
                     : " · en attente du QR"}
                 </Text>
               </View>
@@ -1618,7 +1620,7 @@ const DeskScreen = () => {
                     style={[
                       styles.scanActionButton,
                       (checkingIn || !isActiveReservation) &&
-                        styles.scanActionButtonDisabled,
+                      styles.scanActionButtonDisabled,
                     ]}
                     onPress={openScanner}
                     disabled={checkingIn || !isActiveReservation}

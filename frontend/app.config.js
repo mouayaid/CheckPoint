@@ -27,7 +27,7 @@ if (environment !== "development" && !apiUrls[environment]) {
 
 module.exports = {
   expo: {
-    name: "Application Mobile PFE",
+    name: "CheckPoint",
     slug: "pfe-mobile-app",
     version: "1.0.0",
     orientation: "portrait",

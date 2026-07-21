@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1063855139692",
+    "project_id": "checkpoint-edcf3",
+    "storage_bucket": "checkpoint-edcf3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1063855139692:android:fd0c4b4ea9d62954626149",
+        "android_client_info": {
+          "package_name": "com.anonymous.pfemobileapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD63oQj7Noid8lxru1B3IzHLS3nN0FI2oo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

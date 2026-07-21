@@ -586,9 +586,6 @@ export default function DepartmentChannelScreen({ isActiveRoute = false }) {
             <Text style={styles.voterName}>
               {userName || "Participant inconnu"}
             </Text>
-            {userId ? (
-              <Text style={styles.voterMeta}>ID utilisateur: {userId}</Text>
-            ) : null}
           </View>
         </View>
       );

@@ -12,13 +12,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { EmptyState } from "../components";
 import { useNotifications } from "../context/NotificationsContext";
 import { useTheme } from "../context/ThemeContext";
+import { parseApiInstant } from "../utils/helpers";
 
 const formatNotificationTime = (isoDate) => {
   if (!isoDate) return "";
 
-  const d = new Date(isoDate);
+  const d = parseApiInstant(isoDate);
+  if (!d || Number.isNaN(d.getTime())) return "";
+
   const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
+  const diffMs = Math.max(0, now.getTime() - d.getTime());
 
   const mins = Math.floor(diffMs / 60000);
   if (mins < 1) return "À l’instant";

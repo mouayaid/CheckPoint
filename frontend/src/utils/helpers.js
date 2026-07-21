@@ -36,6 +36,20 @@ export const getTunisiaNow = () => {
 };
 
 /**
+ * Parse API instants from the backend. SQL Server datetime2 values can arrive
+ * without a timezone suffix even though they represent UTC.
+ */
+export const parseApiInstant = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === "string") {
+    const hasOffset = /(?:z|[+-]\d{2}:?\d{2})$/i.test(value);
+    return new Date(hasOffset ? value : `${value}Z`);
+  }
+  return new Date(value);
+};
+
+/**
  * Format date to YYYY-MM-DD
  */
 export const formatDate = (date) => {

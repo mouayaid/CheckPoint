@@ -274,9 +274,9 @@ const normalizeRsvpStatus = (status) => {
 const getCurrentUserRsvpStatus = (event) =>
   normalizeRsvpStatus(
     event?.currentUserRsvpStatus ??
-      event?.CurrentUserRsvpStatus ??
-      event?.currentUserRSVPStatus ??
-      event?.CurrentUserRSVPStatus,
+    event?.CurrentUserRsvpStatus ??
+    event?.currentUserRSVPStatus ??
+    event?.CurrentUserRSVPStatus,
   );
 
 const RSVP_STATUS_VALUES = {
@@ -354,10 +354,10 @@ const formatEventDateTime = (event) => {
   const endTime =
     end && !Number.isNaN(end.getTime())
       ? end.toLocaleTimeString("fr-FR", {
-          timeZone: TUNISIA_TIME_ZONE,
-          hour: "2-digit",
-          minute: "2-digit",
-        })
+        timeZone: TUNISIA_TIME_ZONE,
+        hour: "2-digit",
+        minute: "2-digit",
+      })
       : null;
 
   return endTime
@@ -768,6 +768,8 @@ const DashboardScreen = () => {
 
   const heroFadeAnim = useRef(new Animated.Value(0)).current;
   const contentFadeAnim = useRef(new Animated.Value(0)).current;
+
+  const [expandedAnnouncementId, setExpandedAnnouncementId] = useState(null);
 
   const goToPendingRequests = useCallback(() => {
     navigation.navigate("HomeTabs", {
@@ -1573,12 +1575,37 @@ const DashboardScreen = () => {
                           </Text>
 
                           {content ? (
-                            <Text
-                              style={styles.announcementBody}
-                              numberOfLines={3}
-                            >
-                              {truncateAnnouncement(content, 140)}
-                            </Text>
+                            <>
+                              <Text
+                                style={styles.announcementBody}
+                                numberOfLines={
+                                  expandedAnnouncementId === getAnnouncementId(announcement, index)
+                                    ? undefined
+                                    : 3
+                                }
+                              >
+                                {content}
+                              </Text>
+
+                              {content.length > 140 && (
+                                <Pressable
+                                  onPress={() =>
+                                    setExpandedAnnouncementId((current) =>
+                                      current === getAnnouncementId(announcement, index)
+                                        ? null
+                                        : getAnnouncementId(announcement, index)
+                                    )
+                                  }
+                                >
+                                  <Text style={styles.readMoreText}>
+                                    {expandedAnnouncementId ===
+                                      getAnnouncementId(announcement, index)
+                                      ? "Voir moins"
+                                      : "Lire la suite"}
+                                  </Text>
+                                </Pressable>
+                              )}
+                            </>
                           ) : null}
                         </View>
                       );
@@ -1764,9 +1791,9 @@ const DashboardScreen = () => {
                                   mandatory
                                     ? styles.eventMandatoryPill
                                     : {
-                                        backgroundColor: `${eventType.color}18`,
-                                        borderColor: `${eventType.color}55`,
-                                      },
+                                      backgroundColor: `${eventType.color}18`,
+                                      borderColor: `${eventType.color}55`,
+                                    },
                                 ]}
                               >
                                 <Text
@@ -1876,9 +1903,9 @@ const DashboardScreen = () => {
                                     style={[
                                       styles.rsvpButton,
                                       selected &&
-                                        (status === "Going"
-                                          ? styles.rsvpButtonGoingSelected
-                                          : styles.rsvpButtonNotGoingSelected),
+                                      (status === "Going"
+                                        ? styles.rsvpButtonGoingSelected
+                                        : styles.rsvpButtonNotGoingSelected),
                                       disabled && styles.rsvpButtonDisabled,
                                     ]}
                                     onPress={() =>
@@ -1912,7 +1939,7 @@ const DashboardScreen = () => {
                                           style={[
                                             styles.rsvpButtonText,
                                             selected &&
-                                              styles.rsvpButtonTextSelected,
+                                            styles.rsvpButtonTextSelected,
                                           ]}
                                         >
                                           {label}
@@ -2539,6 +2566,12 @@ const createStyles = (colors, spacing, typography, borderRadius, shadows) =>
       fontFamily: typography.fontFamily?.regular,
       color: colors.textSecondary,
       lineHeight: 19,
+    },
+    readMoreText: {
+      marginTop: spacing.sm,
+      color: colors.primary,
+      fontSize: typography.sm,
+      fontFamily: typography.fontFamily?.semibold,
     },
 
     adminRow: {
